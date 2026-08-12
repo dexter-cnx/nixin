@@ -168,6 +168,9 @@ ios/Flutter/flutter_export_environment.sh
 
 ios/Runner/GeneratedPluginRegistrant.*
 
+# Generated Rust static libraries (make ios-native)
+ios/Native/
+
 # Xcode
 **/xcuserdata/
 **/*.xcuserstate
@@ -195,7 +198,8 @@ macos/Flutter/ephemeral/
 
 macos/Flutter/GeneratedPluginRegistrant.swift
 
-# Generated raw-engine binary copied during local development
+# Generated Rust native library (make macos-native)
+macos/Native/
 macos/**/*.dylib
 
 # Xcode local state
