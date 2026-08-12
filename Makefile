@@ -7,9 +7,10 @@ RUST_DIR := rust
 ANDROID_JNILIBS := android/app/src/main/jniLibs
 ANDROID_ARM64_DIR := $(ANDROID_JNILIBS)/arm64-v8a
 RUST_RELEASE_DIR := $(RUST_DIR)/target/release
+SETUP_SCRIPT := tool/setup-project.sh
 DEVICE ?=
 
-.PHONY: help doctor setup pub-get rust-check rust-test rust-build \
+.PHONY: help doctor setup setup-common setup-android bootstrap pub-get rust-fetch rust-check rust-test rust-build \
 	analyze flutter-test test check validate \
 	android-arm64 android-native run run-android run-macos \
 	clean clean-rust clean-flutter distclean
@@ -37,11 +38,22 @@ doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter devices =="
 	@$(FLUTTER) devices
 
-setup: pub-get ## Install Flutter dependencies
-	@echo "Setup complete."
+setup: ## Bootstrap project dependencies and Android native tooling
+	@bash $(SETUP_SCRIPT) all
+
+bootstrap: setup ## Alias for setup
+
+setup-common: ## Bootstrap Flutter/Rust dependencies without Android cargo-ndk
+	@bash $(SETUP_SCRIPT) common
+
+setup-android: ## Install/check cargo-ndk and Rust Android arm64 target
+	@bash $(SETUP_SCRIPT) android
 
 pub-get: ## Run flutter pub get
 	$(FLUTTER) pub get
+
+rust-fetch: ## Download Rust dependencies without building
+	cd $(RUST_DIR) && $(CARGO) fetch
 
 rust-check: ## Run cargo check for raw-engine
 	cd $(RUST_DIR) && $(CARGO) check
@@ -67,7 +79,7 @@ validate: pub-get rust-check rust-test analyze flutter-test ## Full local valida
 	@echo "Nixin validation PASS"
 
 android-arm64: ## Build raw-engine .so for Android arm64-v8a
-	@command -v cargo-ndk >/dev/null 2>&1 || { echo "ERROR: cargo-ndk is required. Install with: cargo install cargo-ndk"; exit 1; }
+	@command -v cargo-ndk >/dev/null 2>&1 || { echo "ERROR: cargo-ndk is required. Run: make setup-android"; exit 1; }
 	@mkdir -p $(ANDROID_ARM64_DIR)
 	cd $(RUST_DIR) && $(CARGO_NDK) -t arm64-v8a -o ../$(ANDROID_JNILIBS) build --release
 	@test -f $(ANDROID_ARM64_DIR)/libraw_engine.so || { echo "ERROR: $(ANDROID_ARM64_DIR)/libraw_engine.so was not produced"; exit 1; }
