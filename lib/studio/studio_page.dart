@@ -126,8 +126,8 @@ class _MediumWorkspace extends StatelessWidget {
                 onPressed: controller.toggleRightPanel,
                 icon: Icon(
                   state.rightPanelVisible
-                      ? Icons.right_panel_close_outlined
-                      : Icons.right_panel_open_outlined,
+                      ? Icons.chevron_right
+                      : Icons.chevron_left,
                 ),
               ),
             ],
@@ -286,7 +286,8 @@ class _RightPanel extends StatelessWidget {
                 min: 1,
                 max: 100,
                 divisions: 99,
-                onChanged: (value) => controller.setExportQuality(value.round()),
+                onChanged: (value) =>
+                    controller.setExportQuality(value.round()),
               ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
