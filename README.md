@@ -1,88 +1,273 @@
 # Nixin Studio V8
 
-A Flutter + Rust photo-editor foundation that scans camera RAW container bytes for the **embedded JPEG preview** and returns a real RGBA image buffer over C FFI.
+Nixin Studio V8 is a Flutter + Rust photo-editor foundation with a responsive professional studio workspace. The current image path scans camera RAW container bytes for an **embedded JPEG preview**, returns a real RGBA image buffer over C FFI, and exposes develop, mask, LUT, and JPEG export workflows through a Riverpod-driven Flutter UI.
+
+## Current workspace milestone
+
+Branch: `feature/studio-workspace-redesign`
+
+Implemented scope (`UI-01` → `UI-08`):
+
+- extracted Dart FFI/native image handling from `lib/main.dart`
+- introduced `StudioEngine` / `RawEngine` boundary
+- introduced Riverpod `StudioController` + immutable `StudioState`
+- added Hive-backed workspace preferences
+- added `easy_localization` with English and Thai resources
+- added centralized studio colors, spacing, density, metrics, and ratio tokens
+- added module bar, status bar, left context panel, preview workspace, right tool panel
+- added collapsible panel sections
+- moved existing RAW/develop/mask/LUT/export actions into contextual workspace regions
+- added ratio-based responsive composition
+- added unit/widget test suites for state, controller, persistence, fake engine behavior, panel collapse, and ratio selection
+
+Detailed implementation notes:
+
+- `docs/STUDIO_WORKSPACE_HANDOFF.md`
+- `docs/CODE_WALKTHROUGH.md`
 
 ## What it is
 
 - Working Rust embedded-preview processor.
-- Functional Dart FFI bridge with explicit allocator ownership.
-- Real image display in Flutter (`Image.memory` after RGBA→PNG conversion).
-- Exposure, simple temperature RGB scaling, and contrast.
+- Dart FFI bridge with explicit allocator ownership.
+- Real Flutter image display through RGBA → PNG conversion.
+- Riverpod state/controller boundary between widgets and native engine calls.
+- Hive persistence for lightweight workspace preferences.
+- English/Thai localization through `easy_localization`.
+- Responsive studio workspace driven primarily by viewport aspect ratio.
+- Exposure, simple temperature RGB scaling, and contrast in the Rust core.
 - Heuristic subject and sky masks.
-- `.cube` 3D LUT with true trilinear interpolation.
+- `.cube` 3D LUT with trilinear interpolation.
 - JPEG export with quality 1–100.
-- Basic XMP sidecar generation when metadata is provided through the Rust core API.
+- Basic XMP sidecar generation through the Rust core API.
 
 ## What it is not
 
-This is **not** a full RAW developer. It does not currently debayer sensor mosaics, perform camera color transforms, lens correction, highlight recovery, GPU processing, real SAM/ONNX inference, USB/PTP tethered shooting, or production batch processing.
+This is **not** a full RAW developer yet. It does not currently debayer sensor mosaics, perform a complete camera color pipeline, lens correction, highlight recovery, GPU processing, real SAM/ONNX inference, USB/PTP tethered shooting, or production batch processing.
 
-## Architecture
+The UI intentionally avoids presenting unsupported adjustment controls as functional features.
+
+## Flutter architecture
 
 ```text
-Flutter UI
+main.dart
   │
-  ├─ Dart FFI (logic currently in lib/main.dart)
-  │    ├─ Dart strings allocated with calloc → Dart frees
-  │    ├─ Rust strings → Rust free_string_rust
-  │    └─ Rust ImageBuffer → copy bytes → free_image_buffer
+  ├─ EasyLocalization.ensureInitialized()
+  ├─ Hive.initFlutter()
+  ├─ Hive.openBox("studio_settings")
+  └─ ProviderScope
+       │
+       ▼
+NixinApp
   │
-  ▼
-Rust C ABI (rust/src/lib.rs)
-  │
-  ▼
-Rust core (rust/src/api.rs)
-  │
-  ├─ std::fs reads RAW container bytes for the current preview-only path
-  ├─ embedded JPEG scanner selects the largest decodable JPEG preview
-  ├─ rawler dependency is retained for future real RAW decoding work; V8 does not claim to debayer
-  ├─ image crate decodes/encodes JPEG/PNG
-  └─ CPU develop/mask/LUT/export operations
+  ├─ StudioTheme
+  ├─ easy_localization delegates / locale
+  └─ StudioPage
+       │
+       ├─ studioControllerProvider
+       │    ├─ StudioState
+       │    ├─ StudioSettingsStore → HiveStudioSettingsStore
+       │    └─ StudioEngine → RawEngine → Dart FFI → Rust
+       │
+       ├─ StudioModuleBar
+       ├─ ratio-based workspace composition
+       │    ├─ left context panel
+       │    ├─ PreviewWorkspace
+       │    └─ right tools/export panel
+       └─ StudioStatusBar
 ```
+
+Main ownership boundaries:
+
+```text
+lib/
+  main.dart                         bootstrap only
+  app/
+    nixin_app.dart                  app/localization/theme root
+    theme/studio_theme.dart         design + ratio tokens
+  engine/
+    engine_image.dart               image result model
+    raw_engine.dart                 FFI and StudioEngine implementation
+  studio/
+    studio_state.dart               immutable studio state + ratio layout rules
+    studio_controller.dart          Riverpod actions + settings persistence
+    studio_page.dart                workspace composition
+    studio_widgets.dart             reusable panels/preview/status/actions
+```
+
+Widgets do not call native FFI directly. Processing flows through:
+
+```text
+Widget
+  → StudioController
+    → StudioEngine
+      → RawEngine
+        → Rust C ABI
+```
+
+## State management
+
+State management uses `flutter_riverpod`.
+
+`StudioState` currently owns:
+
+- engine readiness and version
+- selected RAW path
+- preview PNG bytes and image dimensions
+- preview status: `empty`, `processing`, `ready`, `error`
+- current status/error
+- active workspace module
+- left/right panel visibility
+- JPEG export quality
+
+The controller is dependency-injectable, so tests can use a fake engine and an in-memory settings store without loading native libraries.
+
+## Hive persistence
+
+Hive persists only lightweight workspace preferences in the `studio_settings` box:
+
+```text
+activeModule
+leftPanelVisible
+rightPanelVisible
+exportQuality
+```
+
+RAW paths, preview bytes, and image buffers remain runtime state.
+
+## Localization
+
+Localization uses `easy_localization`.
+
+Resources:
+
+```text
+assets/translations/en.json
+assets/translations/th.json
+```
+
+Supported locales:
+
+```text
+en
+th
+```
+
+New visible UI strings should be added as translation keys rather than hard-coded in widgets.
+
+## Ratio-based responsive behavior
+
+Responsive mode is selected from the available workspace aspect ratio:
+
+```dart
+viewportRatio = availableWidth / availableHeight;
+```
+
+Current ratio tokens:
+
+```text
+wide      ratio >= 1.65
+medium    ratio >= 1.15 and < 1.65
+compact   ratio < 1.15
+```
+
+The layout does not use fixed pixel widths as its primary mode switch.
+
+Wide composition:
+
+```text
+left : preview : right
+18   : 60      : 22
+```
+
+Medium composition:
+
+```text
+preview : right
+70      : 30
+```
+
+Compact composition keeps the preview dominant and opens tools in an overlay sheet rather than squeezing a desktop three-column workspace into a narrow view.
+
+## Existing action mapping
+
+```text
+Open RAW       → module bar / left Navigator context
+Develop        → right Tools section
+Subject Mask   → right Tools section
+Sky Mask       → right Tools section
+Apply LUT      → left Presets section
+Export JPEG    → right Export section
+JPEG Quality   → right Export settings
+```
+
+All of these continue to use the existing Rust API contract.
+
+## Test suites
+
+Run all Flutter tests:
+
+```bash
+flutter test
+```
+
+Current studio suites:
+
+```text
+test/studio/studio_state_test.dart
+  - ratio mode selection
+  - filename derivation
+  - preview/error clearing semantics
+
+test/studio/studio_controller_test.dart
+  - persisted preference restore
+  - module/panel/export-quality persistence
+  - export quality clamping
+  - RAW selection resets old preview state
+  - fake-engine develop flow
+  - native error propagation
+  - engine-unavailable behavior
+
+test/studio/studio_widgets_test.dart
+  - collapsible panel section behavior
+  - disabled action behavior
+```
+
+The controller tests use `StudioSettingsStore` and a fake `StudioEngine`, so they do not require the Rust dynamic/static library to load.
 
 ## Supported picker extensions
 
 ARW, CR2, CR3, NEF, DNG, RAF, ORF.
 
-Support in practice depends on the file containing an embedded JPEG that the scanner can locate and the `image` crate can decode.
+Support currently depends on the RAW container containing an embedded JPEG preview that the scanner can locate and the Rust `image` crate can decode.
 
 ## Limitations
 
 1. Uses an embedded JPEG preview, not RAW sensor debayering.
 2. Some RAW containers may use preview layouts that the JPEG marker scanner does not locate reliably.
-3. Exposure is applied to 8-bit preview pixels, so highlight latitude is limited.
-4. Temperature uses simple red/blue scaling, not a chromatic-adaptation transform.
+3. Exposure operates on 8-bit preview pixels, so highlight latitude is limited.
+4. Temperature uses simple red/blue scaling rather than chromatic adaptation.
 5. Tint is not implemented.
 6. Shadows/highlights/whites/blacks are not implemented.
-7. Subject mask is heuristic flood-fill/brightness segmentation, not AI.
-8. Sky mask can false-positive on white ceilings, bright buildings, blue objects, and unusual lighting.
-9. `.cube` `DOMAIN_MIN`/`DOMAIN_MAX` are parsed but V8 sampling assumes normalized 0–1 input.
+7. Subject mask is heuristic segmentation, not AI.
+8. Sky mask can false-positive on bright or blue non-sky regions.
+9. `.cube` `DOMAIN_MIN`/`DOMAIN_MAX` are parsed but sampling currently assumes normalized 0–1 input.
 10. No GPU path, USB/PTP tethering, real batch queue, color-managed monitor pipeline, or embedded XMP-in-JPEG writer yet.
+11. Filmstrip, advanced zoom/comparison, keyboard workflow, and advanced adjustment panels are follow-up milestones.
 
 ## Project setup
 
-Prerequisites that must already be installed and available on `PATH`:
+Prerequisites:
 
 - Flutter SDK
 - Rust toolchain (`cargo`, `rustc`, `rustup`)
 - Android SDK/NDK for Android native builds
 - Xcode + command line tools for macOS/iOS builds
 
-Bootstrap the current host with:
+Bootstrap:
 
 ```bash
 make setup
 ```
-
-On macOS, `make setup` prepares both Android and Apple Rust targets. It will:
-
-1. Verify Flutter and Rust.
-2. Install `cargo-ndk` if missing.
-3. Add the Android `aarch64-linux-android` Rust target.
-4. Add macOS/iOS Rust targets for Apple Silicon, Intel macOS, physical iOS, and iOS simulators.
-5. Verify Xcode tools.
-6. Run `cargo fetch`, `flutter pub get`, `cargo check`, and `flutter analyze`.
-7. Print `flutter doctor -v`.
 
 Useful setup targets:
 
@@ -95,13 +280,13 @@ make bootstrap
 
 ## Validation
 
-Run the full local validation gate:
+Full local gate:
 
 ```bash
 make validate
 ```
 
-Equivalent commands are:
+Equivalent core commands:
 
 ```bash
 flutter pub get
@@ -113,131 +298,79 @@ flutter analyze
 flutter test
 ```
 
-## Android
+Also manually validate:
 
-Build the currently validated Android ABI:
+- application launch
+- English/Thai initialization
+- Hive preference restore
+- RAW selection
+- develop
+- subject mask
+- sky mask
+- LUT application
+- JPEG export
+- wide / medium / compact ratio compositions
+- side-panel collapse/restore
+
+## Android
 
 ```bash
 make android-arm64
+make run-android DEVICE=<flutter-device-id>
 ```
 
-Output:
+Native output:
 
 ```text
 android/app/src/main/jniLibs/arm64-v8a/libraw_engine.so
 ```
 
-Build Rust and run Flutter on an Android device:
-
-```bash
-make run-android DEVICE=<flutter-device-id>
-```
-
 ## macOS
-
-Apple platforms use the Rust `staticlib` output and link it into the Runner. Dart opens the process itself with `DynamicLibrary.process()`.
-
-Build a universal macOS static archive (`arm64 + x86_64`):
 
 ```bash
 make macos-native
+make run-macos
 ```
 
-Generated artifact:
+Native output:
 
 ```text
 macos/Native/libraw_engine.a
 ```
 
-The generated archive is ignored by Git. Xcode links it through `macos/Flutter/Native-Rust.xcconfig` with `-force_load` so FFI entry points are not dead-stripped.
-
-Build native Rust and run the macOS Flutter app:
-
-```bash
-make run-macos
-```
+Apple platforms link the Rust `staticlib` and resolve C ABI symbols through `DynamicLibrary.process()`.
 
 ## iOS
 
-The iOS build produces separate archives for device and simulator:
-
 ```bash
 make ios-native
+make ios-build-nosign
+flutter devices
+make run-ios DEVICE=<flutter-device-id>
 ```
 
-Generated artifacts:
+Generated native archives:
 
 ```text
 ios/Native/device/libraw_engine.a
 ios/Native/simulator/libraw_engine.a
 ```
 
-Device archive:
-
-```text
-aarch64-apple-ios
-```
-
-Simulator archive is universal where supported:
-
-```text
-aarch64-apple-ios-sim + x86_64-apple-ios
-```
-
-Xcode selects the proper archive through `ios/Flutter/Native-Rust.xcconfig` and force-loads it into Runner. Dart then resolves the exported C ABI symbols through `DynamicLibrary.process()`.
-
-Validate iOS native linkage without code signing:
-
-```bash
-make ios-build-nosign
-```
-
-Run on a physical iPhone or simulator:
-
-```bash
-flutter devices
-make run-ios DEVICE=<flutter-device-id>
-```
-
-For example, use the exact device ID printed by `flutter devices`; the Makefile intentionally does not hard-code a personal device identifier.
-
-## Apple native build script
-
-Both Apple platforms are built by:
-
-```text
-tool/build-apple-native.sh
-```
-
-Direct modes:
-
-```bash
-bash tool/build-apple-native.sh macos
-bash tool/build-apple-native.sh ios
-bash tool/build-apple-native.sh all
-```
-
-Or through Make:
-
-```bash
-make macos-native
-make ios-native
-make apple-native
-```
+The Makefile intentionally does not hard-code a personal device identifier.
 
 ## FFI ownership rules
 
-- Dart `toNativeUtf8()` → `calloc.free()` in Dart after the Rust call returns.
+- Dart `toNativeUtf8()` → `calloc.free()` in Dart after the Rust call.
 - Rust `CString::into_raw()` → `free_string_rust()` only.
-- Rust `Box<ImageBuffer>` → Dart copies `len` bytes → `free_image_buffer()`.
+- Rust `Box<ImageBuffer>` → Dart copies bytes → `free_image_buffer()`.
 - Buffer getters are null-safe.
-- Flutter validates `len == width * height * 4` before copying.
-- Rust catches panics at image-returning FFI boundaries and reports `LAST_ERROR`.
+- Dart validates `len == width * height * 4` before copying.
+- Rust image-returning FFI boundaries report failures through `LAST_ERROR`.
 
-## check_engine()
+## `check_engine()`
 
-`check_engine()` verifies only that the library is loaded and the internal error mutex is usable. It does **not** validate RAW decoding, platform packaging, filesystem permissions, AI, or GPU support.
+`check_engine()` confirms the library is loaded and its basic internal state is usable. It does **not** validate RAW decoding quality, packaging, filesystem permissions, AI, or GPU support.
 
 ## Watched folder import
 
-The Rust core includes `TetheredWatcher::check_new_files(known)` semantics, but this is a **watched-folder importer**, not tethered shooting. USB/PTP camera control is not implemented.
+The Rust core includes watched-folder semantics through `TetheredWatcher::check_new_files(known)`, but this is **not** USB/PTP tethered shooting.
