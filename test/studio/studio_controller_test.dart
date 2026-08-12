@@ -14,6 +14,7 @@ void main() {
         'activeModule': StudioModule.library.index,
         'leftPanelVisible': false,
         'rightPanelVisible': true,
+        'filmstripVisible': false,
       });
 
       final controller = StudioController(
@@ -25,11 +26,12 @@ void main() {
       expect(controller.state.activeModule, StudioModule.library);
       expect(controller.state.leftPanelVisible, isFalse);
       expect(controller.state.rightPanelVisible, isTrue);
+      expect(controller.state.filmstripVisible, isFalse);
       expect(controller.state.engineReady, isTrue);
       expect(controller.state.engineVersion, 'fake-1.0');
     });
 
-    test('persists module, panel visibility, and clamped export quality', () async {
+    test('persists workspace visibility and clamped export quality', () async {
       final settings = _MemorySettings();
       final controller = StudioController(
         engine: _FakeEngine(),
@@ -39,16 +41,30 @@ void main() {
       await controller.setModule(StudioModule.export);
       await controller.toggleLeftPanel();
       await controller.toggleRightPanel();
+      await controller.toggleFilmstrip();
       await controller.setExportQuality(120);
 
       expect(settings.values['activeModule'], StudioModule.export.index);
       expect(settings.values['leftPanelVisible'], isFalse);
       expect(settings.values['rightPanelVisible'], isFalse);
+      expect(settings.values['filmstripVisible'], isFalse);
       expect(settings.values['exportQuality'], 100);
       expect(controller.state.exportQuality, 100);
     });
 
-    test('selecting another RAW clears an old preview', () async {
+    test('changes preview zoom mode without touching engine state', () {
+      final controller = StudioController(
+        engine: _FakeEngine(),
+        settings: _MemorySettings(),
+      );
+
+      controller.setPreviewZoomMode(PreviewZoomMode.oneToOne);
+
+      expect(controller.state.previewZoomMode, PreviewZoomMode.oneToOne);
+      expect(controller.state.engineReady, isTrue);
+    });
+
+    test('selecting another RAW clears an old preview and resets zoom', () async {
       final controller = StudioController(
         engine: _FakeEngine(),
         settings: _MemorySettings(),
@@ -56,6 +72,7 @@ void main() {
 
       controller.selectRawPath('/tmp/first.nef');
       await controller.develop();
+      controller.setPreviewZoomMode(PreviewZoomMode.oneToOne);
       expect(controller.state.previewStatus, PreviewStatus.ready);
       expect(controller.state.previewPng, isNotNull);
 
@@ -66,6 +83,7 @@ void main() {
       expect(controller.state.previewPng, isNull);
       expect(controller.state.imageWidth, isNull);
       expect(controller.state.imageHeight, isNull);
+      expect(controller.state.previewZoomMode, PreviewZoomMode.fit);
     });
 
     test('develop routes through the injected engine and publishes preview', () async {
