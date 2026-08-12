@@ -1,0 +1,10 @@
+    Updating crates.io index
+error: failed to select a version for `rawler`.
+    ... required by package `raw-engine v8.0.0 (/Users/dxtr_m4/develop/mobile_projects/nixin/rust)`
+versions that meet the requirements `^0.6` are: 0.6.0
+
+package `raw-engine` depends on `rawler` with feature `deflate` but `rawler` does not have that feature.
+ available features: clap, inspector, samplecheck
+
+
+failed to select a version for `rawler` which could resolve this conflict
