@@ -8,11 +8,13 @@ ANDROID_JNILIBS := android/app/src/main/jniLibs
 ANDROID_ARM64_DIR := $(ANDROID_JNILIBS)/arm64-v8a
 RUST_RELEASE_DIR := $(RUST_DIR)/target/release
 SETUP_SCRIPT := tool/setup-project.sh
+APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
 DEVICE ?=
 
-.PHONY: help doctor setup setup-common setup-android bootstrap pub-get rust-fetch rust-check rust-test rust-build \
-	analyze flutter-test test check validate \
-	android-arm64 android-native run run-android run-macos \
+.PHONY: help doctor setup setup-common setup-android setup-apple bootstrap \
+	pub-get rust-fetch rust-check rust-test rust-build analyze flutter-test test check validate \
+	android-arm64 android-native macos-native ios-native apple-native \
+	run run-android run-macos run-ios ios-build-nosign \
 	clean clean-rust clean-flutter distclean
 
 .DEFAULT_GOAL := help
@@ -22,7 +24,7 @@ help: ## Show available targets
 	@echo
 	@echo "Usage: make <target> [DEVICE=<flutter-device-id>]"
 	@echo
-	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter =="
@@ -34,20 +36,26 @@ doctor: ## Show Flutter/Rust/native build tool versions
 	@echo
 	@echo "== cargo-ndk =="
 	@if command -v cargo-ndk >/dev/null 2>&1; then cargo-ndk --version; else echo "cargo-ndk not installed (needed for Android native builds)"; fi
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		echo; echo "== Xcode =="; xcodebuild -version; \
+	fi
 	@echo
 	@echo "== Flutter devices =="
 	@$(FLUTTER) devices
 
-setup: ## Bootstrap project dependencies and Android native tooling
+setup: ## Bootstrap project dependencies and native tooling for this host
 	@bash $(SETUP_SCRIPT) all
 
 bootstrap: setup ## Alias for setup
 
-setup-common: ## Bootstrap Flutter/Rust dependencies without Android cargo-ndk
+setup-common: ## Bootstrap Flutter/Rust dependencies only
 	@bash $(SETUP_SCRIPT) common
 
 setup-android: ## Install/check cargo-ndk and Rust Android arm64 target
 	@bash $(SETUP_SCRIPT) android
+
+setup-apple: ## Install/check Rust macOS+iOS targets and Xcode tools
+	@bash $(SETUP_SCRIPT) apple
 
 pub-get: ## Run flutter pub get
 	$(FLUTTER) pub get
@@ -87,6 +95,15 @@ android-arm64: ## Build raw-engine .so for Android arm64-v8a
 
 android-native: android-arm64 ## Alias for the currently validated Android ABI
 
+macos-native: ## Build universal macOS Rust static library
+	@bash $(APPLE_BUILD_SCRIPT) macos
+
+ios-native: ## Build iOS device + simulator Rust static libraries
+	@bash $(APPLE_BUILD_SCRIPT) ios
+
+apple-native: ## Build all macOS and iOS Rust native libraries
+	@bash $(APPLE_BUILD_SCRIPT) all
+
 run: ## Run Flutter; optionally pass DEVICE=<id>
 	@if [ -n "$(DEVICE)" ]; then \
 		$(FLUTTER) run -d "$(DEVICE)"; \
@@ -101,11 +118,20 @@ run-android: android-arm64 ## Build Android Rust library, then run Flutter; DEVI
 		$(FLUTTER) run; \
 	fi
 
-run-macos: rust-build ## Build host Rust library and run macOS Flutter app
+run-macos: macos-native ## Build/link Rust static library, then run macOS app
 	@if [ "$$(uname -s)" != "Darwin" ]; then echo "ERROR: run-macos requires macOS"; exit 1; fi
-	@if [ ! -f "$(RUST_RELEASE_DIR)/libraw_engine.dylib" ]; then echo "ERROR: Rust dylib not found"; exit 1; fi
-	@cp "$(RUST_RELEASE_DIR)/libraw_engine.dylib" ./libraw_engine.dylib
 	$(FLUTTER) run -d macos
+
+run-ios: ios-native ## Build/link Rust libraries, then run iOS device/simulator; DEVICE required
+	@if [ -z "$(DEVICE)" ]; then \
+		echo "ERROR: pass the iOS device id, e.g. make run-ios DEVICE=<id>"; \
+		$(FLUTTER) devices; \
+		exit 1; \
+	fi
+	$(FLUTTER) run -d "$(DEVICE)"
+
+ios-build-nosign: ios-native ## Build iOS app without code signing to validate native linkage
+	$(FLUTTER) build ios --release --no-codesign
 
 clean-rust: ## Remove Rust build artifacts
 	cd $(RUST_DIR) && $(CARGO) clean
@@ -113,9 +139,9 @@ clean-rust: ## Remove Rust build artifacts
 clean-flutter: ## Remove Flutter build artifacts
 	$(FLUTTER) clean
 
-clean: clean-flutter clean-rust ## Clean Flutter and Rust build artifacts
+clean: clean-flutter clean-rust ## Clean Flutter, Rust and generated native libraries
 	@rm -f ./libraw_engine.dylib ./libraw_engine.so ./raw_engine.dll
-	@rm -rf $(ANDROID_JNILIBS)
+	@rm -rf $(ANDROID_JNILIBS) ios/Native macos/Native
 
 distclean: clean ## Clean generated dependencies as well
 	@rm -rf .dart_tool
