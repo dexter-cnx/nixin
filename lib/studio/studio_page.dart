@@ -28,7 +28,7 @@ class StudioPage extends ConsumerWidget {
                   onModuleSelected: controller.setModule,
                   onToggleLeft: controller.toggleLeftPanel,
                   onToggleRight: controller.toggleRightPanel,
-                  showPanelToggles: mode != StudioLayoutMode.compact,
+                  showPanelToggles: mode == StudioLayoutMode.wide,
                   compact: mode == StudioLayoutMode.compact,
                 ),
                 Expanded(
@@ -47,7 +47,8 @@ class StudioPage extends ConsumerWidget {
                       ),
                   },
                 ),
-                StudioStatusBar(state: state),
+                if (mode != StudioLayoutMode.compact)
+                  StudioStatusBar(state: state),
               ],
             );
           },
@@ -94,17 +95,44 @@ class _MediumWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Stack(
       children: [
-        Expanded(
-          flex: StudioLayoutRatios.mediumCenter,
-          child: PreviewWorkspace(state: state),
+        Row(
+          children: [
+            Expanded(
+              flex: StudioLayoutRatios.mediumCenter,
+              child: PreviewWorkspace(state: state),
+            ),
+            if (state.rightPanelVisible)
+              Expanded(
+                flex: StudioLayoutRatios.mediumRight,
+                child: _RightPanel(state: state, controller: controller),
+              ),
+          ],
         ),
-        if (state.rightPanelVisible)
-          Expanded(
-            flex: StudioLayoutRatios.mediumRight,
-            child: _RightPanel(state: state, controller: controller),
+        Positioned(
+          left: StudioSpacing.sm,
+          top: StudioSpacing.sm,
+          child: Column(
+            children: [
+              IconButton.filledTonal(
+                tooltip: 'action.open_raw'.tr(),
+                onPressed: controller.pickRaw,
+                icon: const Icon(Icons.folder_open),
+              ),
+              const SizedBox(height: StudioSpacing.xs),
+              IconButton.filledTonal(
+                tooltip: 'panel.tools'.tr(),
+                onPressed: controller.toggleRightPanel,
+                icon: Icon(
+                  state.rightPanelVisible
+                      ? Icons.right_panel_close_outlined
+                      : Icons.right_panel_open_outlined,
+                ),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
