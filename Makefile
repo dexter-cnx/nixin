@@ -1,5 +1,16 @@
 SHELL := /bin/bash
 
+include project.mk
+
+export APP_ID
+export APPLE_TEAM_ID
+export APP_NAME
+export ANDROID_APPLICATION_ID
+export ANDROID_NAMESPACE
+export IOS_BUNDLE_ID
+export MACOS_BUNDLE_ID
+export TEST_BUNDLE_SUFFIX
+
 FLUTTER ?= flutter
 CARGO ?= cargo
 CARGO_NDK ?= cargo ndk
@@ -12,7 +23,7 @@ APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
 CONFIGURE_IDS_SCRIPT := tool/configure-identifiers.sh
 DEVICE ?=
 
-.PHONY: help doctor configure-identifiers setup setup-common setup-android setup-apple bootstrap \
+.PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
 	pub-get rust-fetch rust-check rust-test rust-build analyze flutter-test test check validate \
 	android-arm64 android-native macos-native ios-native apple-native \
 	run run-android run-macos run-ios ios-build-nosign \
@@ -23,9 +34,19 @@ DEVICE ?=
 help: ## Show available targets
 	@echo "Nixin Studio V8 - Flutter + Rust FFI"
 	@echo
-	@echo "Usage: make <target> [DEVICE=<flutter-device-id>]"
+	@echo "Usage: make <target> [DEVICE=<flutter-device-id>] [APP_ID=...] [APPLE_TEAM_ID=...]"
 	@echo
 	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+show-config: ## Show resolved project identifiers
+	@echo "APP_NAME=$(APP_NAME)"
+	@echo "APP_ID=$(APP_ID)"
+	@echo "ANDROID_APPLICATION_ID=$(ANDROID_APPLICATION_ID)"
+	@echo "ANDROID_NAMESPACE=$(ANDROID_NAMESPACE)"
+	@echo "IOS_BUNDLE_ID=$(IOS_BUNDLE_ID)"
+	@echo "MACOS_BUNDLE_ID=$(MACOS_BUNDLE_ID)"
+	@echo "APPLE_TEAM_ID=$(APPLE_TEAM_ID)"
+	@echo "TEST_BUNDLE_SUFFIX=$(TEST_BUNDLE_SUFFIX)"
 
 doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter =="
@@ -44,7 +65,7 @@ doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter devices =="
 	@$(FLUTTER) devices
 
-configure-identifiers: ## Set com.cnxdev.nixin and Apple Team ZTM9BCJPY9
+configure-identifiers: ## Apply identifiers/signing from project.mk or command-line overrides
 	@bash $(CONFIGURE_IDS_SCRIPT)
 
 setup: ## Bootstrap project dependencies and native tooling for this host
