@@ -17,15 +17,25 @@ void main() {
       ),
     );
 
-    expect(find.text('Develop action'), findsOneWidget);
+    final content = find.text('Develop action');
+
+    expect(content, findsOneWidget);
+    expect(content.hitTestable(), findsOneWidget);
 
     await tester.tap(find.text('Tools'));
     await tester.pumpAndSettle();
-    expect(find.text('Develop action'), findsNothing);
+
+    // AnimatedCrossFade intentionally keeps both children in the widget tree.
+    // A collapsed section should make its content non-interactive rather than
+    // requiring the child to be removed from the tree.
+    expect(content, findsOneWidget);
+    expect(content.hitTestable(), findsNothing);
 
     await tester.tap(find.text('Tools'));
     await tester.pumpAndSettle();
-    expect(find.text('Develop action'), findsOneWidget);
+
+    expect(content, findsOneWidget);
+    expect(content.hitTestable(), findsOneWidget);
   });
 
   testWidgets('disabled action button does not invoke callback', (tester) async {
