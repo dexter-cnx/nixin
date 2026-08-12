@@ -29,7 +29,7 @@ typedef _FreeBufN = Void Function(Pointer<ImageBufferNative>);
 typedef _FreeBufD = void Function(Pointer<ImageBufferNative>);
 typedef _GetU32N = Uint32 Function(Pointer<ImageBufferNative>);
 typedef _GetU32D = int Function(Pointer<ImageBufferNative>);
-typedef _GetLenN = Size Function(Pointer<ImageBufferNative>);
+typedef _GetLenN = UintPtr Function(Pointer<ImageBufferNative>);
 typedef _GetLenD = int Function(Pointer<ImageBufferNative>);
 typedef _GetDataN = Pointer<Uint8> Function(Pointer<ImageBufferNative>);
 typedef _GetDataD = Pointer<Uint8> Function(Pointer<ImageBufferNative>);
@@ -176,7 +176,105 @@ class _StudioPageState extends State<StudioPage> {
   Future<void> subject() async { if(rawPath==null||engine==null)return; showResult(engine!.subjectMask(rawPath!)); }
   Future<void> sky() async { if(rawPath==null||engine==null)return; showResult(engine!.skyMask(rawPath!)); }
   Future<void> lut() async { if(rawPath==null||engine==null)return; final r=await FilePicker.platform.pickFiles(type:FileType.custom,allowedExtensions:const ['cube']); final lp=r?.files.single.path; if(lp!=null)showResult(engine!.applyLut(rawPath!,lp,1.0)); }
-  Future<void> export() async { if(rawPath==null||engine==null)return; final dest=await FilePicker.platform.saveFile(dialogTitle:'Export JPEG',fileName='nixin-export.jpg',type:FileType.custom,allowedExtensions:const ['jpg','jpeg']); if(dest==null)return; final out=engine!.exportJpeg(rawPath!,dest,quality); setState(()=>status=out??engine!.lastError()); }
+  Future<void> export() async { if(rawPath==null||engine==null)return; final dest=await FilePicker.platform.saveFile(dialogTitle:'Export JPEG',fileName: 'nixin-export.jpg',type:FileType.custom,allowedExtensions:const ['jpg','jpeg']); if(dest==null)return; final out=engine!.exportJpeg(rawPath!,dest,quality); setState(()=>status=out??engine!.lastError()); }
 
-  @override Widget build(BuildContext context){ return Scaffold(appBar:AppBar(title:const Text('Nixin Studio V8')),body:SafeArea(child:Column(children:[Padding(padding:const EdgeInsets.all(12),child:Wrap(spacing:8,runSpacing:8,children:[FilledButton(onPressed:pickRaw,child:const Text('Open RAW')),FilledButton(onPressed:rawPath==null?null:develop,child:const Text('Develop')),OutlinedButton(onPressed:rawPath==null?null:subject,child:const Text('Subject Mask')),OutlinedButton(onPressed:rawPath==null?null:sky,child:const Text('Sky Mask')),OutlinedButton(onPressed:rawPath==null?null:lut,child:const Text('Apply .cube LUT')),OutlinedButton(onPressed:rawPath==null?null:export,child:const Text('Export JPEG')),SizedBox(width:180,child:Row(children:[const Text('Q'),Expanded(child:Slider(value:quality.toDouble(),min:1,max:100,divisions:99,label:'$quality',onChanged:(v)=>setState(()=>quality=v.round())))]) )])),Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Align(alignment:Alignment.centerLeft,child:Text(status))),const SizedBox(height:8),Expanded(child:Container(width:double.infinity,color:Colors.black12,alignment:Alignment.center,child:png==null?const Text('Open a RAW file and press Develop'):InteractiveViewer(child:Image.memory(png!,fit:BoxFit.contain,gaplessPlayback:true))))]))); }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Nixin Studio V8')),
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    FilledButton(
+                      onPressed: pickRaw,
+                      child: const Text('Open RAW'),
+                    ),
+                    FilledButton(
+                      onPressed: rawPath == null ? null : develop,
+                      child: const Text('Develop'),
+                    ),
+                    OutlinedButton(
+                      onPressed: rawPath == null ? null : subject,
+                      child: const Text('Subject Mask'),
+                    ),
+                    OutlinedButton(
+                      onPressed: rawPath == null ? null : sky,
+                      child: const Text('Sky Mask'),
+                    ),
+                    OutlinedButton(
+                      onPressed: rawPath == null ? null : lut,
+                      child: const Text('Apply .cube LUT'),
+                    ),
+                    OutlinedButton(
+                      onPressed: rawPath == null ? null : export,
+                      child: const Text('Export JPEG'),
+                    ),
+                    SizedBox(
+                      width: 180,
+                      child: Row(
+                        children: [
+                          const Text('Q'),
+                          Expanded(
+                            child: Slider(
+                              value: quality.toDouble(),
+                              min: 1,
+                              max: 100,
+                              divisions: 99,
+                              label: '$quality',
+                              onChanged: (v) => setState(
+                                () => quality = v.round(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(status),
+                ),
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 280),
+                color: Colors.black12,
+                alignment: Alignment.center,
+                child: png == null
+                    ? const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('Open a RAW file and press Develop'),
+                      )
+                    : InteractiveViewer(
+                        child: Image.memory(
+                          png!,
+                          fit: BoxFit.contain,
+                          gaplessPlayback: true,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

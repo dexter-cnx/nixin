@@ -8,6 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 image = { version = "0.25", features = ["jpeg", "png"] }
-rawler = { version = "0.6", features = ["deflate"] }
+rawler = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

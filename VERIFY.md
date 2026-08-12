@@ -54,3 +54,10 @@ flutter test
 - `test/ffi_smoke_test.dart`
 
 The Flutter smoke test intentionally checks packaging expectations only unless CI provides a compiled native library and RAW fixture. Claiming a real develop smoke without those artifacts would be misleading.
+
+## rawler 0.6 compatibility note
+
+`rawler = "0.6"` is retained in `Cargo.toml`, but V8's preview-only implementation does **not**
+import the non-existent `rawler::rawsource::RawSource` API. The current path reads file bytes with
+`std::fs::read()` and scans for embedded JPEGs. This is intentionally documented as preview extraction,
+not RAW debayering.

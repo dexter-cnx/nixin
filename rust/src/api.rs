@@ -1,6 +1,5 @@
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, RgbaImage};
-use rawler::rawsource::RawSource;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -58,9 +57,12 @@ pub struct Lut3D {
 /// Nixin Studio V8 intentionally works from an embedded JPEG preview.
 /// It does not debayer the sensor RAW data.
 pub fn load_embedded_preview(path: &str) -> Result<DynamicImage, String> {
-    let source = RawSource::new(Path::new(path)).map_err(|e| format!("RAW open failed: {e}"))?;
-    let bytes = source.buf();
-    extract_best_embedded_jpeg(bytes)
+    // rawler 0.6.0 does not expose a public RawSource API suitable for direct
+    // container-byte access. V8's current preview-only path therefore reads
+    // the RAW file bytes directly and scans for embedded JPEG previews.
+    // This is intentionally NOT a full RAW decode/debayer path.
+    let bytes = fs::read(Path::new(path)).map_err(|e| format!("RAW file read failed: {e}"))?;
+    extract_best_embedded_jpeg(&bytes)
 }
 
 fn extract_best_embedded_jpeg(bytes: &[u8]) -> Result<DynamicImage, String> {
@@ -207,33 +209,50 @@ pub fn detect_sky_mask_internal(path: String) -> Result<MaskResult, String> {
     }
 
     let mut mask = vec![0u8; candidate.len()];
-    let mut q = VecDeque::new();
+    let mut q: VecDeque<(u32, u32)> = VecDeque::new();
     if h > 0 {
         for x in 0..w {
             let idx = x as usize;
             if candidate[idx] {
                 mask[idx] = 255;
-                q.push_back((x, 0));
+                q.push_back((x, 0u32));
             }
         }
     }
     while let Some((x, y)) = q.pop_front() {
-        let neigh = [
-            (x.wrapping_sub(1), y),
-            (x.saturating_add(1), y),
-            (x, y.wrapping_sub(1)),
-            (x, y.saturating_add(1)),
-        ];
-        for (nx, ny) in neigh {
-            if nx >= w || ny >= h { continue; }
-            let idx = (ny * w + nx) as usize;
-            if candidate[idx] && mask[idx] == 0 {
-                mask[idx] = 255;
-                q.push_back((nx, ny));
-            }
+        if x > 0 {
+            enqueue_sky_neighbor(x - 1, y, w, h, &candidate, &mut mask, &mut q);
+        }
+        if let Some(nx) = x.checked_add(1) {
+            enqueue_sky_neighbor(nx, y, w, h, &candidate, &mut mask, &mut q);
+        }
+        if y > 0 {
+            enqueue_sky_neighbor(x, y - 1, w, h, &candidate, &mut mask, &mut q);
+        }
+        if let Some(ny) = y.checked_add(1) {
+            enqueue_sky_neighbor(x, ny, w, h, &candidate, &mut mask, &mut q);
         }
     }
     Ok(MaskResult { overlay: mask_overlay(&rgba, &mask, [60, 160, 255]), mask })
+}
+
+fn enqueue_sky_neighbor(
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    candidate: &[bool],
+    mask: &mut [u8],
+    q: &mut VecDeque<(u32, u32)>,
+) {
+    if x >= w || y >= h {
+        return;
+    }
+    let idx = (y * w + x) as usize;
+    if candidate.get(idx).copied().unwrap_or(false) && mask.get(idx).copied().unwrap_or(0) == 0 {
+        mask[idx] = 255;
+        q.push_back((x, y));
+    }
 }
 
 pub fn apply_lut_internal(path: String, lut_path: String, strength: f32) -> Result<DevelopedImage, String> {
