@@ -6,8 +6,29 @@ import '../engine/engine_image.dart';
 import '../engine/raw_engine.dart';
 import 'studio_state.dart';
 
+abstract interface class StudioSettingsStore {
+  T read<T>(String key, T defaultValue);
+  Future<void> write(String key, Object value);
+}
+
+class HiveStudioSettingsStore implements StudioSettingsStore {
+  HiveStudioSettingsStore(this.box);
+  final Box<dynamic> box;
+
+  @override
+  T read<T>(String key, T defaultValue) =>
+      box.get(key, defaultValue: defaultValue) as T;
+
+  @override
+  Future<void> write(String key, Object value) => box.put(key, value);
+}
+
 final studioSettingsBoxProvider = Provider<Box<dynamic>>((ref) {
   return Hive.box<dynamic>('studio_settings');
+});
+
+final studioSettingsStoreProvider = Provider<StudioSettingsStore>((ref) {
+  return HiveStudioSettingsStore(ref.watch(studioSettingsBoxProvider));
 });
 
 final studioEngineProvider = Provider<StudioEngine?>((ref) {
@@ -22,38 +43,33 @@ final studioControllerProvider =
     StateNotifierProvider<StudioController, StudioState>((ref) {
   return StudioController(
     engine: ref.watch(studioEngineProvider),
-    settings: ref.watch(studioSettingsBoxProvider),
+    settings: ref.watch(studioSettingsStoreProvider),
   );
 });
 
 class StudioController extends StateNotifier<StudioState> {
-  StudioController({required StudioEngine? engine, required Box<dynamic> settings})
+  StudioController({required StudioEngine? engine, required StudioSettingsStore settings})
       : _engine = engine,
         _settings = settings,
         super(
           StudioState(
-            exportQuality: settings.get('exportQuality', defaultValue: 90) as int,
+            exportQuality: settings.read<int>('exportQuality', 90),
             activeModule: StudioModule.values[
-              settings.get('activeModule', defaultValue: 1) as int,
+              settings.read<int>('activeModule', StudioModule.develop.index),
             ],
-            leftPanelVisible:
-                settings.get('leftPanelVisible', defaultValue: true) as bool,
-            rightPanelVisible:
-                settings.get('rightPanelVisible', defaultValue: true) as bool,
+            leftPanelVisible: settings.read<bool>('leftPanelVisible', true),
+            rightPanelVisible: settings.read<bool>('rightPanelVisible', true),
           ),
         ) {
     _initializeEngine();
   }
 
   final StudioEngine? _engine;
-  final Box<dynamic> _settings;
+  final StudioSettingsStore _settings;
 
   void _initializeEngine() {
     if (_engine == null) {
-      state = state.copyWith(
-        engineReady: false,
-        statusMessage: 'engine_unavailable',
-      );
+      state = state.copyWith(engineReady: false, statusMessage: 'engine_unavailable');
       return;
     }
     try {
@@ -74,34 +90,28 @@ class StudioController extends StateNotifier<StudioState> {
 
   Future<void> setModule(StudioModule module) async {
     state = state.copyWith(activeModule: module);
-    await _settings.put('activeModule', module.index);
+    await _settings.write('activeModule', module.index);
   }
 
   Future<void> toggleLeftPanel() async {
     final next = !state.leftPanelVisible;
     state = state.copyWith(leftPanelVisible: next);
-    await _settings.put('leftPanelVisible', next);
+    await _settings.write('leftPanelVisible', next);
   }
 
   Future<void> toggleRightPanel() async {
     final next = !state.rightPanelVisible;
     state = state.copyWith(rightPanelVisible: next);
-    await _settings.put('rightPanelVisible', next);
+    await _settings.write('rightPanelVisible', next);
   }
 
   Future<void> setExportQuality(int quality) async {
     final next = quality.clamp(1, 100).toInt();
     state = state.copyWith(exportQuality: next);
-    await _settings.put('exportQuality', next);
+    await _settings.write('exportQuality', next);
   }
 
-  Future<void> pickRaw() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf'],
-    );
-    final path = result?.files.single.path;
-    if (path == null) return;
+  void selectRawPath(String path) {
     state = state.copyWith(
       rawPath: path,
       clearPreview: true,
@@ -111,17 +121,23 @@ class StudioController extends StateNotifier<StudioState> {
     );
   }
 
-  Future<void> develop() async => _runImageOperation(
-        (engine, path) => engine.develop(path),
-      );
+  Future<void> pickRaw() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf'],
+    );
+    final path = result?.files.single.path;
+    if (path != null) selectRawPath(path);
+  }
 
-  Future<void> subjectMask() async => _runImageOperation(
-        (engine, path) => engine.subjectMask(path),
-      );
+  Future<void> develop() async =>
+      _runImageOperation((engine, path) => engine.develop(path));
 
-  Future<void> skyMask() async => _runImageOperation(
-        (engine, path) => engine.skyMask(path),
-      );
+  Future<void> subjectMask() async =>
+      _runImageOperation((engine, path) => engine.subjectMask(path));
+
+  Future<void> skyMask() async =>
+      _runImageOperation((engine, path) => engine.skyMask(path));
 
   Future<void> applyLut() async {
     final engine = _engine;
@@ -150,10 +166,7 @@ class StudioController extends StateNotifier<StudioState> {
       allowedExtensions: const ['jpg', 'jpeg'],
     );
     if (destination == null) return;
-    state = state.copyWith(
-      previewStatus: PreviewStatus.processing,
-      clearError: true,
-    );
+    state = state.copyWith(previewStatus: PreviewStatus.processing, clearError: true);
     try {
       final output = engine.exportJpeg(path, destination, state.exportQuality);
       if (output == null) {
@@ -178,10 +191,7 @@ class StudioController extends StateNotifier<StudioState> {
     final engine = _engine;
     final path = state.rawPath;
     if (engine == null || path == null) return;
-    state = state.copyWith(
-      previewStatus: PreviewStatus.processing,
-      clearError: true,
-    );
+    state = state.copyWith(previewStatus: PreviewStatus.processing, clearError: true);
     try {
       final image = operation(engine, path);
       if (image == null) {
