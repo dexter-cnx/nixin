@@ -135,8 +135,8 @@ class StudioPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: StudioColors.panel,
       decoration: BoxDecoration(
+        color: StudioColors.panel,
         border: Border(
           right: trailingBorder
               ? const BorderSide(color: StudioColors.divider)
