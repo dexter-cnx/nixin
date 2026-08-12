@@ -59,6 +59,7 @@ class StudioController extends StateNotifier<StudioState> {
             activeModule: _restoreModule(settings),
             leftPanelVisible: settings.read<bool>('leftPanelVisible', true),
             rightPanelVisible: settings.read<bool>('rightPanelVisible', true),
+            filmstripVisible: settings.read<bool>('filmstripVisible', true),
           ),
         ) {
     _initializeEngine();
@@ -119,6 +120,16 @@ class StudioController extends StateNotifier<StudioState> {
     await _settings.write('rightPanelVisible', next);
   }
 
+  Future<void> toggleFilmstrip() async {
+    final next = !state.filmstripVisible;
+    state = state.copyWith(filmstripVisible: next);
+    await _settings.write('filmstripVisible', next);
+  }
+
+  void setPreviewZoomMode(PreviewZoomMode mode) {
+    state = state.copyWith(previewZoomMode: mode);
+  }
+
   Future<void> setExportQuality(int quality) async {
     final next = quality.clamp(1, 100).toInt();
     state = state.copyWith(exportQuality: next);
@@ -130,6 +141,7 @@ class StudioController extends StateNotifier<StudioState> {
       rawPath: path,
       clearPreview: true,
       previewStatus: PreviewStatus.empty,
+      previewZoomMode: PreviewZoomMode.fit,
       clearError: true,
       statusMessage: 'selected',
     );
