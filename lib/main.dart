@@ -75,9 +75,10 @@ class RawEngine {
   late final _GetVersionD _lastErrorFn;
 
   static RawEngine open() {
-    if (Platform.isIOS) return RawEngine._(DynamicLibrary.process());
+    if (Platform.isIOS || Platform.isMacOS) {
+      return RawEngine._(DynamicLibrary.process());
+    }
     if (Platform.isWindows) return RawEngine._(DynamicLibrary.open('raw_engine.dll'));
-    if (Platform.isMacOS) return RawEngine._(DynamicLibrary.open('libraw_engine.dylib'));
     if (Platform.isAndroid) return RawEngine._(DynamicLibrary.open('libraw_engine.so'));
     return RawEngine._(DynamicLibrary.open('libraw_engine.so'));
   }
