@@ -52,7 +52,7 @@ class ParameterSlider extends StatelessWidget {
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
             ),
             child: Slider(
-              value: value.clamp(min, max),
+              value: value.clamp(min, max).toDouble(),
               min: min,
               max: max,
               divisions: divisions,
@@ -161,8 +161,14 @@ class CompactToggle extends StatelessWidget {
       height: StudioMetrics.compactControlHeight,
       child: Row(
         children: [
-          Expanded(child: Text(label, style: Theme.of(context).textTheme.bodySmall)),
-          Switch(value: value, onChanged: onChanged),
+          Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ],
       ),
     );
