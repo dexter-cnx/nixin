@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_DIR="$ROOT_DIR/rust"
 MODE="${1:-all}"
+CONFIGURE_IDS_SCRIPT="$ROOT_DIR/tool/configure-identifiers.sh"
 
 log() {
   printf '\n==> %s\n' "$1"
@@ -18,6 +19,12 @@ require_command() {
   local cmd="$1"
   local hint="$2"
   command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required. $hint"
+}
+
+configure_identifiers() {
+  require_command python3 "Install Python 3 and add it to PATH."
+  log "Configuring canonical app identifiers"
+  bash "$CONFIGURE_IDS_SCRIPT"
 }
 
 install_cargo_ndk() {
@@ -64,6 +71,8 @@ setup_apple() {
   require_command xcrun "Install Xcode command line tools."
   require_command lipo "Install Xcode command line tools."
 
+  configure_identifiers
+
   log "Ensuring Rust Apple targets are installed"
   rustup target add \
     aarch64-apple-darwin \
@@ -89,18 +98,21 @@ rustc --version
 
 case "$MODE" in
   all|--all)
+    configure_identifiers
     setup_android
     if [[ "$(uname -s)" == "Darwin" ]]; then
       setup_apple
     fi
     ;;
   android|--android)
+    configure_identifiers
     setup_android
     ;;
   apple|--apple)
     setup_apple
     ;;
   common|--common)
+    configure_identifiers
     ;;
   *)
     fail "Unknown setup mode '$MODE'. Use: all, android, apple, or common."
