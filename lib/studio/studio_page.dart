@@ -29,6 +29,7 @@ class StudioPage extends ConsumerWidget {
                   onToggleLeft: controller.toggleLeftPanel,
                   onToggleRight: controller.toggleRightPanel,
                   showPanelToggles: mode != StudioLayoutMode.compact,
+                  compact: mode == StudioLayoutMode.compact,
                 ),
                 Expanded(
                   child: switch (mode) {
@@ -68,13 +69,16 @@ class _WideWorkspace extends StatelessWidget {
       children: [
         if (state.leftPanelVisible)
           Expanded(
-            flex: 18,
+            flex: StudioLayoutRatios.wideLeft,
             child: _LeftPanel(state: state, controller: controller),
           ),
-        Expanded(flex: 60, child: PreviewWorkspace(state: state)),
+        Expanded(
+          flex: StudioLayoutRatios.wideCenter,
+          child: PreviewWorkspace(state: state),
+        ),
         if (state.rightPanelVisible)
           Expanded(
-            flex: 22,
+            flex: StudioLayoutRatios.wideRight,
             child: _RightPanel(state: state, controller: controller),
           ),
       ],
@@ -92,10 +96,13 @@ class _MediumWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(flex: 70, child: PreviewWorkspace(state: state)),
+        Expanded(
+          flex: StudioLayoutRatios.mediumCenter,
+          child: PreviewWorkspace(state: state),
+        ),
         if (state.rightPanelVisible)
           Expanded(
-            flex: 30,
+            flex: StudioLayoutRatios.mediumRight,
             child: _RightPanel(state: state, controller: controller),
           ),
       ],
