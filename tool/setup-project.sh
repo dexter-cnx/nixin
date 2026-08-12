@@ -57,6 +57,25 @@ setup_android() {
   fi
 }
 
+setup_apple() {
+  [[ "$(uname -s)" == "Darwin" ]] || fail "Apple setup requires macOS"
+  require_command rustup "Install Rust using rustup."
+  require_command xcodebuild "Install Xcode and select it with xcode-select."
+  require_command xcrun "Install Xcode command line tools."
+  require_command lipo "Install Xcode command line tools."
+
+  log "Ensuring Rust Apple targets are installed"
+  rustup target add \
+    aarch64-apple-darwin \
+    x86_64-apple-darwin \
+    aarch64-apple-ios \
+    aarch64-apple-ios-sim \
+    x86_64-apple-ios
+
+  log "Xcode version"
+  xcodebuild -version
+}
+
 log "Nixin Studio V8 project setup"
 
 require_command flutter "Install Flutter and add it to PATH."
@@ -71,14 +90,20 @@ rustc --version
 case "$MODE" in
   all|--all)
     setup_android
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      setup_apple
+    fi
     ;;
   android|--android)
     setup_android
     ;;
+  apple|--apple)
+    setup_apple
+    ;;
   common|--common)
     ;;
   *)
-    fail "Unknown setup mode '$MODE'. Use: all, android, or common."
+    fail "Unknown setup mode '$MODE'. Use: all, android, apple, or common."
     ;;
 esac
 
