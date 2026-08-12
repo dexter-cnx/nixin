@@ -12,6 +12,7 @@ class StudioModuleBar extends StatelessWidget {
     required this.onToggleLeft,
     required this.onToggleRight,
     required this.showPanelToggles,
+    required this.compact,
   });
 
   final StudioModule activeModule;
@@ -19,12 +20,15 @@ class StudioModuleBar extends StatelessWidget {
   final VoidCallback onToggleLeft;
   final VoidCallback onToggleRight;
   final bool showPanelToggles;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: StudioMetrics.moduleBarHeight,
-      padding: const EdgeInsets.symmetric(horizontal: StudioSpacing.md),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? StudioSpacing.sm : StudioSpacing.md,
+      ),
       decoration: const BoxDecoration(
         color: StudioColors.panel,
         border: Border(bottom: BorderSide(color: StudioColors.divider)),
@@ -32,19 +36,32 @@ class StudioModuleBar extends StatelessWidget {
       child: Row(
         children: [
           const Icon(Icons.auto_awesome_mosaic_outlined, size: 20),
-          const SizedBox(width: StudioSpacing.sm),
-          Text('app_name'.tr(), style: Theme.of(context).textTheme.titleMedium),
-          const Spacer(),
-          for (final module in StudioModule.values)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: StudioSpacing.xs),
-              child: _ModuleButton(
-                label: 'module.${module.name}'.tr(),
-                selected: module == activeModule,
-                onPressed: () => onModuleSelected(module),
-              ),
+          if (!compact) ...[
+            const SizedBox(width: StudioSpacing.sm),
+            Text('app_name'.tr(), style: Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+          ] else
+            const SizedBox(width: StudioSpacing.sm),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final module in StudioModule.values)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: StudioSpacing.xxs),
+                      child: _ModuleButton(
+                        label: 'module.${module.name}'.tr(),
+                        selected: module == activeModule,
+                        onPressed: () => onModuleSelected(module),
+                        compact: compact,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          const Spacer(),
+          ),
+          if (!compact) const Spacer(),
           if (showPanelToggles) ...[
             IconButton(
               tooltip: 'panel.navigator'.tr(),
@@ -68,11 +85,13 @@ class _ModuleButton extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    required this.compact,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onPressed;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -83,15 +102,15 @@ class _ModuleButton extends StatelessWidget {
             ? StudioColors.textPrimary
             : StudioColors.textSecondary,
         backgroundColor: selected ? StudioColors.surfaceHigh : Colors.transparent,
-        padding: const EdgeInsets.symmetric(
-          horizontal: StudioSpacing.md,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? StudioSpacing.xs : StudioSpacing.md,
           vertical: StudioSpacing.sm,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(StudioRadius.md),
         ),
       ),
-      child: Text(label),
+      child: Text(label, overflow: TextOverflow.ellipsis),
     );
   }
 }
@@ -249,7 +268,11 @@ class PreviewWorkspace extends StatelessWidget {
     if (state.previewPng != null) {
       return Padding(
         padding: const EdgeInsets.all(StudioSpacing.lg),
-        child: Image.memory(state.previewPng!, fit: BoxFit.contain, gaplessPlayback: true),
+        child: Image.memory(
+          state.previewPng!,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+        ),
       );
     }
     return Column(
@@ -257,7 +280,10 @@ class PreviewWorkspace extends StatelessWidget {
       children: [
         const Icon(Icons.photo_size_select_actual_outlined, size: 44),
         const SizedBox(height: StudioSpacing.md),
-        Text('preview.empty_title'.tr(), style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'preview.empty_title'.tr(),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: StudioSpacing.xs),
         Text('preview.empty_body'.tr(), style: Theme.of(context).textTheme.bodySmall),
       ],
@@ -287,14 +313,22 @@ class StudioStatusBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(child: Text(state.fileName ?? 'label.no_file'.tr(), overflow: TextOverflow.ellipsis)),
+          Expanded(
+            child: Text(
+              state.fileName ?? 'label.no_file'.tr(),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           Text(dimensions, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(width: StudioSpacing.lg),
-          Text(
-            state.engineReady
-                ? '${'label.engine'.tr()} ${state.engineVersion}'
-                : 'status.engine_unavailable'.tr(),
-            style: Theme.of(context).textTheme.bodySmall,
+          Flexible(
+            child: Text(
+              state.engineReady
+                  ? '${'label.engine'.tr()} ${state.engineVersion}'
+                  : 'status.engine_unavailable'.tr(),
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
           const SizedBox(width: StudioSpacing.lg),
           Text(statusKey.tr(), style: Theme.of(context).textTheme.bodySmall),
@@ -325,7 +359,7 @@ class ActionButton extends StatelessWidget {
       children: [
         Icon(icon, size: 17),
         const SizedBox(width: StudioSpacing.sm),
-        Flexible(child: Text(label)),
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
       ],
     );
     return SizedBox(
