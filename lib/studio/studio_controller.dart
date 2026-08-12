@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive/hive.dart';
 
+import '../engine/engine_image.dart';
 import '../engine/raw_engine.dart';
 import 'studio_state.dart';
 
@@ -33,7 +34,8 @@ class StudioController extends StateNotifier<StudioState> {
           StudioState(
             exportQuality: settings.get('exportQuality', defaultValue: 90) as int,
             activeModule: StudioModule.values[
-                settings.get('activeModule', defaultValue: 1) as int],
+              settings.get('activeModule', defaultValue: 1) as int,
+            ],
             leftPanelVisible:
                 settings.get('leftPanelVisible', defaultValue: true) as bool,
             rightPanelVisible:
@@ -88,7 +90,7 @@ class StudioController extends StateNotifier<StudioState> {
   }
 
   Future<void> setExportQuality(int quality) async {
-    final next = quality.clamp(1, 100);
+    final next = quality.clamp(1, 100).toInt();
     state = state.copyWith(exportQuality: next);
     await _settings.put('exportQuality', next);
   }
@@ -102,6 +104,7 @@ class StudioController extends StateNotifier<StudioState> {
     if (path == null) return;
     state = state.copyWith(
       rawPath: path,
+      clearPreview: true,
       previewStatus: PreviewStatus.empty,
       clearError: true,
       statusMessage: 'selected',
@@ -147,7 +150,10 @@ class StudioController extends StateNotifier<StudioState> {
       allowedExtensions: const ['jpg', 'jpeg'],
     );
     if (destination == null) return;
-    state = state.copyWith(previewStatus: PreviewStatus.processing, clearError: true);
+    state = state.copyWith(
+      previewStatus: PreviewStatus.processing,
+      clearError: true,
+    );
     try {
       final output = engine.exportJpeg(path, destination, state.exportQuality);
       if (output == null) {
@@ -168,9 +174,7 @@ class StudioController extends StateNotifier<StudioState> {
     }
   }
 
-  Future<void> _runImageOperation(
-    EngineImageOperation operation,
-  ) async {
+  Future<void> _runImageOperation(EngineImageOperation operation) async {
     final engine = _engine;
     final path = state.rawPath;
     if (engine == null || path == null) return;
@@ -208,4 +212,7 @@ class StudioController extends StateNotifier<StudioState> {
   }
 }
 
-typedef EngineImageOperation = dynamic Function(StudioEngine engine, String path);
+typedef EngineImageOperation = EngineImage? Function(
+  StudioEngine engine,
+  String path,
+);
