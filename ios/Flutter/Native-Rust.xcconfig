@@ -1,0 +1,4 @@
+// Generated Rust archives are produced by: make ios-native
+// Device and simulator archives are selected by SDK at link time.
+OTHER_LDFLAGS[sdk=iphoneos*] = $(inherited) -Xlinker -force_load -Xlinker "$(SRCROOT)/Native/device/libraw_engine.a"
+OTHER_LDFLAGS[sdk=iphonesimulator*] = $(inherited) -Xlinker -force_load -Xlinker "$(SRCROOT)/Native/simulator/libraw_engine.a"
