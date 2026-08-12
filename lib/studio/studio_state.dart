@@ -6,6 +6,8 @@ enum StudioModule { library, develop, export }
 
 enum PreviewStatus { empty, processing, ready, error }
 
+enum PreviewZoomMode { fit, oneToOne }
+
 enum StudioLayoutMode { wide, medium, compact }
 
 abstract final class StudioLayoutRatios {
@@ -27,12 +29,14 @@ class StudioState {
     this.imageWidth,
     this.imageHeight,
     this.previewStatus = PreviewStatus.empty,
+    this.previewZoomMode = PreviewZoomMode.fit,
     this.errorMessage,
     this.statusMessage,
     this.exportQuality = 90,
     this.activeModule = StudioModule.develop,
     this.leftPanelVisible = true,
     this.rightPanelVisible = true,
+    this.filmstripVisible = true,
   });
 
   final bool engineReady;
@@ -42,12 +46,14 @@ class StudioState {
   final int? imageWidth;
   final int? imageHeight;
   final PreviewStatus previewStatus;
+  final PreviewZoomMode previewZoomMode;
   final String? errorMessage;
   final String? statusMessage;
   final int exportQuality;
   final StudioModule activeModule;
   final bool leftPanelVisible;
   final bool rightPanelVisible;
+  final bool filmstripVisible;
 
   String? get fileName => rawPath == null ? null : p.basename(rawPath!);
 
@@ -60,6 +66,7 @@ class StudioState {
     int? imageWidth,
     int? imageHeight,
     PreviewStatus? previewStatus,
+    PreviewZoomMode? previewZoomMode,
     String? errorMessage,
     bool clearError = false,
     String? statusMessage,
@@ -67,6 +74,7 @@ class StudioState {
     StudioModule? activeModule,
     bool? leftPanelVisible,
     bool? rightPanelVisible,
+    bool? filmstripVisible,
   }) {
     return StudioState(
       engineReady: engineReady ?? this.engineReady,
@@ -76,12 +84,14 @@ class StudioState {
       imageWidth: clearPreview ? null : imageWidth ?? this.imageWidth,
       imageHeight: clearPreview ? null : imageHeight ?? this.imageHeight,
       previewStatus: previewStatus ?? this.previewStatus,
+      previewZoomMode: previewZoomMode ?? this.previewZoomMode,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       statusMessage: statusMessage ?? this.statusMessage,
       exportQuality: exportQuality ?? this.exportQuality,
       activeModule: activeModule ?? this.activeModule,
       leftPanelVisible: leftPanelVisible ?? this.leftPanelVisible,
       rightPanelVisible: rightPanelVisible ?? this.rightPanelVisible,
+      filmstripVisible: filmstripVisible ?? this.filmstripVisible,
     );
   }
 }
