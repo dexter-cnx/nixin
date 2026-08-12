@@ -8,6 +8,16 @@ enum PreviewStatus { empty, processing, ready, error }
 
 enum StudioLayoutMode { wide, medium, compact }
 
+abstract final class StudioLayoutRatios {
+  static const wideMinAspect = 1.65;
+  static const mediumMinAspect = 1.15;
+  static const wideLeft = 18;
+  static const wideCenter = 60;
+  static const wideRight = 22;
+  static const mediumCenter = 70;
+  static const mediumRight = 30;
+}
+
 class StudioState {
   const StudioState({
     this.engineReady = false,
@@ -46,6 +56,7 @@ class StudioState {
     String? engineVersion,
     String? rawPath,
     Uint8List? previewPng,
+    bool clearPreview = false,
     int? imageWidth,
     int? imageHeight,
     PreviewStatus? previewStatus,
@@ -61,9 +72,9 @@ class StudioState {
       engineReady: engineReady ?? this.engineReady,
       engineVersion: engineVersion ?? this.engineVersion,
       rawPath: rawPath ?? this.rawPath,
-      previewPng: previewPng ?? this.previewPng,
-      imageWidth: imageWidth ?? this.imageWidth,
-      imageHeight: imageHeight ?? this.imageHeight,
+      previewPng: clearPreview ? null : previewPng ?? this.previewPng,
+      imageWidth: clearPreview ? null : imageWidth ?? this.imageWidth,
+      imageHeight: clearPreview ? null : imageHeight ?? this.imageHeight,
       previewStatus: previewStatus ?? this.previewStatus,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       statusMessage: statusMessage ?? this.statusMessage,
@@ -76,7 +87,11 @@ class StudioState {
 }
 
 StudioLayoutMode layoutModeForRatio(double viewportRatio) {
-  if (viewportRatio >= 1.65) return StudioLayoutMode.wide;
-  if (viewportRatio >= 1.15) return StudioLayoutMode.medium;
+  if (viewportRatio >= StudioLayoutRatios.wideMinAspect) {
+    return StudioLayoutMode.wide;
+  }
+  if (viewportRatio >= StudioLayoutRatios.mediumMinAspect) {
+    return StudioLayoutMode.medium;
+  }
   return StudioLayoutMode.compact;
 }
