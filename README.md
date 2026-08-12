@@ -22,7 +22,7 @@ This is **not** a full RAW developer. It does not currently debayer sensor mosai
 ```text
 Flutter UI
   │
-  ├─ Dart FFI (ffi.dart logic in lib/main.dart)
+  ├─ Dart FFI (logic currently in lib/main.dart)
   │    ├─ Dart strings allocated with calloc → Dart frees
   │    ├─ Rust strings → Rust free_string_rust
   │    └─ Rust ImageBuffer → copy bytes → free_image_buffer
@@ -35,7 +35,7 @@ Rust core (rust/src/api.rs)
   │
   ├─ std::fs reads RAW container bytes for the current preview-only path
   ├─ embedded JPEG scanner selects the largest decodable JPEG preview
-  └─ rawler dependency is retained for future real RAW decoding work; V8 does not claim to debayer
+  ├─ rawler dependency is retained for future real RAW decoding work; V8 does not claim to debayer
   ├─ image crate decodes/encodes JPEG/PNG
   └─ CPU develop/mask/LUT/export operations
 ```
@@ -64,38 +64,38 @@ Support in practice depends on the file containing an embedded JPEG that the sca
 Prerequisites that must already be installed and available on `PATH`:
 
 - Flutter SDK
-- Rust toolchain (`cargo`, `rustc`; `rustup` recommended)
+- Rust toolchain (`cargo`, `rustc`, `rustup`)
 - Android SDK/NDK for Android native builds
+- Xcode + command line tools for macOS/iOS builds
 
-Bootstrap the project with:
+Bootstrap the current host with:
 
 ```bash
 make setup
 ```
 
-`make setup` runs `tool/setup-project.sh` and will:
+On macOS, `make setup` prepares both Android and Apple Rust targets. It will:
 
-1. Verify Flutter and Rust are available.
-2. Install `cargo-ndk` with `cargo install cargo-ndk --locked` if it is missing.
-3. Add the Rust `aarch64-linux-android` target when `rustup` is available.
-4. Run `cargo fetch`.
-5. Run `flutter pub get`.
-6. Run `cargo check` and `flutter analyze`.
-7. Print `flutter doctor -v` so remaining machine-level setup problems are visible.
+1. Verify Flutter and Rust.
+2. Install `cargo-ndk` if missing.
+3. Add the Android `aarch64-linux-android` Rust target.
+4. Add macOS/iOS Rust targets for Apple Silicon, Intel macOS, physical iOS, and iOS simulators.
+5. Verify Xcode tools.
+6. Run `cargo fetch`, `flutter pub get`, `cargo check`, and `flutter analyze`.
+7. Print `flutter doctor -v`.
 
-Other setup targets:
+Useful setup targets:
 
 ```bash
-make setup-common   # Flutter/Rust project dependencies only
-make setup-android  # Android native toolchain + dependencies
-make bootstrap      # Alias for make setup
+make setup-common
+make setup-android
+make setup-apple
+make bootstrap
 ```
 
-The setup script is idempotent: an existing `cargo-ndk` installation is reused instead of installed again.
+## Validation
 
-## Build and validation
-
-Run the full local gate:
+Run the full local validation gate:
 
 ```bash
 make validate
@@ -113,66 +113,117 @@ flutter analyze
 flutter test
 ```
 
-Build the host Rust library:
+## Android
 
-```bash
-make rust-build
-```
-
-Run Flutter without forcing a native target:
-
-```bash
-make run
-```
-
-### Desktop native library
-
-After `cargo build --release`, copy the produced library where the executable can load it:
-
-- macOS: `rust/target/release/libraw_engine.dylib`
-- Linux: `rust/target/release/libraw_engine.so`
-- Windows: `rust/target/release/raw_engine.dll`
-
-For a production Flutter desktop app, bundle the native library in the platform runner instead of relying on the current working directory.
-
-### Android
-
-For the currently validated Android ABI:
+Build the currently validated Android ABI:
 
 ```bash
 make android-arm64
 ```
 
-This builds:
+Output:
 
 ```text
 android/app/src/main/jniLibs/arm64-v8a/libraw_engine.so
 ```
 
-Build native code and run Flutter on a specific device:
+Build Rust and run Flutter on an Android device:
 
 ```bash
 make run-android DEVICE=<flutter-device-id>
 ```
 
-`cargo-ndk` must be available. If it is not, run:
+## macOS
+
+Apple platforms use the Rust `staticlib` output and link it into the Runner. Dart opens the process itself with `DynamicLibrary.process()`.
+
+Build a universal macOS static archive (`arm64 + x86_64`):
 
 ```bash
-make setup-android
+make macos-native
 ```
 
-Future Android ABI support may place libraries under:
+Generated artifact:
 
 ```text
-android/app/src/main/jniLibs/armeabi-v7a/libraw_engine.so
-android/app/src/main/jniLibs/x86_64/libraw_engine.so
+macos/Native/libraw_engine.a
 ```
 
-Only ship ABIs you actually build and test.
+The generated archive is ignored by Git. Xcode links it through `macos/Flutter/Native-Rust.xcconfig` with `-force_load` so FFI entry points are not dead-stripped.
 
-### iOS
+Build native Rust and run the macOS Flutter app:
 
-`DynamicLibrary.process()` requires the Rust symbols to be linked into the app process, typically via a static library/XCFramework integration. This repository does not claim that production Xcode integration is complete yet.
+```bash
+make run-macos
+```
+
+## iOS
+
+The iOS build produces separate archives for device and simulator:
+
+```bash
+make ios-native
+```
+
+Generated artifacts:
+
+```text
+ios/Native/device/libraw_engine.a
+ios/Native/simulator/libraw_engine.a
+```
+
+Device archive:
+
+```text
+aarch64-apple-ios
+```
+
+Simulator archive is universal where supported:
+
+```text
+aarch64-apple-ios-sim + x86_64-apple-ios
+```
+
+Xcode selects the proper archive through `ios/Flutter/Native-Rust.xcconfig` and force-loads it into Runner. Dart then resolves the exported C ABI symbols through `DynamicLibrary.process()`.
+
+Validate iOS native linkage without code signing:
+
+```bash
+make ios-build-nosign
+```
+
+Run on a physical iPhone or simulator:
+
+```bash
+flutter devices
+make run-ios DEVICE=<flutter-device-id>
+```
+
+For example, use the exact device ID printed by `flutter devices`; the Makefile intentionally does not hard-code a personal device identifier.
+
+## Apple native build script
+
+Both Apple platforms are built by:
+
+```text
+tool/build-apple-native.sh
+```
+
+Direct modes:
+
+```bash
+bash tool/build-apple-native.sh macos
+bash tool/build-apple-native.sh ios
+bash tool/build-apple-native.sh all
+```
+
+Or through Make:
+
+```bash
+make macos-native
+make ios-native
+make apple-native
+```
 
 ## FFI ownership rules
 
