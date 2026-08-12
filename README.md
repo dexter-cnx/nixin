@@ -59,22 +59,70 @@ Support in practice depends on the file containing an embedded JPEG that the sca
 9. `.cube` `DOMAIN_MIN`/`DOMAIN_MAX` are parsed but V8 sampling assumes normalized 0–1 input.
 10. No GPU path, USB/PTP tethering, real batch queue, color-managed monitor pipeline, or embedded XMP-in-JPEG writer yet.
 
-## Build
+## Project setup
+
+Prerequisites that must already be installed and available on `PATH`:
+
+- Flutter SDK
+- Rust toolchain (`cargo`, `rustc`; `rustup` recommended)
+- Android SDK/NDK for Android native builds
+
+Bootstrap the project with:
 
 ```bash
-cd nixin-full-source
-flutter create . --platforms=android,ios,macos,windows,linux
+make setup
+```
 
+`make setup` runs `tool/setup-project.sh` and will:
+
+1. Verify Flutter and Rust are available.
+2. Install `cargo-ndk` with `cargo install cargo-ndk --locked` if it is missing.
+3. Add the Rust `aarch64-linux-android` target when `rustup` is available.
+4. Run `cargo fetch`.
+5. Run `flutter pub get`.
+6. Run `cargo check` and `flutter analyze`.
+7. Print `flutter doctor -v` so remaining machine-level setup problems are visible.
+
+Other setup targets:
+
+```bash
+make setup-common   # Flutter/Rust project dependencies only
+make setup-android  # Android native toolchain + dependencies
+make bootstrap      # Alias for make setup
+```
+
+The setup script is idempotent: an existing `cargo-ndk` installation is reused instead of installed again.
+
+## Build and validation
+
+Run the full local gate:
+
+```bash
+make validate
+```
+
+Equivalent commands are:
+
+```bash
+flutter pub get
 cd rust
 cargo check
 cargo test
-cargo build --release
 cd ..
-
-flutter pub get
 flutter analyze
 flutter test
-flutter run
+```
+
+Build the host Rust library:
+
+```bash
+make rust-build
+```
+
+Run Flutter without forcing a native target:
+
+```bash
+make run
 ```
 
 ### Desktop native library
@@ -89,10 +137,33 @@ For a production Flutter desktop app, bundle the native library in the platform 
 
 ### Android
 
-Build with `cargo-ndk` for each ABI and place libraries under:
+For the currently validated Android ABI:
+
+```bash
+make android-arm64
+```
+
+This builds:
 
 ```text
 android/app/src/main/jniLibs/arm64-v8a/libraw_engine.so
+```
+
+Build native code and run Flutter on a specific device:
+
+```bash
+make run-android DEVICE=<flutter-device-id>
+```
+
+`cargo-ndk` must be available. If it is not, run:
+
+```bash
+make setup-android
+```
+
+Future Android ABI support may place libraries under:
+
+```text
 android/app/src/main/jniLibs/armeabi-v7a/libraw_engine.so
 android/app/src/main/jniLibs/x86_64/libraw_engine.so
 ```
@@ -101,7 +172,7 @@ Only ship ABIs you actually build and test.
 
 ### iOS
 
-`DynamicLibrary.process()` requires the Rust symbols to be linked into the app process, typically via a static library/XCFramework integration. This ZIP does not claim that Xcode integration has already been generated.
+`DynamicLibrary.process()` requires the Rust symbols to be linked into the app process, typically via a static library/XCFramework integration. This repository does not claim that production Xcode integration is complete yet.
 
 ## FFI ownership rules
 
