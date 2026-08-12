@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/theme/studio_theme.dart';
+import 'editor_controls.dart';
+import 'filmstrip.dart';
+import 'preview_surface.dart';
 import 'studio_controller.dart';
 import 'studio_state.dart';
 import 'studio_widgets.dart';
@@ -48,6 +51,11 @@ class StudioPage extends ConsumerWidget {
                   },
                 ),
                 if (mode != StudioLayoutMode.compact)
+                  StudioFilmstrip(
+                    state: state,
+                    onToggleVisibility: controller.toggleFilmstrip,
+                  ),
+                if (mode != StudioLayoutMode.compact)
                   StudioStatusBar(state: state),
               ],
             );
@@ -75,7 +83,10 @@ class _WideWorkspace extends StatelessWidget {
           ),
         Expanded(
           flex: StudioLayoutRatios.wideCenter,
-          child: PreviewWorkspace(state: state),
+          child: StudioPreviewSurface(
+            state: state,
+            onZoomModeChanged: controller.setPreviewZoomMode,
+          ),
         ),
         if (state.rightPanelVisible)
           Expanded(
@@ -101,7 +112,10 @@ class _MediumWorkspace extends StatelessWidget {
           children: [
             Expanded(
               flex: StudioLayoutRatios.mediumCenter,
-              child: PreviewWorkspace(state: state),
+              child: StudioPreviewSurface(
+                state: state,
+                onZoomModeChanged: controller.setPreviewZoomMode,
+              ),
             ),
             if (state.rightPanelVisible)
               Expanded(
@@ -148,7 +162,12 @@ class _CompactWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Expanded(child: PreviewWorkspace(state: state)),
+        Expanded(
+          child: StudioPreviewSurface(
+            state: state,
+            onZoomModeChanged: controller.setPreviewZoomMode,
+          ),
+        ),
         Container(
           color: StudioColors.panel,
           padding: const EdgeInsets.all(StudioSpacing.sm),
@@ -275,13 +294,8 @@ class _RightPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(child: Text('settings.jpeg_quality'.tr())),
-                  Text('${state.exportQuality}'),
-                ],
-              ),
-              Slider(
+              ParameterSlider(
+                label: 'settings.jpeg_quality'.tr(),
                 value: state.exportQuality.toDouble(),
                 min: 1,
                 max: 100,
@@ -289,6 +303,7 @@ class _RightPanel extends StatelessWidget {
                 onChanged: (value) =>
                     controller.setExportQuality(value.round()),
               ),
+              const SizedBox(height: StudioSpacing.sm),
               ActionButton(
                 icon: Icons.ios_share_outlined,
                 label: 'action.export_jpeg'.tr(),
