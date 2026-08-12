@@ -32,6 +32,23 @@ void main() {
       expect(state.fileName, 'image.nef');
     });
 
+    test('defaults preview to fit and keeps filmstrip visible', () {
+      const state = StudioState();
+      expect(state.previewZoomMode, PreviewZoomMode.fit);
+      expect(state.filmstripVisible, isTrue);
+    });
+
+    test('copyWith updates preview zoom and filmstrip visibility', () {
+      const state = StudioState();
+      final next = state.copyWith(
+        previewZoomMode: PreviewZoomMode.oneToOne,
+        filmstripVisible: false,
+      );
+
+      expect(next.previewZoomMode, PreviewZoomMode.oneToOne);
+      expect(next.filmstripVisible, isFalse);
+    });
+
     test('clearPreview clears preview bytes and dimensions', () {
       final state = StudioState(
         previewPng: Uint8List.fromList(const [1, 2, 3]),
