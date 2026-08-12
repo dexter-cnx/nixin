@@ -38,7 +38,10 @@ class StudioModuleBar extends StatelessWidget {
           const Icon(Icons.auto_awesome_mosaic_outlined, size: 20),
           if (!compact) ...[
             const SizedBox(width: StudioSpacing.sm),
-            Text('app_name'.tr(), style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'app_name'.tr(),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const Spacer(),
           ] else
             const SizedBox(width: StudioSpacing.sm),
@@ -49,7 +52,9 @@ class StudioModuleBar extends StatelessWidget {
                 for (final module in StudioModule.values)
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: StudioSpacing.xxs),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: StudioSpacing.xxs,
+                      ),
                       child: _ModuleButton(
                         label: 'module.${module.name}'.tr(),
                         selected: module == activeModule,
@@ -66,12 +71,12 @@ class StudioModuleBar extends StatelessWidget {
             IconButton(
               tooltip: 'panel.navigator'.tr(),
               onPressed: onToggleLeft,
-              icon: const Icon(Icons.left_panel_open_outlined, size: 20),
+              icon: const Icon(Icons.chevron_left, size: 20),
             ),
             IconButton(
               tooltip: 'panel.tools'.tr(),
               onPressed: onToggleRight,
-              icon: const Icon(Icons.right_panel_open_outlined, size: 20),
+              icon: const Icon(Icons.chevron_right, size: 20),
             ),
           ],
         ],
@@ -101,7 +106,9 @@ class _ModuleButton extends StatelessWidget {
         foregroundColor: selected
             ? StudioColors.textPrimary
             : StudioColors.textSecondary,
-        backgroundColor: selected ? StudioColors.surfaceHigh : Colors.transparent,
+        backgroundColor: selected
+            ? StudioColors.surfaceHigh
+            : Colors.transparent,
         padding: EdgeInsets.symmetric(
           horizontal: compact ? StudioSpacing.xs : StudioSpacing.md,
           vertical: StudioSpacing.sm,
@@ -116,7 +123,11 @@ class _ModuleButton extends StatelessWidget {
 }
 
 class StudioPanel extends StatelessWidget {
-  const StudioPanel({super.key, required this.children, this.trailingBorder = false});
+  const StudioPanel({
+    super.key,
+    required this.children,
+    this.trailingBorder = false,
+  });
 
   final List<Widget> children;
   final bool trailingBorder;
@@ -252,7 +263,11 @@ class PreviewWorkspace extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, color: StudioColors.error, size: 36),
+            const Icon(
+              Icons.error_outline,
+              color: StudioColors.error,
+              size: 36,
+            ),
             const SizedBox(height: StudioSpacing.md),
             Text('preview.error'.tr()),
             const SizedBox(height: StudioSpacing.sm),
@@ -285,7 +300,10 @@ class PreviewWorkspace extends StatelessWidget {
           style: Theme.of(context).textTheme.titleMedium,
         ),
         const SizedBox(height: StudioSpacing.xs),
-        Text('preview.empty_body'.tr(), style: Theme.of(context).textTheme.bodySmall),
+        Text(
+          'preview.empty_body'.tr(),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     );
   }
