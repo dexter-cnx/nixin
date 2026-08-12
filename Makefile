@@ -9,9 +9,10 @@ ANDROID_ARM64_DIR := $(ANDROID_JNILIBS)/arm64-v8a
 RUST_RELEASE_DIR := $(RUST_DIR)/target/release
 SETUP_SCRIPT := tool/setup-project.sh
 APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
+CONFIGURE_IDS_SCRIPT := tool/configure-identifiers.sh
 DEVICE ?=
 
-.PHONY: help doctor setup setup-common setup-android setup-apple bootstrap \
+.PHONY: help doctor configure-identifiers setup setup-common setup-android setup-apple bootstrap \
 	pub-get rust-fetch rust-check rust-test rust-build analyze flutter-test test check validate \
 	android-arm64 android-native macos-native ios-native apple-native \
 	run run-android run-macos run-ios ios-build-nosign \
@@ -24,7 +25,7 @@ help: ## Show available targets
 	@echo
 	@echo "Usage: make <target> [DEVICE=<flutter-device-id>]"
 	@echo
-	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter =="
@@ -43,6 +44,9 @@ doctor: ## Show Flutter/Rust/native build tool versions
 	@echo "== Flutter devices =="
 	@$(FLUTTER) devices
 
+configure-identifiers: ## Set com.cnxdev.nixin and Apple Team ZTM9BCJPY9
+	@bash $(CONFIGURE_IDS_SCRIPT)
+
 setup: ## Bootstrap project dependencies and native tooling for this host
 	@bash $(SETUP_SCRIPT) all
 
@@ -54,7 +58,7 @@ setup-common: ## Bootstrap Flutter/Rust dependencies only
 setup-android: ## Install/check cargo-ndk and Rust Android arm64 target
 	@bash $(SETUP_SCRIPT) android
 
-setup-apple: ## Install/check Rust macOS+iOS targets and Xcode tools
+setup-apple: ## Configure signing and install/check macOS+iOS Rust/Xcode tools
 	@bash $(SETUP_SCRIPT) apple
 
 pub-get: ## Run flutter pub get
@@ -86,7 +90,7 @@ validate: pub-get rust-check rust-test analyze flutter-test ## Full local valida
 	@echo
 	@echo "Nixin validation PASS"
 
-android-arm64: ## Build raw-engine .so for Android arm64-v8a
+android-arm64: configure-identifiers ## Build raw-engine .so for Android arm64-v8a
 	@command -v cargo-ndk >/dev/null 2>&1 || { echo "ERROR: cargo-ndk is required. Run: make setup-android"; exit 1; }
 	@mkdir -p $(ANDROID_ARM64_DIR)
 	cd $(RUST_DIR) && $(CARGO_NDK) -t arm64-v8a -o ../$(ANDROID_JNILIBS) build --release
@@ -95,13 +99,13 @@ android-arm64: ## Build raw-engine .so for Android arm64-v8a
 
 android-native: android-arm64 ## Alias for the currently validated Android ABI
 
-macos-native: ## Build universal macOS Rust static library
+macos-native: configure-identifiers ## Build universal macOS Rust static library
 	@bash $(APPLE_BUILD_SCRIPT) macos
 
-ios-native: ## Build iOS device + simulator Rust static libraries
+ios-native: configure-identifiers ## Build iOS device + simulator Rust static libraries
 	@bash $(APPLE_BUILD_SCRIPT) ios
 
-apple-native: ## Build all macOS and iOS Rust native libraries
+apple-native: configure-identifiers ## Build all macOS and iOS Rust native libraries
 	@bash $(APPLE_BUILD_SCRIPT) all
 
 run: ## Run Flutter; optionally pass DEVICE=<id>
