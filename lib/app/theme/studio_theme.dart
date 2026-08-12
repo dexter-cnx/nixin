@@ -33,6 +33,11 @@ abstract final class StudioMetrics {
   static const moduleBarHeight = 52.0;
   static const statusBarHeight = 28.0;
   static const compactToolbarHeight = 48.0;
+  static const compactControlHeight = 30.0;
+  static const compactRowHeight = 30.0;
+  static const filmstripHeight = 108.0;
+  static const filmstripCollapsedHeight = 30.0;
+  static const filmstripItemWidth = 112.0;
 }
 
 abstract final class StudioTheme {
