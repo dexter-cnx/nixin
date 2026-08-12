@@ -32,17 +32,7 @@ abstract final class StudioRadius {
 abstract final class StudioMetrics {
   static const moduleBarHeight = 52.0;
   static const statusBarHeight = 28.0;
-  static const leftPanelWide = 260.0;
-  static const leftPanelMedium = 224.0;
-  static const rightPanelWide = 320.0;
-  static const rightPanelMedium = 288.0;
   static const compactToolbarHeight = 48.0;
-}
-
-abstract final class StudioBreakpoints {
-  static const compact = 800.0;
-  static const desktop = 1100.0;
-  static const wide = 1440.0;
 }
 
 abstract final class StudioTheme {
