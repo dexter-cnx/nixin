@@ -48,15 +48,15 @@ final studioControllerProvider =
 });
 
 class StudioController extends StateNotifier<StudioState> {
-  StudioController({required StudioEngine? engine, required StudioSettingsStore settings})
-      : _engine = engine,
+  StudioController({
+    required StudioEngine? engine,
+    required StudioSettingsStore settings,
+  })  : _engine = engine,
         _settings = settings,
         super(
           StudioState(
             exportQuality: settings.read<int>('exportQuality', 90),
-            activeModule: StudioModule.values[
-              settings.read<int>('activeModule', StudioModule.develop.index),
-            ],
+            activeModule: _restoreModule(settings),
             leftPanelVisible: settings.read<bool>('leftPanelVisible', true),
             rightPanelVisible: settings.read<bool>('rightPanelVisible', true),
           ),
@@ -67,9 +67,23 @@ class StudioController extends StateNotifier<StudioState> {
   final StudioEngine? _engine;
   final StudioSettingsStore _settings;
 
+  static StudioModule _restoreModule(StudioSettingsStore settings) {
+    final index = settings.read<int>(
+      'activeModule',
+      StudioModule.develop.index,
+    );
+    if (index < 0 || index >= StudioModule.values.length) {
+      return StudioModule.develop;
+    }
+    return StudioModule.values[index];
+  }
+
   void _initializeEngine() {
     if (_engine == null) {
-      state = state.copyWith(engineReady: false, statusMessage: 'engine_unavailable');
+      state = state.copyWith(
+        engineReady: false,
+        statusMessage: 'engine_unavailable',
+      );
       return;
     }
     try {
@@ -124,7 +138,15 @@ class StudioController extends StateNotifier<StudioState> {
   Future<void> pickRaw() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf'],
+      allowedExtensions: const [
+        'arw',
+        'cr2',
+        'cr3',
+        'nef',
+        'dng',
+        'raf',
+        'orf',
+      ],
     );
     final path = result?.files.single.path;
     if (path != null) selectRawPath(path);
@@ -166,7 +188,10 @@ class StudioController extends StateNotifier<StudioState> {
       allowedExtensions: const ['jpg', 'jpeg'],
     );
     if (destination == null) return;
-    state = state.copyWith(previewStatus: PreviewStatus.processing, clearError: true);
+    state = state.copyWith(
+      previewStatus: PreviewStatus.processing,
+      clearError: true,
+    );
     try {
       final output = engine.exportJpeg(path, destination, state.exportQuality);
       if (output == null) {
@@ -191,7 +216,10 @@ class StudioController extends StateNotifier<StudioState> {
     final engine = _engine;
     final path = state.rawPath;
     if (engine == null || path == null) return;
-    state = state.copyWith(previewStatus: PreviewStatus.processing, clearError: true);
+    state = state.copyWith(
+      previewStatus: PreviewStatus.processing,
+      clearError: true,
+    );
     try {
       final image = operation(engine, path);
       if (image == null) {
