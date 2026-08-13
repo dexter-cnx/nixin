@@ -38,18 +38,18 @@ void main() {
 
   testWidgets('workspace selects wide, medium, and compact compositions by width',
       (tester) async {
-    var container = await _pumpStudio(tester, width: 1200, height: 800);
-    addTearDown(container.dispose);
+    final wide = await _pumpStudio(tester, width: 1200, height: 800);
+    addTearDown(wide.dispose);
     expect(find.byType(StudioPanel), findsNWidgets(2));
     expect(find.byType(StudioFilmstrip), findsOneWidget);
 
-    container.dispose();
-    container = await _pumpStudio(tester, width: 900, height: 800);
+    final medium = await _pumpStudio(tester, width: 900, height: 800);
+    addTearDown(medium.dispose);
     expect(find.byType(StudioPanel), findsOneWidget);
     expect(find.byType(StudioFilmstrip), findsOneWidget);
 
-    container.dispose();
-    container = await _pumpStudio(tester, width: 700, height: 800);
+    final compact = await _pumpStudio(tester, width: 700, height: 800);
+    addTearDown(compact.dispose);
     expect(find.byType(StudioPanel), findsNothing);
     expect(find.byType(StudioFilmstrip), findsNothing);
     expect(find.byType(StudioStatusBar), findsNothing);
