@@ -14,11 +14,6 @@ import 'package:nixin_studio_v8/studio/studio_widgets.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() async {
-    _mockSharedPreferences();
-    await EasyLocalization.ensureInitialized();
-  });
-
   testWidgets('studio actions are disabled until a RAW is selected', (tester) async {
     final container = await _pumpStudio(tester, width: 1200, height: 800);
     addTearDown(container.dispose);
@@ -43,18 +38,18 @@ void main() {
 
   testWidgets('workspace selects wide, medium, and compact compositions by width',
       (tester) async {
-    final wide = await _pumpStudio(tester, width: 1200, height: 800);
-    addTearDown(wide.dispose);
+    var container = await _pumpStudio(tester, width: 1200, height: 800);
+    addTearDown(container.dispose);
     expect(find.byType(StudioPanel), findsNWidgets(2));
     expect(find.byType(StudioFilmstrip), findsOneWidget);
 
-    final medium = await _pumpStudio(tester, width: 900, height: 800);
-    addTearDown(medium.dispose);
+    container.dispose();
+    container = await _pumpStudio(tester, width: 900, height: 800);
     expect(find.byType(StudioPanel), findsOneWidget);
     expect(find.byType(StudioFilmstrip), findsOneWidget);
 
-    final compact = await _pumpStudio(tester, width: 700, height: 800);
-    addTearDown(compact.dispose);
+    container.dispose();
+    container = await _pumpStudio(tester, width: 700, height: 800);
     expect(find.byType(StudioPanel), findsNothing);
     expect(find.byType(StudioFilmstrip), findsNothing);
     expect(find.byType(StudioStatusBar), findsNothing);
@@ -85,17 +80,6 @@ void main() {
   });
 }
 
-void _mockSharedPreferences() {
-  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(
-    const MethodChannel('plugins.flutter.io/shared_preferences'),
-    (call) async {
-      if (call.method == 'getAll') return <String, Object>{};
-      return true;
-    },
-  );
-}
-
 Future<ProviderContainer> _pumpStudio(
   WidgetTester tester, {
   required double width,
@@ -120,8 +104,10 @@ Future<ProviderContainer> _pumpStudio(
       container: container,
       child: EasyLocalization(
         supportedLocales: const [Locale('en')],
-        path: 'assets/translations',
+        path: 'test',
         fallbackLocale: const Locale('en'),
+        saveLocale: false,
+        assetLoader: const _TestAssetLoader(),
         child: Builder(
           builder: (context) => MaterialApp(
             theme: StudioTheme.dark,
@@ -136,6 +122,57 @@ Future<ProviderContainer> _pumpStudio(
   );
   await tester.pumpAndSettle();
   return container;
+}
+
+class _TestAssetLoader extends AssetLoader {
+  const _TestAssetLoader();
+
+  @override
+  Future<Map<String, dynamic>> load(String path, Locale locale) async => const {
+        'app_name': 'Nixin',
+        'module': {
+          'library': 'Library',
+          'develop': 'Develop',
+          'export': 'Export',
+        },
+        'panel': {
+          'navigator': 'Navigator',
+          'presets': 'Presets',
+          'tools': 'Tools',
+          'export': 'Export',
+          'filmstrip': 'Filmstrip',
+        },
+        'action': {
+          'open_raw': 'Open RAW',
+          'apply_lut': 'Apply LUT',
+          'develop': 'Develop',
+          'subject_mask': 'Subject Mask',
+          'sky_mask': 'Sky Mask',
+          'export_jpeg': 'Export JPEG',
+          'show_filmstrip': 'Show Filmstrip',
+          'hide_filmstrip': 'Hide Filmstrip',
+        },
+        'settings': {'jpeg_quality': 'JPEG Quality'},
+        'preview': {
+          'processing': 'Processing',
+          'error': 'Preview error',
+          'empty_title': 'No image selected',
+          'empty_body': 'Open a RAW file to begin',
+          'fit': 'Fit',
+          'one_to_one': '1:1',
+        },
+        'label': {
+          'filmstrip_empty': 'Open a RAW file',
+          'no_file': 'No file',
+          'engine': 'Engine',
+        },
+        'status': {
+          'ready': 'Ready',
+          'engine_unavailable': 'Engine unavailable',
+          'selected': 'Selected',
+          'exported': 'Exported',
+        },
+      };
 }
 
 class _MemorySettings implements StudioSettingsStore {
