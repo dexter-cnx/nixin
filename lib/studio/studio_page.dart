@@ -301,6 +301,12 @@ class _RightPanel extends StatelessWidget {
                 label: 'action.sky_mask'.tr(),
                 onPressed: enabled ? controller.skyMask : null,
               ),
+              const SizedBox(height: StudioSpacing.sm),
+              ActionButton(
+                icon: Icons.auto_fix_high_outlined,
+                label: 'action.apply_lut'.tr(),
+                onPressed: enabled ? controller.applyLut : null,
+              ),
             ],
           ),
         ),
