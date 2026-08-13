@@ -65,26 +65,6 @@ class StudioController extends StateNotifier<StudioState> {
     _initializeEngine();
   }
 
-  static const supportedImageExtensions = <String>[
-    // RAW formats currently handled through the embedded preview path.
-    'arw',
-    'cr2',
-    'cr3',
-    'nef',
-    'dng',
-    'raf',
-    'orf',
-    // Standard raster image formats handled by the generic image loader.
-    'jpg',
-    'jpeg',
-    'png',
-    'webp',
-    'tif',
-    'tiff',
-    'bmp',
-    'gif',
-  ];
-
   final StudioEngine? _engine;
   final StudioSettingsStore _settings;
 
@@ -168,7 +148,7 @@ class StudioController extends StateNotifier<StudioState> {
     await _settings.write('exportQuality', next);
   }
 
-  void selectImagePath(String path) {
+  void selectRawPath(String path) {
     state = state.copyWith(
       rawPath: path,
       clearPreview: true,
@@ -179,21 +159,33 @@ class StudioController extends StateNotifier<StudioState> {
     );
   }
 
-  // Kept as a compatibility alias while StudioState still uses `rawPath`.
-  void selectRawPath(String path) => selectImagePath(path);
-
-  Future<void> pickImage() async {
+  Future<void> pickRaw() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Open Image',
       type: FileType.custom,
-      allowedExtensions: supportedImageExtensions,
+      allowedExtensions: const [
+        'arw',
+        'cr2',
+        'cr3',
+        'nef',
+        'dng',
+        'raf',
+        'orf',
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'tif',
+        'tiff',
+        'bmp',
+        'gif',
+      ],
     );
     final path = result?.files.single.path;
-    if (path != null) selectImagePath(path);
-  }
+    if (path == null) return;
 
-  // Kept as a compatibility alias for existing callers/tests.
-  Future<void> pickRaw() => pickImage();
+    selectRawPath(path);
+    await develop();
+  }
 
   Future<void> develop() async =>
       _runImageOperation((engine, path) => engine.develop(path));
