@@ -120,6 +120,18 @@ class StudioController extends StateNotifier<StudioState> {
     await _settings.write('rightPanelVisible', next);
   }
 
+  void toggleSidePanels() {
+    final anyVisible = state.leftPanelVisible || state.rightPanelVisible;
+    state = state.copyWith(
+      leftPanelVisible: !anyVisible,
+      rightPanelVisible: !anyVisible,
+    );
+  }
+
+  void toggleChrome() {
+    state = state.copyWith(chromeVisible: !state.chromeVisible);
+  }
+
   Future<void> toggleFilmstrip() async {
     final next = !state.filmstripVisible;
     state = state.copyWith(filmstripVisible: next);
