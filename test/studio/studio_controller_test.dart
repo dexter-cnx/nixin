@@ -29,6 +29,9 @@ void main() {
       expect(controller.state.filmstripVisible, isFalse);
       expect(controller.state.engineReady, isTrue);
       expect(controller.state.engineVersion, 'fake-1.0');
+      expect(controller.state.exposure, 0);
+      expect(controller.state.temperature, 0);
+      expect(controller.state.contrast, 1);
     });
 
     test('persists workspace visibility and clamped export quality', () async {
@@ -84,13 +87,16 @@ void main() {
       expect(controller.state.engineReady, isTrue);
     });
 
-    test('selecting another RAW clears an old preview and resets zoom', () async {
+    test('selecting another RAW clears preview, zoom, and adjustments', () async {
       final controller = StudioController(
         engine: _FakeEngine(),
         settings: _MemorySettings(),
       );
 
       controller.selectRawPath('/tmp/first.nef');
+      controller.setExposure(1.5);
+      controller.setTemperature(0.4);
+      controller.setContrast(1.3);
       await controller.develop();
       controller.setPreviewZoomMode(PreviewZoomMode.oneToOne);
       expect(controller.state.previewStatus, PreviewStatus.ready);
@@ -104,9 +110,36 @@ void main() {
       expect(controller.state.imageWidth, isNull);
       expect(controller.state.imageHeight, isNull);
       expect(controller.state.previewZoomMode, PreviewZoomMode.fit);
+      expect(controller.state.exposure, 0);
+      expect(controller.state.temperature, 0);
+      expect(controller.state.contrast, 1);
     });
 
-    test('develop routes through the injected engine and publishes preview', () async {
+    test('develop forwards adjustments and publishes preview', () async {
+      final engine = _FakeEngine();
+      final controller = StudioController(
+        engine: engine,
+        settings: _MemorySettings(),
+      );
+      controller.selectRawPath('/tmp/sample.nef');
+      controller.setExposure(1.25);
+      controller.setTemperature(-0.35);
+      controller.setContrast(1.4);
+
+      await controller.develop();
+
+      expect(engine.lastDevelopPath, '/tmp/sample.nef');
+      expect(engine.lastExposure, 1.25);
+      expect(engine.lastTemperature, -0.35);
+      expect(engine.lastContrast, 1.4);
+      expect(controller.state.previewStatus, PreviewStatus.ready);
+      expect(controller.state.imageWidth, 1);
+      expect(controller.state.imageHeight, 1);
+      expect(controller.state.previewPng, isNotEmpty);
+      expect(controller.state.statusMessage, 'ready');
+    });
+
+    test('adjustments clamp and reset to engine defaults', () async {
       final engine = _FakeEngine();
       final controller = StudioController(
         engine: engine,
@@ -114,14 +147,24 @@ void main() {
       );
       controller.selectRawPath('/tmp/sample.nef');
 
-      await controller.develop();
+      controller.setExposure(99);
+      controller.setTemperature(-99);
+      controller.setContrast(99);
 
-      expect(engine.lastDevelopPath, '/tmp/sample.nef');
-      expect(controller.state.previewStatus, PreviewStatus.ready);
-      expect(controller.state.imageWidth, 1);
-      expect(controller.state.imageHeight, 1);
-      expect(controller.state.previewPng, isNotEmpty);
-      expect(controller.state.statusMessage, 'ready');
+      expect(controller.state.exposure, 4);
+      expect(controller.state.temperature, -1);
+      expect(controller.state.contrast, 2);
+      expect(controller.state.hasDevelopAdjustments, isTrue);
+
+      await controller.resetDevelopAdjustments();
+
+      expect(controller.state.exposure, 0);
+      expect(controller.state.temperature, 0);
+      expect(controller.state.contrast, 1);
+      expect(controller.state.hasDevelopAdjustments, isFalse);
+      expect(engine.lastExposure, 0);
+      expect(engine.lastTemperature, 0);
+      expect(engine.lastContrast, 1);
     });
 
     test('engine errors become explicit preview error state', () async {
@@ -170,6 +213,9 @@ class _FakeEngine implements StudioEngine {
 
   final bool returnNullDevelop;
   String? lastDevelopPath;
+  double? lastExposure;
+  double? lastTemperature;
+  double? lastContrast;
 
   EngineImage get _image => EngineImage(
         Uint8List.fromList(const [32, 64, 96, 255]),
@@ -184,13 +230,28 @@ class _FakeEngine implements StudioEngine {
   bool checkEngine() => true;
 
   @override
-  EngineImage? develop(String path) {
+  EngineImage? develop(
+    String path, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) {
     lastDevelopPath = path;
+    lastExposure = exposure;
+    lastTemperature = temperature;
+    lastContrast = contrast;
     return returnNullDevelop ? null : _image;
   }
 
   @override
-  String? exportJpeg(String path, String dest, int quality) => dest;
+  String? exportJpeg(
+    String path,
+    String dest,
+    int quality, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) => dest;
 
   @override
   String lastError() => 'fake engine error';
