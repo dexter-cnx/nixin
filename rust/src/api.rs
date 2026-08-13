@@ -116,7 +116,6 @@ fn apply_settings_to_rgba(img: &mut RgbaImage, settings: DevelopSettings) -> Res
         return Err("Develop settings must be finite".into());
     }
     let exposure_gain = 2.0_f32.powf(settings.exposure.clamp(-8.0, 8.0));
-    // Simple warm/cool RGB scaling. This is deliberately not Bradford CAT/white-balance science.
     let t = settings.temperature.clamp(-1.0, 1.0);
     let r_scale = 1.0 + 0.20 * t;
     let b_scale = 1.0 - 0.20 * t;
@@ -319,7 +318,6 @@ pub fn parse_cube(text: &str) -> Result<Lut3D, String> {
     if size < 2 { return Err("LUT_3D_SIZE must be >= 2".into()); }
     let expected = size.checked_mul(size).and_then(|v| v.checked_mul(size)).ok_or("LUT size overflow")?;
     if data.len() != expected { return Err(format!("LUT data length {} != size^3 {}", data.len(), expected)); }
-    // DOMAIN_MIN/MAX are parsed and retained for transparency, but V8 sampling assumes input domain 0..1.
     Ok(Lut3D { title, size, domain_min, domain_max, data })
 }
 
@@ -423,7 +421,7 @@ mod tests {
     #[test] fn test_lut_identity(){ let lut=parse_cube(&identity_cube(2)).unwrap(); let v=sample_lut_trilinear(&lut,[0.25,0.5,0.75]).unwrap(); assert!((v[0]-0.25).abs()<1e-5 && (v[1]-0.5).abs()<1e-5 && (v[2]-0.75).abs()<1e-5); }
     #[test] fn test_lut_trilinear(){ let lut=parse_cube(&identity_cube(2)).unwrap(); let v=sample_lut_trilinear(&lut,[0.5,0.5,0.5]).unwrap(); assert_eq!([0.5,0.5,0.5],v); }
     #[test] fn test_xmp_escape(){ assert_eq!(xml_escape("<&>\"'"),"&lt;&amp;&gt;&quot;&apos;"); let x=build_xmp(Some(5),Some("A&B")); assert!(x.contains("xmp:Rating=\"5\"") && x.contains("A&amp;B")); }
-    #[test] fn test_jpeg_quality(){ let rgba=ImgBuf::from_pixel(8,8,Rgba([120,80,30,255])); let d=tmp("q","jpg"); let f=File::create(&d).unwrap(); JpegEncoder::new_with_quality(f,90).write_image(&rgba_to_rgb(&rgba.into_raw()),8,8,ExtendedColorType::Rgb8).unwrap(); assert!(fs::metadata(&d).unwrap().len()>0); let _=fs::remove_file(d); }
-    #[test] fn test_standard_png_input(){ let rgba=ImgBuf::from_pixel(4,3,Rgba([10,20,30,255])); let d=tmp("source","png"); rgba.save(&d).unwrap(); let loaded=load_embedded_preview(&d).unwrap(); assert_eq!(loaded.dimensions(),(4,3)); let _=fs::remove_file(d); }
+    #[test] fn test_jpeg_quality(){ let rgba=ImgBuf::from_pixel(8,8,Rgba([120u8,80,30,255])); let d=tmp("q","jpg"); let f=File::create(&d).unwrap(); JpegEncoder::new_with_quality(f,90).write_image(&rgba_to_rgb(&rgba.into_raw()),8,8,ExtendedColorType::Rgb8).unwrap(); assert!(fs::metadata(&d).unwrap().len()>0); let _=fs::remove_file(d); }
+    #[test] fn test_standard_png_input(){ let rgba=ImgBuf::from_pixel(4,3,Rgba([10u8,20,30,255])); let d=tmp("source","png"); rgba.save(&d).unwrap(); let loaded=load_embedded_preview(&d).unwrap(); assert_eq!(loaded.dimensions(),(4,3)); let _=fs::remove_file(d); }
     #[test] fn test_subject_oob(){ let w=2u32; let h=2u32; let x=-1; let y=0; assert!(x<0 || y<0 || x>=w as i32 || y>=h as i32); }
 }
