@@ -45,6 +45,10 @@ fn run_image<F>(f: F) -> *mut ImageBuffer where F: FnOnce() -> Result<api::Devel
     }
 }
 
+fn develop_settings(exposure: f32, temperature: f32, contrast: f32) -> DevelopSettings {
+    DevelopSettings { exposure, temperature, contrast }
+}
+
 #[no_mangle]
 pub extern "C" fn get_v7_version() -> *mut c_char { string_to_c("Nixin Studio raw-engine 8.0.0".into()) }
 
@@ -76,8 +80,18 @@ pub extern "C" fn check_engine() -> c_int { if LAST_ERROR.lock().is_ok() { 1 } e
 
 #[no_mangle]
 pub extern "C" fn develop_raw(path: *const c_char) -> *mut ImageBuffer {
+    develop_raw_with_settings(path, 0.0, 0.0, 1.0)
+}
+
+#[no_mangle]
+pub extern "C" fn develop_raw_with_settings(
+    path: *const c_char,
+    exposure: f32,
+    temperature: f32,
+    contrast: f32,
+) -> *mut ImageBuffer {
     let path = match cstr_to_string(path) { Ok(v)=>v,Err(e)=>{set_last_error(e);return ptr::null_mut();} };
-    run_image(|| api::apply_develop_settings(path, DevelopSettings::default()))
+    run_image(|| api::apply_develop_settings(path, develop_settings(exposure, temperature, contrast)))
 }
 
 #[no_mangle]
@@ -102,9 +116,26 @@ pub extern "C" fn apply_lut_file(path:*const c_char,lut_path:*const c_char,stren
 
 #[no_mangle]
 pub extern "C" fn export_jpeg_with_quality(path:*const c_char,dest:*const c_char,quality:u8)->*mut c_char {
+    export_jpeg_with_settings(path, dest, quality, 0.0, 0.0, 1.0)
+}
+
+#[no_mangle]
+pub extern "C" fn export_jpeg_with_settings(
+    path: *const c_char,
+    dest: *const c_char,
+    quality: u8,
+    exposure: f32,
+    temperature: f32,
+    contrast: f32,
+) -> *mut c_char {
     let path=match cstr_to_string(path){Ok(v)=>v,Err(e)=>{set_last_error(e);return ptr::null_mut();}};
     let dest=match cstr_to_string(dest){Ok(v)=>v,Err(e)=>{set_last_error(e);return ptr::null_mut();}};
-    match api::export_developed_jpeg(path,dest,DevelopSettings::default(),ExportOptions{quality,..Default::default()}) {
+    match api::export_developed_jpeg(
+        path,
+        dest,
+        develop_settings(exposure, temperature, contrast),
+        ExportOptions{quality,..Default::default()},
+    ) {
         Ok(v)=>string_to_c(v), Err(e)=>{set_last_error(e);ptr::null_mut()}
     }
 }
@@ -121,5 +152,13 @@ mod tests {
         assert_eq!(image_buffer_get_len(p),8);
         assert!(!image_buffer_get_data(p).is_null());
         free_image_buffer(p);
+    }
+
+    #[test]
+    fn test_develop_settings_builder_preserves_values() {
+        let settings = develop_settings(1.25, -0.4, 1.3);
+        assert_eq!(settings.exposure, 1.25);
+        assert_eq!(settings.temperature, -0.4);
+        assert_eq!(settings.contrast, 1.3);
     }
 }
