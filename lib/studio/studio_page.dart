@@ -1,5 +1,6 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/theme/studio_theme.dart';
@@ -20,46 +21,59 @@ class StudioPage extends ConsumerWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final ratio = constraints.maxWidth / constraints.maxHeight;
-            final mode = layoutModeForRatio(ratio);
-            return Column(
-              children: [
-                StudioModuleBar(
-                  activeModule: state.activeModule,
-                  onModuleSelected: controller.setModule,
-                  onToggleLeft: controller.toggleLeftPanel,
-                  onToggleRight: controller.toggleRightPanel,
-                  showPanelToggles: mode == StudioLayoutMode.wide,
-                  compact: mode == StudioLayoutMode.compact,
-                ),
-                Expanded(
-                  child: switch (mode) {
-                    StudioLayoutMode.wide => _WideWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                    StudioLayoutMode.medium => _MediumWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                    StudioLayoutMode.compact => _CompactWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                  },
-                ),
-                if (mode != StudioLayoutMode.compact)
-                  StudioFilmstrip(
-                    state: state,
-                    onToggleVisibility: controller.toggleFilmstrip,
-                  ),
-                if (mode != StudioLayoutMode.compact)
-                  StudioStatusBar(state: state),
-              ],
-            );
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.tab): () {
+              controller.toggleSidePanels();
+            },
+            const SingleActivator(LogicalKeyboardKey.tab, shift: true): () {
+              controller.toggleChrome();
+            },
           },
+          child: Focus(
+            autofocus: true,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final mode = layoutModeForWidth(constraints.maxWidth);
+                return Column(
+                  children: [
+                    if (state.chromeVisible)
+                      StudioModuleBar(
+                        activeModule: state.activeModule,
+                        onModuleSelected: controller.setModule,
+                        onToggleLeft: controller.toggleLeftPanel,
+                        onToggleRight: controller.toggleRightPanel,
+                        showPanelToggles: mode == StudioLayoutMode.wide,
+                        compact: mode == StudioLayoutMode.compact,
+                      ),
+                    Expanded(
+                      child: switch (mode) {
+                        StudioLayoutMode.wide => _WideWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                        StudioLayoutMode.medium => _MediumWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                        StudioLayoutMode.compact => _CompactWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                      },
+                    ),
+                    if (state.chromeVisible && mode != StudioLayoutMode.compact)
+                      StudioFilmstrip(
+                        state: state,
+                        onToggleVisibility: controller.toggleFilmstrip,
+                      ),
+                    if (state.chromeVisible && mode != StudioLayoutMode.compact)
+                      StudioStatusBar(state: state),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
