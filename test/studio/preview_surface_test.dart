@@ -114,7 +114,12 @@ Future<void> _pumpPreview(WidgetTester tester, StudioState state) async {
       ),
     ),
   );
-  await tester.pumpAndSettle();
+
+  // Give EasyLocalization's async delegate enough frames to load without
+  // waiting for all animations to settle. The processing state contains an
+  // indeterminate CircularProgressIndicator, so pumpAndSettle would time out.
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 100));
 }
 
 class _TestAssetLoader extends AssetLoader {
