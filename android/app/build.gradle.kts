@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.cnxdev.nixin"
+    namespace = "com.cnxdev.dextryx"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.cnxdev.nixin"
+        applicationId = "com.cnxdev.dextryx"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
