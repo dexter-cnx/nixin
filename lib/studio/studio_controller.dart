@@ -148,12 +148,34 @@ class StudioController extends StateNotifier<StudioState> {
     await _settings.write('exportQuality', next);
   }
 
+  void setExposure(double value) {
+    state = state.copyWith(exposure: value.clamp(-4.0, 4.0).toDouble());
+  }
+
+  void setTemperature(double value) {
+    state = state.copyWith(
+      temperature: value.clamp(-1.0, 1.0).toDouble(),
+    );
+  }
+
+  void setContrast(double value) {
+    state = state.copyWith(contrast: value.clamp(0.0, 2.0).toDouble());
+  }
+
+  Future<void> resetDevelopAdjustments() async {
+    state = state.copyWith(exposure: 0, temperature: 0, contrast: 1);
+    if (state.rawPath != null) await develop();
+  }
+
   void selectRawPath(String path) {
     state = state.copyWith(
       rawPath: path,
       clearPreview: true,
       previewStatus: PreviewStatus.empty,
       previewZoomMode: PreviewZoomMode.fit,
+      exposure: 0,
+      temperature: 0,
+      contrast: 1,
       clearError: true,
       statusMessage: 'selected',
     );
@@ -187,8 +209,14 @@ class StudioController extends StateNotifier<StudioState> {
     await develop();
   }
 
-  Future<void> develop() async =>
-      _runImageOperation((engine, path) => engine.develop(path));
+  Future<void> develop() async => _runImageOperation(
+        (engine, path) => engine.develop(
+          path,
+          exposure: state.exposure,
+          temperature: state.temperature,
+          contrast: state.contrast,
+        ),
+      );
 
   Future<void> subjectMask() async =>
       _runImageOperation((engine, path) => engine.subjectMask(path));
@@ -228,7 +256,14 @@ class StudioController extends StateNotifier<StudioState> {
       clearError: true,
     );
     try {
-      final output = engine.exportJpeg(path, destination, state.exportQuality);
+      final output = engine.exportJpeg(
+        path,
+        destination,
+        state.exportQuality,
+        exposure: state.exposure,
+        temperature: state.temperature,
+        contrast: state.contrast,
+      );
       if (output == null) {
         _setEngineError(engine);
         return;
