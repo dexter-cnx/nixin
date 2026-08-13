@@ -4,25 +4,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nixin_studio_v8/studio/studio_state.dart';
 
 void main() {
-  group('layoutModeForRatio', () {
-    test('selects wide composition at wide ratio', () {
-      expect(layoutModeForRatio(1.8), StudioLayoutMode.wide);
+  group('layoutModeForWidth', () {
+    test('selects wide composition when side panels have room', () {
+      expect(layoutModeForWidth(1440), StudioLayoutMode.wide);
       expect(
-        layoutModeForRatio(StudioLayoutRatios.wideMinAspect),
+        layoutModeForWidth(StudioLayoutBreakpoints.sidePanelsMin),
         StudioLayoutMode.wide,
       );
     });
 
-    test('selects medium composition between ratio thresholds', () {
-      expect(layoutModeForRatio(1.4), StudioLayoutMode.medium);
-      expect(
-        layoutModeForRatio(StudioLayoutRatios.mediumMinAspect),
-        StudioLayoutMode.medium,
-      );
+    test('selects medium composition for tablet and narrow desktop widths', () {
+      expect(layoutModeForWidth(1099), StudioLayoutMode.medium);
+      expect(layoutModeForWidth(800), StudioLayoutMode.medium);
     });
 
-    test('selects compact composition below medium ratio', () {
-      expect(layoutModeForRatio(1.0), StudioLayoutMode.compact);
+    test('selects compact composition below 800 pixels', () {
+      expect(layoutModeForWidth(799), StudioLayoutMode.compact);
+      expect(layoutModeForWidth(480), StudioLayoutMode.compact);
     });
   });
 
@@ -32,21 +30,24 @@ void main() {
       expect(state.fileName, 'image.nef');
     });
 
-    test('defaults preview to fit and keeps filmstrip visible', () {
+    test('defaults preview to fit with filmstrip and chrome visible', () {
       const state = StudioState();
       expect(state.previewZoomMode, PreviewZoomMode.fit);
       expect(state.filmstripVisible, isTrue);
+      expect(state.chromeVisible, isTrue);
     });
 
-    test('copyWith updates preview zoom and filmstrip visibility', () {
+    test('copyWith updates preview zoom, filmstrip, and chrome visibility', () {
       const state = StudioState();
       final next = state.copyWith(
         previewZoomMode: PreviewZoomMode.oneToOne,
         filmstripVisible: false,
+        chromeVisible: false,
       );
 
       expect(next.previewZoomMode, PreviewZoomMode.oneToOne);
       expect(next.filmstripVisible, isFalse);
+      expect(next.chromeVisible, isFalse);
     });
 
     test('clearPreview clears preview bytes and dimensions', () {
