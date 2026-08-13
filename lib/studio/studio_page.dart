@@ -66,6 +66,7 @@ class StudioPage extends ConsumerWidget {
                       StudioFilmstrip(
                         state: state,
                         onToggleVisibility: controller.toggleFilmstrip,
+                        onSelectCurrent: controller.develop,
                       ),
                     if (state.chromeVisible && mode != StudioLayoutMode.compact)
                       StudioStatusBar(state: state),
