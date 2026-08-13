@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nixin_studio_v8/engine/engine_image.dart';
 import 'package:nixin_studio_v8/engine/raw_engine.dart';
+import 'package:nixin_studio_v8/studio/develop_preview_renderer.dart';
 import 'package:nixin_studio_v8/studio/studio_controller.dart';
 import 'package:nixin_studio_v8/studio/studio_state.dart';
 
@@ -167,6 +169,73 @@ void main() {
       expect(engine.lastContrast, 1);
     });
 
+    test('coalesces rapid interactive previews and drops stale results', () async {
+      final renderer = _ControlledPreviewRenderer();
+      final controller = StudioController(
+        engine: _FakeEngine(),
+        settings: _MemorySettings(),
+        previewRenderer: renderer,
+        interactivePreviewInterval: Duration.zero,
+      );
+      controller.selectRawPath('/tmp/sample.nef');
+
+      controller.previewExposure(0.5);
+      await _flushAsync();
+      expect(renderer.requests, hasLength(1));
+      expect(renderer.requests.single.exposure, 0.5);
+
+      controller.previewExposure(1.0);
+      controller.previewExposure(1.5);
+      expect(renderer.requests, hasLength(1));
+
+      renderer.complete(0);
+      await _flushAsync();
+
+      expect(controller.state.previewPng, isNull);
+      expect(renderer.requests, hasLength(2));
+      expect(renderer.requests.last.exposure, 1.5);
+
+      renderer.complete(1);
+      await _flushAsync();
+
+      expect(controller.state.previewStatus, PreviewStatus.ready);
+      expect(controller.state.previewPng, isNotEmpty);
+      expect(controller.state.exposure, 1.5);
+    });
+
+    test('slider release renders exact committed values after stale work', () async {
+      final renderer = _ControlledPreviewRenderer();
+      final controller = StudioController(
+        engine: _FakeEngine(),
+        settings: _MemorySettings(),
+        previewRenderer: renderer,
+        interactivePreviewInterval: Duration.zero,
+      );
+      controller.selectRawPath('/tmp/sample.nef');
+
+      controller.previewContrast(1.1);
+      await _flushAsync();
+      expect(renderer.requests, hasLength(1));
+
+      controller.previewContrast(1.65);
+      final committed = controller.commitDevelopAdjustments();
+
+      renderer.complete(0);
+      await _flushAsync();
+
+      expect(renderer.requests, hasLength(2));
+      expect(renderer.requests.last.contrast, 1.65);
+      expect(controller.state.previewPng, isNull);
+
+      renderer.complete(1);
+      await committed;
+      await _flushAsync();
+
+      expect(controller.state.contrast, 1.65);
+      expect(controller.state.previewStatus, PreviewStatus.ready);
+      expect(controller.state.previewPng, isNotEmpty);
+    });
+
     test('engine errors become explicit preview error state', () async {
       final controller = StudioController(
         engine: _FakeEngine(returnNullDevelop: true),
@@ -192,6 +261,11 @@ void main() {
   });
 }
 
+Future<void> _flushAsync() async {
+  await Future<void>.delayed(Duration.zero);
+  await Future<void>.delayed(Duration.zero);
+}
+
 class _MemorySettings implements StudioSettingsStore {
   _MemorySettings([Map<String, Object>? initial])
       : values = Map<String, Object>.from(initial ?? const {});
@@ -205,6 +279,31 @@ class _MemorySettings implements StudioSettingsStore {
   @override
   Future<void> write(String key, Object value) async {
     values[key] = value;
+  }
+}
+
+class _ControlledPreviewRenderer implements DevelopPreviewRenderer {
+  final List<DevelopPreviewRequest> requests = [];
+  final List<Completer<DevelopPreviewResult>> _completers = [];
+
+  @override
+  Future<DevelopPreviewResult> render(DevelopPreviewRequest request) {
+    requests.add(request);
+    final completer = Completer<DevelopPreviewResult>();
+    _completers.add(completer);
+    return completer.future;
+  }
+
+  void complete(int index) {
+    _completers[index].complete(
+      DevelopPreviewResult.success(
+        EngineImage(
+          Uint8List.fromList(const [32, 64, 96, 255]),
+          1,
+          1,
+        ),
+      ),
+    );
   }
 }
 

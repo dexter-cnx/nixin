@@ -324,9 +324,9 @@ class _RightPanel extends StatelessWidget {
                 enabled: enabled,
                 valueFormatter: (value) =>
                     '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}',
-                onChanged: controller.setExposure,
+                onChanged: controller.previewExposure,
                 onChangeEnd: (_) {
-                  controller.develop();
+                  controller.commitDevelopAdjustments();
                 },
               ),
               ParameterSlider(
@@ -337,9 +337,9 @@ class _RightPanel extends StatelessWidget {
                 divisions: 40,
                 enabled: enabled,
                 valueFormatter: (value) => '${(value * 100).round()}%',
-                onChanged: controller.setContrast,
+                onChanged: controller.previewContrast,
                 onChangeEnd: (_) {
-                  controller.develop();
+                  controller.commitDevelopAdjustments();
                 },
               ),
             ],
@@ -359,9 +359,10 @@ class _RightPanel extends StatelessWidget {
                 enabled: enabled,
                 valueFormatter: (value) =>
                     '${value >= 0 ? '+' : ''}${value.round()}',
-                onChanged: (value) => controller.setTemperature(value / 100),
+                onChanged: (value) =>
+                    controller.previewTemperature(value / 100),
                 onChangeEnd: (_) {
-                  controller.develop();
+                  controller.commitDevelopAdjustments();
                 },
               ),
               const SizedBox(height: StudioSpacing.xs),
