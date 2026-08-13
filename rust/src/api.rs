@@ -1,5 +1,8 @@
 use image::codecs::jpeg::JpegEncoder;
-use image::{DynamicImage, ExtendedColorType, GenericImageView, ImageEncoder, RgbaImage};
+use image::{
+    DynamicImage, ExtendedColorType, GenericImageView, ImageDecoder, ImageEncoder, ImageReader,
+    RgbaImage,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -23,7 +26,7 @@ impl Default for DevelopSettings {
 pub struct DevelopedImage {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>, // RGBA8
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +45,7 @@ impl Default for ExportOptions {
 #[derive(Debug, Clone)]
 pub struct MaskResult {
     pub overlay: DevelopedImage,
-    pub mask: Vec<u8>, // single channel, 0..255
+    pub mask: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,18 +57,25 @@ pub struct Lut3D {
     pub data: Vec<[f32; 3]>,
 }
 
-/// Load a standard raster image directly when supported by the `image` crate.
-/// RAW containers fall back to the embedded-JPEG preview path; V8 still does
-/// not debayer sensor RAW data.
+/// Loads a standard raster image and normalizes its EXIF orientation before it
+/// enters the editing pipeline. RAW containers fall back to the embedded-JPEG
+/// preview path; V8 still does not debayer sensor RAW data.
 pub fn load_embedded_preview(path: &str) -> Result<DynamicImage, String> {
     let source = Path::new(path);
-    if let Ok(image) = image::open(source) {
-        return Ok(image);
+    if let Ok(reader) = ImageReader::open(source) {
+        if let Ok(reader) = reader.with_guessed_format() {
+            if let Ok(mut decoder) = reader.into_decoder() {
+                let orientation = decoder
+                    .orientation()
+                    .unwrap_or(image::metadata::Orientation::NoTransforms);
+                if let Ok(mut image) = DynamicImage::from_decoder(decoder) {
+                    image.apply_orientation(orientation);
+                    return Ok(image);
+                }
+            }
+        }
     }
 
-    // rawler 0.6.0 does not expose a public RawSource API suitable for direct
-    // container-byte access. V8's current RAW path therefore reads the file
-    // bytes directly and scans for embedded JPEG previews.
     let bytes = fs::read(source).map_err(|e| format!("Image file read failed: {e}"))?;
     extract_best_embedded_jpeg(&bytes)
         .map_err(|e| format!("Unsupported image or RAW preview: {e}"))
@@ -412,16 +422,36 @@ fn rgba_to_rgb(rgba:&[u8])->Vec<u8> { rgba.chunks_exact(4).flat_map(|p| [p[0],p[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{ImageBuffer as ImgBuf, Rgba};
+    use image::{metadata::Orientation, ImageBuffer as ImgBuf, Rgba};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn tmp(name:&str, ext:&str)->String { let n=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(); std::env::temp_dir().join(format!("nixin-{name}-{n}.{ext}")).to_string_lossy().to_string() }
     fn identity_cube(size:usize)->String { let mut s=format!("TITLE \"Identity\"\nLUT_3D_SIZE {size}\n"); for b in 0..size { for g in 0..size { for r in 0..size { let d=(size-1) as f32; s.push_str(&format!("{} {} {}\n",r as f32/d,g as f32/d,b as f32/d)); }}} s }
+    fn exif_orientation_chunk(orientation: Orientation) -> Vec<u8> {
+        let value = orientation.to_exif();
+        vec![
+            b'I', b'I', 42, 0, 8, 0, 0, 0,
+            1, 0,
+            0x12, 0x01, 3, 0, 1, 0, 0, 0, value, 0, 0, 0,
+            0, 0, 0, 0,
+        ]
+    }
 
     #[test] fn test_lut_identity(){ let lut=parse_cube(&identity_cube(2)).unwrap(); let v=sample_lut_trilinear(&lut,[0.25,0.5,0.75]).unwrap(); assert!((v[0]-0.25).abs()<1e-5 && (v[1]-0.5).abs()<1e-5 && (v[2]-0.75).abs()<1e-5); }
     #[test] fn test_lut_trilinear(){ let lut=parse_cube(&identity_cube(2)).unwrap(); let v=sample_lut_trilinear(&lut,[0.5,0.5,0.5]).unwrap(); assert_eq!([0.5,0.5,0.5],v); }
     #[test] fn test_xmp_escape(){ assert_eq!(xml_escape("<&>\"'"),"&lt;&amp;&gt;&quot;&apos;"); let x=build_xmp(Some(5),Some("A&B")); assert!(x.contains("xmp:Rating=\"5\"") && x.contains("A&amp;B")); }
     #[test] fn test_jpeg_quality(){ let rgba=ImgBuf::from_pixel(8,8,Rgba([120u8,80,30,255])); let d=tmp("q","jpg"); let f=File::create(&d).unwrap(); JpegEncoder::new_with_quality(f,90).write_image(&rgba_to_rgb(&rgba.into_raw()),8,8,ExtendedColorType::Rgb8).unwrap(); assert!(fs::metadata(&d).unwrap().len()>0); let _=fs::remove_file(d); }
     #[test] fn test_standard_png_input(){ let rgba=ImgBuf::from_pixel(4,3,Rgba([10u8,20,30,255])); let d=tmp("source","png"); rgba.save(&d).unwrap(); let loaded=load_embedded_preview(&d).unwrap(); assert_eq!(loaded.dimensions(),(4,3)); let _=fs::remove_file(d); }
+    #[test] fn test_standard_jpeg_applies_exif_orientation(){
+        let rgba=ImgBuf::from_pixel(2,3,Rgba([40u8,80,120,255]));
+        let d=tmp("oriented","jpg");
+        let f=File::create(&d).unwrap();
+        let mut encoder=JpegEncoder::new_with_quality(f,100);
+        encoder.set_exif_metadata(exif_orientation_chunk(Orientation::Rotate90)).unwrap();
+        encoder.write_image(&rgba_to_rgb(&rgba.into_raw()),2,3,ExtendedColorType::Rgb8).unwrap();
+        let loaded=load_embedded_preview(&d).unwrap();
+        assert_eq!(loaded.dimensions(),(3,2));
+        let _=fs::remove_file(d);
+    }
     #[test] fn test_subject_oob(){ let w=2u32; let h=2u32; let x=-1; let y=0; assert!(x<0 || y<0 || x>=w as i32 || y>=h as i32); }
 }
