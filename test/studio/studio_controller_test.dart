@@ -52,6 +52,26 @@ void main() {
       expect(controller.state.exportQuality, 100);
     });
 
+    test('keyboard visibility actions toggle side panels and chrome', () {
+      final controller = StudioController(
+        engine: _FakeEngine(),
+        settings: _MemorySettings(),
+      );
+
+      controller.toggleSidePanels();
+      expect(controller.state.leftPanelVisible, isFalse);
+      expect(controller.state.rightPanelVisible, isFalse);
+
+      controller.toggleSidePanels();
+      expect(controller.state.leftPanelVisible, isTrue);
+      expect(controller.state.rightPanelVisible, isTrue);
+
+      controller.toggleChrome();
+      expect(controller.state.chromeVisible, isFalse);
+      controller.toggleChrome();
+      expect(controller.state.chromeVisible, isTrue);
+    });
+
     test('changes preview zoom mode without touching engine state', () {
       final controller = StudioController(
         engine: _FakeEngine(),
