@@ -14,6 +14,11 @@ import 'package:nixin_studio_v8/studio/studio_widgets.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUpAll(() async {
+    _mockSharedPreferences();
+    await EasyLocalization.ensureInitialized();
+  });
+
   testWidgets('studio actions are disabled until a RAW is selected', (tester) async {
     final container = await _pumpStudio(tester, width: 1200, height: 800);
     addTearDown(container.dispose);
@@ -78,6 +83,17 @@ void main() {
     expect(find.byType(StudioFilmstrip), findsNothing);
     expect(find.byType(StudioStatusBar), findsNothing);
   });
+}
+
+void _mockSharedPreferences() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+    const MethodChannel('plugins.flutter.io/shared_preferences'),
+    (call) async {
+      if (call.method == 'getAll') return <String, Object>{};
+      return true;
+    },
+  );
 }
 
 Future<ProviderContainer> _pumpStudio(
