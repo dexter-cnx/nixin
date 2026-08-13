@@ -37,6 +37,9 @@ class StudioState {
     this.errorMessage,
     this.statusMessage,
     this.exportQuality = 90,
+    this.exposure = 0,
+    this.temperature = 0,
+    this.contrast = 1,
     this.activeModule = StudioModule.develop,
     this.leftPanelVisible = true,
     this.rightPanelVisible = true,
@@ -55,6 +58,9 @@ class StudioState {
   final String? errorMessage;
   final String? statusMessage;
   final int exportQuality;
+  final double exposure;
+  final double temperature;
+  final double contrast;
   final StudioModule activeModule;
   final bool leftPanelVisible;
   final bool rightPanelVisible;
@@ -62,6 +68,9 @@ class StudioState {
   final bool chromeVisible;
 
   String? get fileName => rawPath == null ? null : p.basename(rawPath!);
+
+  bool get hasDevelopAdjustments =>
+      exposure != 0 || temperature != 0 || contrast != 1;
 
   StudioState copyWith({
     bool? engineReady,
@@ -77,6 +86,9 @@ class StudioState {
     bool clearError = false,
     String? statusMessage,
     int? exportQuality,
+    double? exposure,
+    double? temperature,
+    double? contrast,
     StudioModule? activeModule,
     bool? leftPanelVisible,
     bool? rightPanelVisible,
@@ -95,6 +107,9 @@ class StudioState {
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       statusMessage: statusMessage ?? this.statusMessage,
       exportQuality: exportQuality ?? this.exportQuality,
+      exposure: exposure ?? this.exposure,
+      temperature: temperature ?? this.temperature,
+      contrast: contrast ?? this.contrast,
       activeModule: activeModule ?? this.activeModule,
       leftPanelVisible: leftPanelVisible ?? this.leftPanelVisible,
       rightPanelVisible: rightPanelVisible ?? this.rightPanelVisible,
