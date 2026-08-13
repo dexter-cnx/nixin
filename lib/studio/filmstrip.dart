@@ -9,10 +9,12 @@ class StudioFilmstrip extends StatelessWidget {
     super.key,
     required this.state,
     required this.onToggleVisibility,
+    required this.onSelectCurrent,
   });
 
   final StudioState state;
   final VoidCallback onToggleVisibility;
+  final VoidCallback onSelectCurrent;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +54,10 @@ class StudioFilmstrip extends StatelessWidget {
                       StudioSpacing.sm,
                     ),
                     itemCount: 1,
-                    itemBuilder: (context, index) => _FilmstripItem(state: state),
+                    itemBuilder: (context, index) => _FilmstripItem(
+                      state: state,
+                      onTap: onSelectCurrent,
+                    ),
                   ),
           ),
         ],
@@ -78,7 +83,10 @@ class _FilmstripHeader extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: StudioSpacing.sm),
         child: Row(
           children: [
-            Text('filmstrip.title'.tr(), style: Theme.of(context).textTheme.labelMedium),
+            Text(
+              'filmstrip.title'.tr(),
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
             const Spacer(),
             IconButton(
               visualDensity: VisualDensity.compact,
@@ -97,48 +105,59 @@ class _FilmstripHeader extends StatelessWidget {
 }
 
 class _FilmstripItem extends StatelessWidget {
-  const _FilmstripItem({required this.state});
+  const _FilmstripItem({required this.state, required this.onTap});
 
   final StudioState state;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: StudioMetrics.filmstripItemWidth,
-      decoration: BoxDecoration(
-        color: StudioColors.surface,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(StudioRadius.sm),
-        border: Border.all(color: StudioColors.accent),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: state.previewPng == null
-                ? const Center(
-                    child: Icon(Icons.image_outlined, color: StudioColors.textSecondary),
-                  )
-                : Image.memory(
-                    state.previewPng!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
+        child: Container(
+          width: StudioMetrics.filmstripItemWidth,
+          decoration: BoxDecoration(
+            color: StudioColors.surface,
+            borderRadius: BorderRadius.circular(StudioRadius.sm),
+            border: Border.all(color: StudioColors.accent),
           ),
-          Container(
-            color: StudioColors.surfaceHigh,
-            padding: const EdgeInsets.symmetric(
-              horizontal: StudioSpacing.xs,
-              vertical: StudioSpacing.xxs,
-            ),
-            child: Text(
-              state.fileName ?? '',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: state.previewPng == null
+                    ? const Center(
+                        child: Icon(
+                          Icons.image_outlined,
+                          color: StudioColors.textSecondary,
+                        ),
+                      )
+                    : Image.memory(
+                        state.previewPng!,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                      ),
+              ),
+              Container(
+                color: StudioColors.surfaceHigh,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: StudioSpacing.xs,
+                  vertical: StudioSpacing.xxs,
+                ),
+                child: Text(
+                  state.fileName ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
