@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nixin_studio_v8/app/theme/studio_theme.dart';
 import 'package:nixin_studio_v8/studio/preview_surface.dart';
@@ -11,6 +12,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    _mockSharedPreferences();
     await EasyLocalization.ensureInitialized();
   });
 
@@ -75,6 +77,17 @@ void main() {
 
     expect(find.byType(InteractiveViewer), findsOneWidget);
   });
+}
+
+void _mockSharedPreferences() {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+    const MethodChannel('plugins.flutter.io/shared_preferences'),
+    (call) async {
+      if (call.method == 'getAll') return <String, Object>{};
+      return true;
+    },
+  );
 }
 
 Future<void> _pumpPreview(WidgetTester tester, StudioState state) async {
