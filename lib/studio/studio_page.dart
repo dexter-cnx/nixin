@@ -1,8 +1,12 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/theme/studio_theme.dart';
+import 'editor_controls.dart';
+import 'filmstrip.dart';
+import 'preview_surface.dart';
 import 'studio_controller.dart';
 import 'studio_state.dart';
 import 'studio_widgets.dart';
@@ -17,41 +21,60 @@ class StudioPage extends ConsumerWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final ratio = constraints.maxWidth / constraints.maxHeight;
-            final mode = layoutModeForRatio(ratio);
-            return Column(
-              children: [
-                StudioModuleBar(
-                  activeModule: state.activeModule,
-                  onModuleSelected: controller.setModule,
-                  onToggleLeft: controller.toggleLeftPanel,
-                  onToggleRight: controller.toggleRightPanel,
-                  showPanelToggles: mode == StudioLayoutMode.wide,
-                  compact: mode == StudioLayoutMode.compact,
-                ),
-                Expanded(
-                  child: switch (mode) {
-                    StudioLayoutMode.wide => _WideWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                    StudioLayoutMode.medium => _MediumWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                    StudioLayoutMode.compact => _CompactWorkspace(
-                        state: state,
-                        controller: controller,
-                      ),
-                  },
-                ),
-                if (mode != StudioLayoutMode.compact)
-                  StudioStatusBar(state: state),
-              ],
-            );
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.tab): () {
+              controller.toggleSidePanels();
+            },
+            const SingleActivator(LogicalKeyboardKey.tab, shift: true): () {
+              controller.toggleChrome();
+            },
           },
+          child: Focus(
+            autofocus: true,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final mode = layoutModeForWidth(constraints.maxWidth);
+                return Column(
+                  children: [
+                    if (state.chromeVisible)
+                      StudioModuleBar(
+                        activeModule: state.activeModule,
+                        onModuleSelected: controller.setModule,
+                        onToggleLeft: controller.toggleLeftPanel,
+                        onToggleRight: controller.toggleRightPanel,
+                        showPanelToggles: mode == StudioLayoutMode.wide,
+                        compact: mode == StudioLayoutMode.compact,
+                      ),
+                    Expanded(
+                      child: switch (mode) {
+                        StudioLayoutMode.wide => _WideWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                        StudioLayoutMode.medium => _MediumWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                        StudioLayoutMode.compact => _CompactWorkspace(
+                            state: state,
+                            controller: controller,
+                          ),
+                      },
+                    ),
+                    if (state.chromeVisible && mode != StudioLayoutMode.compact)
+                      StudioFilmstrip(
+                        state: state,
+                        onToggleVisibility: controller.toggleFilmstrip,
+                        onSelectCurrent: controller.develop,
+                      ),
+                    if (state.chromeVisible && mode != StudioLayoutMode.compact)
+                      StudioStatusBar(state: state),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -75,7 +98,10 @@ class _WideWorkspace extends StatelessWidget {
           ),
         Expanded(
           flex: StudioLayoutRatios.wideCenter,
-          child: PreviewWorkspace(state: state),
+          child: StudioPreviewSurface(
+            state: state,
+            onZoomModeChanged: controller.setPreviewZoomMode,
+          ),
         ),
         if (state.rightPanelVisible)
           Expanded(
@@ -101,7 +127,10 @@ class _MediumWorkspace extends StatelessWidget {
           children: [
             Expanded(
               flex: StudioLayoutRatios.mediumCenter,
-              child: PreviewWorkspace(state: state),
+              child: StudioPreviewSurface(
+                state: state,
+                onZoomModeChanged: controller.setPreviewZoomMode,
+              ),
             ),
             if (state.rightPanelVisible)
               Expanded(
@@ -148,7 +177,12 @@ class _CompactWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Expanded(child: PreviewWorkspace(state: state)),
+        Expanded(
+          child: StudioPreviewSurface(
+            state: state,
+            onZoomModeChanged: controller.setPreviewZoomMode,
+          ),
+        ),
         Container(
           color: StudioColors.panel,
           padding: const EdgeInsets.all(StudioSpacing.sm),
@@ -267,6 +301,12 @@ class _RightPanel extends StatelessWidget {
                 label: 'action.sky_mask'.tr(),
                 onPressed: enabled ? controller.skyMask : null,
               ),
+              const SizedBox(height: StudioSpacing.sm),
+              ActionButton(
+                icon: Icons.auto_fix_high_outlined,
+                label: 'action.apply_lut'.tr(),
+                onPressed: enabled ? controller.applyLut : null,
+              ),
             ],
           ),
         ),
@@ -275,13 +315,8 @@ class _RightPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(child: Text('settings.jpeg_quality'.tr())),
-                  Text('${state.exportQuality}'),
-                ],
-              ),
-              Slider(
+              ParameterSlider(
+                label: 'settings.jpeg_quality'.tr(),
                 value: state.exportQuality.toDouble(),
                 min: 1,
                 max: 100,
@@ -289,6 +324,7 @@ class _RightPanel extends StatelessWidget {
                 onChanged: (value) =>
                     controller.setExportQuality(value.round()),
               ),
+              const SizedBox(height: StudioSpacing.sm),
               ActionButton(
                 icon: Icons.ios_share_outlined,
                 label: 'action.export_jpeg'.tr(),

@@ -2,8 +2,9 @@
   "app_name": "Nixin Studio V8",
   "module": {"library": "คลังภาพ", "develop": "ปรับแต่ง", "export": "ส่งออก"},
   "panel": {"navigator": "ตัวนำทาง", "presets": "พรีเซ็ต", "tools": "เครื่องมือ", "export": "ส่งออก"},
-  "action": {"open_raw": "เปิด RAW", "develop": "ประมวลผล RAW", "subject_mask": "มาสก์วัตถุ", "sky_mask": "มาสก์ท้องฟ้า", "apply_lut": "ใช้ .cube LUT", "export_jpeg": "ส่งออก JPEG"},
-  "preview": {"empty_title": "ยังไม่ได้เลือกรูป", "empty_body": "เปิดไฟล์ RAW เพื่อเริ่มปรับแต่ง", "processing": "กำลังประมวลผลภาพ...", "error": "ไม่สามารถแสดงภาพได้"},
+  "action": {"open_raw": "เปิดภาพ", "develop": "ประมวลผลภาพ", "subject_mask": "มาสก์วัตถุ", "sky_mask": "มาสก์ท้องฟ้า", "apply_lut": "ใช้ .cube LUT", "export_jpeg": "ส่งออก JPEG"},
+  "preview": {"empty_title": "ยังไม่ได้เลือกรูป", "empty_body": "เปิดไฟล์ RAW หรือไฟล์ภาพเพื่อเริ่มปรับแต่ง", "processing": "กำลังประมวลผลภาพ...", "error": "ไม่สามารถแสดงภาพได้", "fit": "พอดี", "one_to_one": "1:1"},
+  "filmstrip": {"title": "แถบภาพ", "empty": "เปิดไฟล์ RAW หรือไฟล์ภาพเพื่อเพิ่มเข้าแถบภาพปัจจุบัน", "show": "แสดงแถบภาพ", "hide": "ซ่อนแถบภาพ"},
   "status": {"ready": "พร้อม", "engine_unavailable": "Engine ใช้งานไม่ได้", "selected": "เลือกแล้ว", "exported": "ส่งออกแล้ว"},
   "settings": {"jpeg_quality": "คุณภาพ JPEG"},
   "label": {"no_file": "ไม่มีไฟล์", "image": "ภาพ", "engine": "Engine"}

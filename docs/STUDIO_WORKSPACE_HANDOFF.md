@@ -1,16 +1,18 @@
 # Nixin Studio Workspace Redesign — Handoff
 
+> Status: UI-01 through UI-15 are complete. See **Section 22 — Final Implementation Status** for the current canonical state; earlier sections preserve the original design intent and implementation plan.
+
 ## 1. Objective
 
 Redesign Nixin Studio into a dense, professional desktop photo-editing workspace while preserving the existing Rust/FFI image-processing behavior.
 
 The first implementation milestone is structural rather than feature-heavy: establish a stable studio shell, move existing controls into clear workspace regions, and introduce reusable design tokens and compact editor controls before adding advanced editing tools.
 
-## 2. Current Baseline
+## 2. Historical Baseline
 
-The current Flutter application is still concentrated in `lib/main.dart`.
+At the start of this redesign, the Flutter application was concentrated in `lib/main.dart`.
 
-Existing behavior already available from the UI includes:
+Existing behavior already available from the UI included:
 
 - RAW file selection
 - RAW development through the Rust engine
@@ -630,15 +632,15 @@ Any native processing regression blocks further visual feature work.
 7. Prefer incremental extraction over a full application rewrite.
 8. Validate processing behavior after each structural move.
 
-## 21. Recommended Branch Workflow
+## 21. Historical Branch Workflow
 
-Current redesign branch:
+Initial redesign branch:
 
 ```text
 feature/studio-workspace-redesign
 ```
 
-Suggested implementation sequence:
+Initial implementation sequence:
 
 ```text
 commit 1  refactor: extract raw engine from studio UI
@@ -650,4 +652,66 @@ commit 6  refactor: migrate existing editor actions
 commit 7  test: cover studio workspace states
 ```
 
-Keep the branch focused on the workspace foundation. Advanced processing features should be separate follow-up work after this branch is stable.
+The foundation batch was completed and merged before the UI-09 through UI-15 follow-up branch.
+
+## 22. Final Implementation Status — 2026-08-13
+
+This section is the canonical status for the completed workspace milestone.
+
+### Delivery
+
+- UI-01 through UI-08 were completed and merged to `main` via PR #1.
+- PR #1 merge commit: `b40444467652d794d96a5891cb355fea718c2d3f`.
+- UI-09 through UI-15 were completed on branch `feature/studio-editor-controls` in PR #2.
+- Final implementation head before handoff-only documentation commits: `838b756cb52051caaa78345f443af5aeeaa63937`.
+- The workspace milestone UI-01 through UI-15 is complete.
+
+### Additional fixes completed during native validation
+
+- macOS App Sandbox user-selected read/write entitlement added for file picking and export.
+- source selection expanded from RAW-only to Open Image.
+- standard raster images decode directly through the Rust image pipeline; RAW containers retain the embedded-preview fallback.
+- PNG/JPEG selection populates the main preview immediately.
+- filmstrip thumbnail selection reloads the current preview.
+- Apply LUT is accessible from the right Tools panel so it remains available in medium layout.
+
+### Automated validation
+
+Latest CI on implementation head `838b756cb52051caaa78345f443af5aeeaa63937`:
+
+- GitHub Actions run #93 (`31678940129`): passed.
+- Rust check: passed.
+- Rust tests: passed.
+- Flutter analyze: passed.
+- Flutter tests: passed.
+- PNG standard-image loader regression coverage is included.
+
+### Manual native validation
+
+Developer-confirmed on macOS using the rebuilt native Rust library:
+
+- application launch and native engine load: passed
+- PNG/JPEG Open Image and immediate preview: passed
+- RAW preview/develop: passed
+- subject mask: passed
+- sky mask: passed
+- `.cube` LUT application: passed
+- JPEG export: passed
+- Fit / 1:1 preview modes and pan behavior: passed
+- filmstrip collapse/show and current-item interaction: passed
+- Tab side-panel toggle: passed
+- Shift+Tab major-chrome toggle: passed
+- responsive resize behavior across compact, medium, wide, and >=1440 px desktop widths: passed
+
+### Remaining guardrails / follow-up scope
+
+The completed milestone does not change these intentional constraints:
+
+- RAW processing remains preview-based; full sensor debayer is a future engine milestone.
+- no unsupported editor parameter should be presented as functional.
+- persistent library/catalog, advanced history, virtual copies, brush/heal, advanced masking, and advanced comparison tools remain follow-up work.
+- native processing behavior should continue to gate future structural UI changes.
+
+### Merge gate
+
+Automated and manual validation gates are complete. PR #2 is ready to leave Draft status and proceed through review. Merge remains an explicit separate action.

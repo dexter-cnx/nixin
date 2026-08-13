@@ -59,6 +59,7 @@ class StudioController extends StateNotifier<StudioState> {
             activeModule: _restoreModule(settings),
             leftPanelVisible: settings.read<bool>('leftPanelVisible', true),
             rightPanelVisible: settings.read<bool>('rightPanelVisible', true),
+            filmstripVisible: settings.read<bool>('filmstripVisible', true),
           ),
         ) {
     _initializeEngine();
@@ -119,6 +120,28 @@ class StudioController extends StateNotifier<StudioState> {
     await _settings.write('rightPanelVisible', next);
   }
 
+  void toggleSidePanels() {
+    final anyVisible = state.leftPanelVisible || state.rightPanelVisible;
+    state = state.copyWith(
+      leftPanelVisible: !anyVisible,
+      rightPanelVisible: !anyVisible,
+    );
+  }
+
+  void toggleChrome() {
+    state = state.copyWith(chromeVisible: !state.chromeVisible);
+  }
+
+  Future<void> toggleFilmstrip() async {
+    final next = !state.filmstripVisible;
+    state = state.copyWith(filmstripVisible: next);
+    await _settings.write('filmstripVisible', next);
+  }
+
+  void setPreviewZoomMode(PreviewZoomMode mode) {
+    state = state.copyWith(previewZoomMode: mode);
+  }
+
   Future<void> setExportQuality(int quality) async {
     final next = quality.clamp(1, 100).toInt();
     state = state.copyWith(exportQuality: next);
@@ -130,6 +153,7 @@ class StudioController extends StateNotifier<StudioState> {
       rawPath: path,
       clearPreview: true,
       previewStatus: PreviewStatus.empty,
+      previewZoomMode: PreviewZoomMode.fit,
       clearError: true,
       statusMessage: 'selected',
     );
@@ -146,10 +170,21 @@ class StudioController extends StateNotifier<StudioState> {
         'dng',
         'raf',
         'orf',
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        'tif',
+        'tiff',
+        'bmp',
+        'gif',
       ],
     );
     final path = result?.files.single.path;
-    if (path != null) selectRawPath(path);
+    if (path == null) return;
+
+    selectRawPath(path);
+    await develop();
   }
 
   Future<void> develop() async =>

@@ -6,11 +6,17 @@ enum StudioModule { library, develop, export }
 
 enum PreviewStatus { empty, processing, ready, error }
 
+enum PreviewZoomMode { fit, oneToOne }
+
 enum StudioLayoutMode { wide, medium, compact }
 
+abstract final class StudioLayoutBreakpoints {
+  static const compactMax = 799.0;
+  static const sidePanelsMin = 1100.0;
+  static const fullWorkspaceMin = 1440.0;
+}
+
 abstract final class StudioLayoutRatios {
-  static const wideMinAspect = 1.65;
-  static const mediumMinAspect = 1.15;
   static const wideLeft = 18;
   static const wideCenter = 60;
   static const wideRight = 22;
@@ -27,12 +33,15 @@ class StudioState {
     this.imageWidth,
     this.imageHeight,
     this.previewStatus = PreviewStatus.empty,
+    this.previewZoomMode = PreviewZoomMode.fit,
     this.errorMessage,
     this.statusMessage,
     this.exportQuality = 90,
     this.activeModule = StudioModule.develop,
     this.leftPanelVisible = true,
     this.rightPanelVisible = true,
+    this.filmstripVisible = true,
+    this.chromeVisible = true,
   });
 
   final bool engineReady;
@@ -42,12 +51,15 @@ class StudioState {
   final int? imageWidth;
   final int? imageHeight;
   final PreviewStatus previewStatus;
+  final PreviewZoomMode previewZoomMode;
   final String? errorMessage;
   final String? statusMessage;
   final int exportQuality;
   final StudioModule activeModule;
   final bool leftPanelVisible;
   final bool rightPanelVisible;
+  final bool filmstripVisible;
+  final bool chromeVisible;
 
   String? get fileName => rawPath == null ? null : p.basename(rawPath!);
 
@@ -60,6 +72,7 @@ class StudioState {
     int? imageWidth,
     int? imageHeight,
     PreviewStatus? previewStatus,
+    PreviewZoomMode? previewZoomMode,
     String? errorMessage,
     bool clearError = false,
     String? statusMessage,
@@ -67,6 +80,8 @@ class StudioState {
     StudioModule? activeModule,
     bool? leftPanelVisible,
     bool? rightPanelVisible,
+    bool? filmstripVisible,
+    bool? chromeVisible,
   }) {
     return StudioState(
       engineReady: engineReady ?? this.engineReady,
@@ -76,21 +91,24 @@ class StudioState {
       imageWidth: clearPreview ? null : imageWidth ?? this.imageWidth,
       imageHeight: clearPreview ? null : imageHeight ?? this.imageHeight,
       previewStatus: previewStatus ?? this.previewStatus,
+      previewZoomMode: previewZoomMode ?? this.previewZoomMode,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       statusMessage: statusMessage ?? this.statusMessage,
       exportQuality: exportQuality ?? this.exportQuality,
       activeModule: activeModule ?? this.activeModule,
       leftPanelVisible: leftPanelVisible ?? this.leftPanelVisible,
       rightPanelVisible: rightPanelVisible ?? this.rightPanelVisible,
+      filmstripVisible: filmstripVisible ?? this.filmstripVisible,
+      chromeVisible: chromeVisible ?? this.chromeVisible,
     );
   }
 }
 
-StudioLayoutMode layoutModeForRatio(double viewportRatio) {
-  if (viewportRatio >= StudioLayoutRatios.wideMinAspect) {
+StudioLayoutMode layoutModeForWidth(double viewportWidth) {
+  if (viewportWidth >= StudioLayoutBreakpoints.sidePanelsMin) {
     return StudioLayoutMode.wide;
   }
-  if (viewportRatio >= StudioLayoutRatios.mediumMinAspect) {
+  if (viewportWidth > StudioLayoutBreakpoints.compactMax) {
     return StudioLayoutMode.medium;
   }
   return StudioLayoutMode.compact;
