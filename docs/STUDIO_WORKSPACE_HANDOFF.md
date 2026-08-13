@@ -651,3 +651,65 @@ commit 7  test: cover studio workspace states
 ```
 
 Keep the branch focused on the workspace foundation. Advanced processing features should be separate follow-up work after this branch is stable.
+
+## 22. Final Implementation Status — 2026-08-13
+
+This section supersedes the historical baseline and proposed-work wording above for implementation status.
+
+### Delivery
+
+- UI-01 through UI-08 were completed and merged to `main` via PR #1.
+- PR #1 merge commit: `b40444467652d794d96a5891cb355fea718c2d3f`.
+- UI-09 through UI-15 were completed on branch `feature/studio-editor-controls` in PR #2.
+- Final implementation head before this handoff update: `838b756cb52051caaa78345f443af5aeeaa63937`.
+- The workspace milestone UI-01 through UI-15 is complete.
+
+### Additional fixes completed during native validation
+
+- macOS App Sandbox user-selected read/write entitlement added for file picking and export.
+- source selection expanded from RAW-only to Open Image.
+- standard raster images decode directly through the Rust image pipeline; RAW containers retain the embedded-preview fallback.
+- PNG/JPEG selection populates the main preview immediately.
+- filmstrip thumbnail selection reloads the current preview.
+- Apply LUT is accessible from the right Tools panel so it remains available in medium layout.
+
+### Automated validation
+
+Latest CI on implementation head `838b756cb52051caaa78345f443af5aeeaa63937`:
+
+- GitHub Actions run #93 (`31678940129`): passed.
+- Rust check: passed.
+- Rust tests: passed.
+- Flutter analyze: passed.
+- Flutter tests: passed.
+- PNG standard-image loader regression coverage is included.
+
+### Manual native validation
+
+Developer-confirmed on macOS using the rebuilt native Rust library:
+
+- application launch and native engine load: passed
+- PNG/JPEG Open Image and immediate preview: passed
+- RAW preview/develop: passed
+- subject mask: passed
+- sky mask: passed
+- `.cube` LUT application: passed
+- JPEG export: passed
+- Fit / 1:1 preview modes and pan behavior: passed
+- filmstrip collapse/show and current-item interaction: passed
+- Tab side-panel toggle: passed
+- Shift+Tab major-chrome toggle: passed
+- responsive resize behavior across compact, medium, wide, and >=1440 px desktop widths: passed
+
+### Remaining guardrails / follow-up scope
+
+The completed milestone does not change these intentional constraints:
+
+- RAW processing remains preview-based; full sensor debayer is a future engine milestone.
+- no unsupported editor parameter should be presented as functional.
+- persistent library/catalog, advanced history, virtual copies, brush/heal, advanced masking, and advanced comparison tools remain follow-up work.
+- native processing behavior should continue to gate future structural UI changes.
+
+### Merge gate
+
+Automated and manual validation gates are complete. PR #2 is ready to leave Draft status and proceed through review. Merge remains an explicit separate action.
