@@ -54,15 +54,21 @@ pub struct Lut3D {
     pub data: Vec<[f32; 3]>,
 }
 
-/// Nixin Studio V8 intentionally works from an embedded JPEG preview.
-/// It does not debayer the sensor RAW data.
+/// Load a standard raster image directly when supported by the `image` crate.
+/// RAW containers fall back to the embedded-JPEG preview path; V8 still does
+/// not debayer sensor RAW data.
 pub fn load_embedded_preview(path: &str) -> Result<DynamicImage, String> {
+    let source = Path::new(path);
+    if let Ok(image) = image::open(source) {
+        return Ok(image);
+    }
+
     // rawler 0.6.0 does not expose a public RawSource API suitable for direct
-    // container-byte access. V8's current preview-only path therefore reads
-    // the RAW file bytes directly and scans for embedded JPEG previews.
-    // This is intentionally NOT a full RAW decode/debayer path.
-    let bytes = fs::read(Path::new(path)).map_err(|e| format!("RAW file read failed: {e}"))?;
+    // container-byte access. V8's current RAW path therefore reads the file
+    // bytes directly and scans for embedded JPEG previews.
+    let bytes = fs::read(source).map_err(|e| format!("Image file read failed: {e}"))?;
     extract_best_embedded_jpeg(&bytes)
+        .map_err(|e| format!("Unsupported image or RAW preview: {e}"))
 }
 
 fn extract_best_embedded_jpeg(bytes: &[u8]) -> Result<DynamicImage, String> {
@@ -418,5 +424,6 @@ mod tests {
     #[test] fn test_lut_trilinear(){ let lut=parse_cube(&identity_cube(2)).unwrap(); let v=sample_lut_trilinear(&lut,[0.5,0.5,0.5]).unwrap(); assert_eq!([0.5,0.5,0.5],v); }
     #[test] fn test_xmp_escape(){ assert_eq!(xml_escape("<&>\"'"),"&lt;&amp;&gt;&quot;&apos;"); let x=build_xmp(Some(5),Some("A&B")); assert!(x.contains("xmp:Rating=\"5\"") && x.contains("A&amp;B")); }
     #[test] fn test_jpeg_quality(){ let rgba=ImgBuf::from_pixel(8,8,Rgba([120,80,30,255])); let d=tmp("q","jpg"); let f=File::create(&d).unwrap(); JpegEncoder::new_with_quality(f,90).write_image(&rgba_to_rgb(&rgba.into_raw()),8,8,ExtendedColorType::Rgb8).unwrap(); assert!(fs::metadata(&d).unwrap().len()>0); let _=fs::remove_file(d); }
+    #[test] fn test_standard_png_input(){ let rgba=ImgBuf::from_pixel(4,3,Rgba([10,20,30,255])); let d=tmp("source","png"); rgba.save(&d).unwrap(); let loaded=load_embedded_preview(&d).unwrap(); assert_eq!(loaded.dimensions(),(4,3)); let _=fs::remove_file(d); }
     #[test] fn test_subject_oob(){ let w=2u32; let h=2u32; let x=-1; let y=0; assert!(x<0 || y<0 || x>=w as i32 || y>=h as i32); }
 }
