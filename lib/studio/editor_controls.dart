@@ -11,6 +11,7 @@ class ParameterSlider extends StatelessWidget {
     required this.min,
     required this.max,
     required this.onChanged,
+    this.onChangeEnd,
     this.divisions,
     this.valueFormatter,
     this.enabled = true,
@@ -21,6 +22,7 @@ class ParameterSlider extends StatelessWidget {
   final double min;
   final double max;
   final ValueChanged<double> onChanged;
+  final ValueChanged<double>? onChangeEnd;
   final int? divisions;
   final String Function(double value)? valueFormatter;
   final bool enabled;
@@ -57,6 +59,7 @@ class ParameterSlider extends StatelessWidget {
               max: max,
               divisions: divisions,
               onChanged: enabled ? onChanged : null,
+              onChangeEnd: enabled ? onChangeEnd : null,
             ),
           ),
         ),

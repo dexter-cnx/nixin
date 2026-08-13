@@ -311,6 +311,76 @@ class _RightPanel extends StatelessWidget {
           ),
         ),
         StudioPanelSection(
+          title: 'panel.light'.tr(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ParameterSlider(
+                label: 'adjustment.exposure'.tr(),
+                value: state.exposure,
+                min: -4,
+                max: 4,
+                divisions: 80,
+                enabled: enabled,
+                valueFormatter: (value) =>
+                    '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}',
+                onChanged: controller.setExposure,
+                onChangeEnd: (_) {
+                  controller.develop();
+                },
+              ),
+              ParameterSlider(
+                label: 'adjustment.contrast'.tr(),
+                value: state.contrast,
+                min: 0,
+                max: 2,
+                divisions: 40,
+                enabled: enabled,
+                valueFormatter: (value) => '${(value * 100).round()}%',
+                onChanged: controller.setContrast,
+                onChangeEnd: (_) {
+                  controller.develop();
+                },
+              ),
+            ],
+          ),
+        ),
+        StudioPanelSection(
+          title: 'panel.color'.tr(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ParameterSlider(
+                label: 'adjustment.temperature'.tr(),
+                value: state.temperature * 100,
+                min: -100,
+                max: 100,
+                divisions: 100,
+                enabled: enabled,
+                valueFormatter: (value) =>
+                    '${value >= 0 ? '+' : ''}${value.round()}',
+                onChanged: (value) => controller.setTemperature(value / 100),
+                onChangeEnd: (_) {
+                  controller.develop();
+                },
+              ),
+              const SizedBox(height: StudioSpacing.xs),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: enabled && state.hasDevelopAdjustments
+                      ? () {
+                          controller.resetDevelopAdjustments();
+                        }
+                      : null,
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: Text('action.reset_adjustments'.tr()),
+                ),
+              ),
+            ],
+          ),
+        ),
+        StudioPanelSection(
           title: 'panel.export'.tr(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
