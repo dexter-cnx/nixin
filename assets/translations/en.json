@@ -1,5 +1,5 @@
 {
-  "app_name": "Nixin Studio V8",
+  "app_name": "Dextryx",
   "module": {"library": "Library", "develop": "Develop", "export": "Export"},
   "panel": {"navigator": "Navigator", "presets": "Presets", "tools": "Tools", "light": "Light", "color": "Color", "export": "Export"},
   "action": {"open_raw": "Open Image", "develop": "Develop Image", "subject_mask": "Subject Mask", "sky_mask": "Sky Mask", "apply_lut": "Apply .cube LUT", "reset_adjustments": "Reset adjustments", "export_jpeg": "Export JPEG"},
