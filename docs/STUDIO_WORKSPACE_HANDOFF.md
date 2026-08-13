@@ -664,7 +664,6 @@ This section is the canonical status for the completed workspace milestone.
 - PR #1 merge commit: `b40444467652d794d96a5891cb355fea718c2d3f`.
 - UI-09 through UI-15 were completed on branch `feature/studio-editor-controls` in PR #2.
 - Final implementation head before handoff-only documentation commits: `838b756cb52051caaa78345f443af5aeeaa63937`.
-- Handoff documentation head: `4b53d85bd6a53d2c52063d5aa3fe4d2204a89472` before this final metadata-only documentation update.
 - The workspace milestone UI-01 through UI-15 is complete.
 
 ### Additional fixes completed during native validation
