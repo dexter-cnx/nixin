@@ -7,7 +7,7 @@ abstract final class StudioColors {
   static const surfaceHigh = Color(0xFF34363B);
   static const divider = Color(0xFF3D3F45);
   static const focus = Color(0xFFB7C8FF);
-  static const hover = Color(0x143FFFFFFF);
+  static const hover = Color(0x14FFFFFF);
   static const textPrimary = Color(0xFFF2F2F3);
   static const textSecondary = Color(0xFFB2B4BA);
   static const textDisabled = Color(0xFF71737A);
