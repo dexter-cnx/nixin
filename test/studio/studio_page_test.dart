@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,7 +21,7 @@ void main() {
     await EasyLocalization.ensureInitialized();
   });
 
-  testWidgets('studio actions are disabled until a RAW is selected', (tester) async {
+  testWidgets('studio actions are disabled until an image is selected', (tester) async {
     final container = await _pumpStudio(tester, width: 1200, height: 800);
     addTearDown(container.dispose);
 
@@ -58,6 +60,19 @@ void main() {
     expect(find.byType(StudioPanel), findsNothing);
     expect(find.byType(StudioFilmstrip), findsNothing);
     expect(find.byType(StudioStatusBar), findsNothing);
+  });
+
+  testWidgets('develop adjustment sections are available in the right panel',
+      (tester) async {
+    final container = await _pumpStudio(tester, width: 1200, height: 900);
+    addTearDown(container.dispose);
+
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Color'), findsOneWidget);
+    expect(find.text('Exposure'), findsOneWidget);
+    expect(find.text('Contrast'), findsOneWidget);
+    expect(find.text('Temperature'), findsOneWidget);
+    expect(find.text('Reset adjustments'), findsOneWidget);
   });
 
   testWidgets('Tab toggles side panels and Shift+Tab toggles chrome',
@@ -155,30 +170,38 @@ class _TestAssetLoader extends AssetLoader {
           'navigator': 'Navigator',
           'presets': 'Presets',
           'tools': 'Tools',
+          'light': 'Light',
+          'color': 'Color',
           'export': 'Export',
           'filmstrip': 'Filmstrip',
         },
         'action': {
-          'open_raw': 'Open RAW',
+          'open_raw': 'Open Image',
           'apply_lut': 'Apply LUT',
           'develop': 'Develop',
           'subject_mask': 'Subject Mask',
           'sky_mask': 'Sky Mask',
+          'reset_adjustments': 'Reset adjustments',
           'export_jpeg': 'Export JPEG',
           'show_filmstrip': 'Show Filmstrip',
           'hide_filmstrip': 'Hide Filmstrip',
+        },
+        'adjustment': {
+          'exposure': 'Exposure',
+          'contrast': 'Contrast',
+          'temperature': 'Temperature',
         },
         'settings': {'jpeg_quality': 'JPEG Quality'},
         'preview': {
           'processing': 'Processing',
           'error': 'Preview error',
           'empty_title': 'No image selected',
-          'empty_body': 'Open a RAW file to begin',
+          'empty_body': 'Open an image to begin',
           'fit': 'Fit',
           'one_to_one': '1:1',
         },
         'label': {
-          'filmstrip_empty': 'Open a RAW file',
+          'filmstrip_empty': 'Open an image',
           'no_file': 'No file',
           'engine': 'Engine',
         },
@@ -218,10 +241,22 @@ class _FakeEngine implements StudioEngine {
   bool checkEngine() => true;
 
   @override
-  EngineImage? develop(String path) => _image;
+  EngineImage? develop(
+    String path, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) => _image;
 
   @override
-  String? exportJpeg(String path, String dest, int quality) => dest;
+  String? exportJpeg(
+    String path,
+    String dest,
+    int quality, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) => dest;
 
   @override
   String lastError() => 'fake engine error';
