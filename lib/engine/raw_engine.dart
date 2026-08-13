@@ -11,11 +11,23 @@ abstract interface class StudioEngine {
   bool checkEngine();
   String version();
   String lastError();
-  EngineImage? develop(String path);
+  EngineImage? develop(
+    String path, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  });
   EngineImage? subjectMask(String path, {int? x, int? y});
   EngineImage? skyMask(String path);
   EngineImage? applyLut(String path, String lutPath, double strength);
-  String? exportJpeg(String path, String dest, int quality);
+  String? exportJpeg(
+    String path,
+    String dest,
+    int quality, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  });
 }
 
 final class ImageBufferNative extends Opaque {}
@@ -26,16 +38,58 @@ typedef _FreeStringN = Void Function(Pointer<Utf8>);
 typedef _FreeStringD = void Function(Pointer<Utf8>);
 typedef _CheckN = Int32 Function();
 typedef _CheckD = int Function();
-typedef _DevelopN = Pointer<ImageBufferNative> Function(Pointer<Utf8>);
-typedef _DevelopD = Pointer<ImageBufferNative> Function(Pointer<Utf8>);
-typedef _SubjectN = Pointer<ImageBufferNative> Function(Pointer<Utf8>, Int32, Int32, Int32);
-typedef _SubjectD = Pointer<ImageBufferNative> Function(Pointer<Utf8>, int, int, int);
+typedef _DevelopN = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  Float,
+  Float,
+  Float,
+);
+typedef _DevelopD = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  double,
+  double,
+  double,
+);
+typedef _SubjectN = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  Int32,
+  Int32,
+  Int32,
+);
+typedef _SubjectD = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  int,
+  int,
+  int,
+);
 typedef _SkyN = Pointer<ImageBufferNative> Function(Pointer<Utf8>);
 typedef _SkyD = Pointer<ImageBufferNative> Function(Pointer<Utf8>);
-typedef _LutN = Pointer<ImageBufferNative> Function(Pointer<Utf8>, Pointer<Utf8>, Float);
-typedef _LutD = Pointer<ImageBufferNative> Function(Pointer<Utf8>, Pointer<Utf8>, double);
-typedef _ExportN = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Uint8);
-typedef _ExportD = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _LutN = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  Float,
+);
+typedef _LutD = Pointer<ImageBufferNative> Function(
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  double,
+);
+typedef _ExportN = Pointer<Utf8> Function(
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  Uint8,
+  Float,
+  Float,
+  Float,
+);
+typedef _ExportD = Pointer<Utf8> Function(
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  int,
+  double,
+  double,
+  double,
+);
 typedef _FreeBufN = Void Function(Pointer<ImageBufferNative>);
 typedef _FreeBufD = void Function(Pointer<ImageBufferNative>);
 typedef _GetU32N = Uint32 Function(Pointer<ImageBufferNative>);
@@ -47,20 +101,33 @@ typedef _GetDataD = Pointer<Uint8> Function(Pointer<ImageBufferNative>);
 
 class RawEngine implements StudioEngine {
   RawEngine._(this.lib) {
-    _getVersion = lib.lookupFunction<_GetVersionN, _GetVersionD>('get_v7_version');
-    _freeString = lib.lookupFunction<_FreeStringN, _FreeStringD>('free_string_rust');
+    _getVersion =
+        lib.lookupFunction<_GetVersionN, _GetVersionD>('get_v7_version');
+    _freeString =
+        lib.lookupFunction<_FreeStringN, _FreeStringD>('free_string_rust');
     _check = lib.lookupFunction<_CheckN, _CheckD>('check_engine');
-    _develop = lib.lookupFunction<_DevelopN, _DevelopD>('develop_raw');
-    _subject = lib.lookupFunction<_SubjectN, _SubjectD>('detect_subject_mask');
+    _develop = lib.lookupFunction<_DevelopN, _DevelopD>(
+      'develop_raw_with_settings',
+    );
+    _subject =
+        lib.lookupFunction<_SubjectN, _SubjectD>('detect_subject_mask');
     _sky = lib.lookupFunction<_SkyN, _SkyD>('detect_sky_mask_ffi');
     _lut = lib.lookupFunction<_LutN, _LutD>('apply_lut_file');
-    _export = lib.lookupFunction<_ExportN, _ExportD>('export_jpeg_with_quality');
-    _freeBuf = lib.lookupFunction<_FreeBufN, _FreeBufD>('free_image_buffer');
-    _getW = lib.lookupFunction<_GetU32N, _GetU32D>('image_buffer_get_width');
-    _getH = lib.lookupFunction<_GetU32N, _GetU32D>('image_buffer_get_height');
-    _getLen = lib.lookupFunction<_GetLenN, _GetLenD>('image_buffer_get_len');
-    _getData = lib.lookupFunction<_GetDataN, _GetDataD>('image_buffer_get_data');
-    _lastErrorFn = lib.lookupFunction<_GetVersionN, _GetVersionD>('get_last_error');
+    _export = lib.lookupFunction<_ExportN, _ExportD>(
+      'export_jpeg_with_settings',
+    );
+    _freeBuf =
+        lib.lookupFunction<_FreeBufN, _FreeBufD>('free_image_buffer');
+    _getW =
+        lib.lookupFunction<_GetU32N, _GetU32D>('image_buffer_get_width');
+    _getH =
+        lib.lookupFunction<_GetU32N, _GetU32D>('image_buffer_get_height');
+    _getLen =
+        lib.lookupFunction<_GetLenN, _GetLenD>('image_buffer_get_len');
+    _getData =
+        lib.lookupFunction<_GetDataN, _GetDataD>('image_buffer_get_data');
+    _lastErrorFn =
+        lib.lookupFunction<_GetVersionN, _GetVersionD>('get_last_error');
   }
 
   final DynamicLibrary lib;
@@ -115,7 +182,19 @@ class RawEngine implements StudioEngine {
   }
 
   @override
-  EngineImage? develop(String path) => _withPath(path, _develop);
+  EngineImage? develop(
+    String path, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) {
+    final cPath = path.toNativeUtf8();
+    try {
+      return _copyBuffer(_develop(cPath, exposure, temperature, contrast));
+    } finally {
+      calloc.free(cPath);
+    }
+  }
 
   @override
   EngineImage? subjectMask(String path, {int? x, int? y}) {
@@ -144,11 +223,25 @@ class RawEngine implements StudioEngine {
   }
 
   @override
-  String? exportJpeg(String path, String dest, int quality) {
+  String? exportJpeg(
+    String path,
+    String dest,
+    int quality, {
+    double exposure = 0,
+    double temperature = 0,
+    double contrast = 1,
+  }) {
     final cPath = path.toNativeUtf8();
     final cDest = dest.toNativeUtf8();
     try {
-      final out = _export(cPath, cDest, quality.clamp(1, 100));
+      final out = _export(
+        cPath,
+        cDest,
+        quality.clamp(1, 100),
+        exposure,
+        temperature,
+        contrast,
+      );
       if (out == nullptr) return null;
       try {
         return out.toDartString();
@@ -161,7 +254,7 @@ class RawEngine implements StudioEngine {
     }
   }
 
-  EngineImage? _withPath(String path, _DevelopD fn) {
+  EngineImage? _withPath(String path, _SkyD fn) {
     final cPath = path.toNativeUtf8();
     try {
       return _copyBuffer(fn(cPath));
