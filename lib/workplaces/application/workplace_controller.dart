@@ -87,12 +87,13 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
     required AssetRepository assetRepository,
     DateTime Function()? now,
     String Function()? createId,
+    bool initializeImmediately = true,
   })  : _workplaceRepository = workplaceRepository,
         _assetRepository = assetRepository,
         _now = now ?? DateTime.now,
         _createId = createId ?? _defaultId,
         super(const WorkplaceState()) {
-    unawaited(initialize());
+    if (initializeImmediately) unawaited(initialize());
   }
 
   static const defaultWorkplaceName = 'My workplace';
