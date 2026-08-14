@@ -72,8 +72,8 @@ void main() {
     );
     await controller.initialize();
 
-    expect(
-      () => controller.deleteWorkplace('w1'),
+    await expectLater(
+      controller.deleteWorkplace('w1'),
       throwsA(isA<StateError>()),
     );
   });
