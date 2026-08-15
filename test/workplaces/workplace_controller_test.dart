@@ -104,9 +104,8 @@ Workplace _workplace(String id, String name) {
 }
 
 class _MemoryWorkplaceRepository implements WorkplaceRepository {
-  _MemoryWorkplaceRepository({List<Workplace>? values, String? currentId})
-      : values = {for (final value in values ?? const <Workplace>[]) value.id: value},
-        currentId = currentId;
+  _MemoryWorkplaceRepository({List<Workplace>? values, this.currentId})
+      : values = {for (final value in values ?? const <Workplace>[]) value.id: value};
 
   final Map<String, Workplace> values;
   String? currentId;
