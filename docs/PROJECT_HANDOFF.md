@@ -16,10 +16,12 @@
 - **W4-B1 managed/import recovery: merged in PR #13**
 - **W4-B2 thumbnail/cache + large-catalog hardening: merged in PR #14**
 - W4-B2 merge commit on `main`: `f05a11590ad21320ebe02d2d7be55c990cea9fe0`
-- Current branch: `feature/w4-desktop-validation-tooling`
-- Current milestone: **W4 desktop physical validation**
+- Current focused engineering branch: `agent/ci-feedback-optimization`
+- Current engineering task: **CI feedback-time optimization without runtime/product changes**
+- W4 desktop physical validation remains a separate product-validation blocker.
 - Detailed W4 guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
 - Desktop validation checklist: `docs/W4_DESKTOP_VALIDATION.md`
+- CI architecture: `docs/CI_ARCHITECTURE.md`
 - Real RAW demosaic/debayer and other new image-processing work remain deferred.
 
 ## Product responsibility
@@ -54,7 +56,35 @@ W4-B2 added catalog-level raster thumbnail caching and representative large-cata
 - 5,000-asset fixtures cover Workplace load/sort and availability scans;
 - availability concurrency is bounded at 32 and persistence write amplification is regression-tested.
 
-## Current — W4 desktop physical validation
+## Current — CI feedback optimization
+
+CI work is isolated from product/runtime behavior. The target architecture is:
+
+```text
+Detect changes
+    -> Fast CI
+        -> affected Flutter/Rust/platform jobs
+            -> PR CI required
+
+merge queue candidate
+    -> Full validation preflight
+        -> all Flutter/Rust/platform gates
+            -> Merge gate
+```
+
+`tool/ci-detect-changes.sh` is the single change-domain classifier. PR CI uses job-level conditions rather than whole-workflow path filtering, so intentionally skipped heavy jobs do not leave the stable required aggregate check pending.
+
+Local developer pre-push command:
+
+```text
+make preflight
+```
+
+Full details and domain-to-job behavior are documented in `docs/CI_ARCHITECTURE.md`.
+
+Important branch-protection follow-up: protected `main` should require `CI / PR CI required`, require merge queue, and require `Full validation / Merge gate`. The connected GitHub App cannot inspect or modify `main` branch protection, so this setting must be verified separately by a repository administrator.
+
+## W4 desktop physical validation
 
 The remaining W4 blocker is real desktop evidence, not additional image-processing work.
 
@@ -110,13 +140,16 @@ Every Workplaces/catalog PR must preserve:
 - LUT;
 - JPEG export.
 
-Automated gate:
+Recommended local gate before pushing:
 
 ```text
-flutter analyze
-flutter test
-cargo check
-cargo test
+make preflight
+```
+
+Broader local gate:
+
+```text
+make validate
 ```
 
 W4-B2 additionally includes `test/workplaces/catalog_profile_test.dart` and thumbnail-cache regression tests.
@@ -126,8 +159,10 @@ W4-B2 additionally includes `test/workplaces/catalog_profile_test.dart` and thum
 ```text
 docs/PROJECT_HANDOFF.md                    canonical project status / execution queue
 docs/CODE_WALKTHROUGH.md                   current code ownership and data flow
+docs/CI_ARCHITECTURE.md                    fast/affected/full CI contract
 docs/W4_DESKTOP_CATALOG_HARDENING.md       W4 implementation/recovery/acceptance guide
 docs/W4_DESKTOP_VALIDATION.md              W4 physical desktop validation checklist
+tool/ci-detect-changes.sh                   centralized CI change-domain classifier
 tool/w4-desktop-validation.sh               environment/evidence + focused automated runner
 ```
 
@@ -147,7 +182,7 @@ Only after catalog workflows stabilize. Dextryx Images remains catalog authority
 DONE      W4-A  PR #12 missing/relink/catalog-removal hardening
 DONE      W4-B1 PR #13 managed destination/copy + import-batch recovery
 DONE      W4-B2 PR #14 thumbnail/cache + large-catalog profile gates
-CURRENT   validation tooling + physical D1-D8 desktop gates
-BLOCKER   real desktop/removable-volume evidence for W4 completion
+CURRENT   focused CI feedback-time optimization PR
+PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 FUTURE    PixelCraft external-editor contract
 ```
