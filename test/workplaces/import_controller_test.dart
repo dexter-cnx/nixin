@@ -113,9 +113,7 @@ void main() {
     preferences.destination = destination.path;
     final fixedNow = DateTime.utc(2026, 8, 16, 12);
     final assetId = 'asset-${fixedNow.microsecondsSinceEpoch}-0';
-    final dayFolder = Directory(
-      '${destination.path}/originals/2026/08/16',
-    );
+    final dayFolder = Directory('${destination.path}/originals/2026/08/16');
     await dayFolder.create(recursive: true);
     final collision = File('${dayFolder.path}/$assetId-collision.jpg');
     await collision.writeAsBytes([99]);
@@ -185,7 +183,76 @@ void main() {
     );
   });
 
-  test('retry requires the original Workplace', () async {
+  test('retry preserves configured storage mode after using batch override', () async {
+    final source = File('${tempDir.path}/retry-mode.jpg');
+    await source.writeAsBytes([1]);
+    preferences.mode = AssetStorageMode.managed;
+    final batch = ImportBatch(
+      id: 'linked-retry',
+      workplaceId: 'workplace-1',
+      startedAt: DateTime.utc(2026, 8, 16),
+      sourceType: ImportSourceType.files,
+      storageMode: AssetStorageMode.linked,
+      requestedCount: 1,
+      importedCount: 0,
+      skippedDuplicateCount: 0,
+      failedCount: 1,
+      status: ImportBatchStatus.failed,
+      sourcePaths: [source.absolute.path],
+      failedPaths: [source.absolute.path],
+    );
+    await batches.save(batch);
+    final controller = _controller(assets, batches, preferences);
+
+    expect(controller.state.storageMode, AssetStorageMode.managed);
+    expect(await controller.retryBatch(batch.id), isTrue);
+    expect(controller.state.storageMode, AssetStorageMode.managed);
+    expect(assets.values.single.storageMode, AssetStorageMode.linked);
+  });
+
+  test('restores latest persisted recoverable batch after restart', () async {
+    final source = File('${tempDir.path}/interrupted.jpg');
+    final older = ImportBatch(
+      id: 'older',
+      workplaceId: 'workplace-1',
+      startedAt: DateTime.utc(2026, 8, 16, 8),
+      sourceType: ImportSourceType.files,
+      storageMode: AssetStorageMode.linked,
+      requestedCount: 1,
+      importedCount: 0,
+      skippedDuplicateCount: 0,
+      failedCount: 1,
+      status: ImportBatchStatus.failed,
+      sourcePaths: [source.absolute.path],
+      failedPaths: [source.absolute.path],
+    );
+    final newer = ImportBatch(
+      id: 'newer-running',
+      workplaceId: 'workplace-1',
+      startedAt: DateTime.utc(2026, 8, 16, 9),
+      sourceType: ImportSourceType.files,
+      storageMode: AssetStorageMode.managed,
+      requestedCount: 1,
+      importedCount: 0,
+      skippedDuplicateCount: 0,
+      failedCount: 0,
+      status: ImportBatchStatus.running,
+      sourcePaths: [source.absolute.path],
+    );
+    await batches.save(older);
+    await batches.save(newer);
+    final controller = _controller(assets, batches, preferences);
+
+    await controller.restoreLatestRecoverableBatch('workplace-1');
+
+    expect(controller.state.batch?.id, 'newer-running');
+    expect(controller.state.batch?.canRetry, isTrue);
+    expect(controller.state.phase, ImportPhase.failed);
+    expect(controller.state.failed, 1);
+    expect(controller.state.storageMode, preferences.mode);
+  });
+
+  test('retry requires the original Workplace and clears stale open path', () async {
     final missing = File('${tempDir.path}/missing.jpg');
     var workplace = 'workplace-1';
     final controller = ImportController(
@@ -201,6 +268,7 @@ void main() {
     expect(await controller.retryBatch(batch.id), isFalse);
     expect(controller.state.phase.name, 'failed');
     expect(controller.state.errorMessage, contains('original Workplace'));
+    expect(controller.state.lastImportedPath, isNull);
   });
 
   test('old ImportBatch maps remain readable without recovery path fields', () {
@@ -220,6 +288,7 @@ void main() {
 
     expect(batch.sourcePaths, isEmpty);
     expect(batch.failedPaths, isEmpty);
+    expect(batch.storageMode, AssetStorageMode.linked);
     expect(batch.canRetry, isFalse);
   });
 
