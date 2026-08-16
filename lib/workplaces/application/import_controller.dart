@@ -212,6 +212,7 @@ class ImportController extends StateNotifier<ImportState> {
       paths,
       sourceType: batch.sourceType,
       sourceRoot: batch.sourceRoot,
+      storageModeOverride: batch.storageMode,
     );
     return state.phase == ImportPhase.completed;
   }
@@ -221,6 +222,7 @@ class ImportController extends StateNotifier<ImportState> {
     required ImportSourceType sourceType,
     String? sourceRoot,
     bool preserveCancellation = false,
+    AssetStorageMode? storageModeOverride,
   }) async {
     final workplaceId = _currentWorkplaceId();
     if (workplaceId == null) {
@@ -243,7 +245,7 @@ class ImportController extends StateNotifier<ImportState> {
         .toList(growable: false);
     final startedAt = _now();
     final batchId = 'import-${startedAt.microsecondsSinceEpoch}';
-    final selectedStorageMode = state.storageMode;
+    final selectedStorageMode = storageModeOverride ?? state.storageMode;
     state = ImportState(
       phase: ImportPhase.checkingDuplicates,
       storageMode: selectedStorageMode,
@@ -278,6 +280,7 @@ class ImportController extends StateNotifier<ImportState> {
       workplaceId: workplaceId,
       startedAt: startedAt,
       sourceType: sourceType,
+      storageMode: selectedStorageMode,
       sourceRoot: sourceRoot,
       requestedCount: candidates.length,
       importedCount: 0,
@@ -393,6 +396,7 @@ class ImportController extends StateNotifier<ImportState> {
       startedAt: startedAt,
       completedAt: completedAt,
       sourceType: sourceType,
+      storageMode: selectedStorageMode,
       sourceRoot: sourceRoot,
       requestedCount: candidates.length,
       importedCount: imported,
