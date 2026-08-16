@@ -265,7 +265,7 @@ class _AssetThumbnail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final preview = ref.watch(assetPreviewProviderProvider).thumbnail(asset);
+    final preview = ref.watch(assetPreviewProvider).thumbnail(asset);
     return FutureBuilder<Uint8List?>(
       future: preview,
       builder: (context, snapshot) {
