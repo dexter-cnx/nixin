@@ -20,7 +20,6 @@ set_output() {
   printf '%s=%s\n' "$1" "$2" >> "$OUTPUT_FILE"
 }
 
-flag=false
 has_match() {
   local pattern="$1"
   grep -Eq "$pattern" <<<"$CHANGED_FILES"
@@ -52,6 +51,35 @@ has_match '^lib/workplaces/|^test/workplaces/|import|file_picker|filesystem|file
 has_match '^lib/engine/|^rust/|export|lut|mask|develop_settings|developsettings|image_engine|raw_engine' && EXPORT_ENGINE=true
 has_match '^\.github/workflows/|^Makefile$|^project\.mk$|^tool/ci-|^tool/.*\.sh$' && CI=true
 
+DOCS_ONLY=true
+if [[ -z "$CHANGED_FILES" ]]; then
+  DOCS_ONLY=false
+else
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    if [[ ! "$file" =~ ^docs/ && ! "$file" =~ \.md$ ]]; then
+      DOCS_ONLY=false
+      break
+    fi
+  done <<<"$CHANGED_FILES"
+fi
+
+# Docs-only is authoritative. Keyword-like documentation filenames such as
+# CATALOG or EXPORT must never activate product/native domains.
+if [[ "$DOCS_ONLY" == true ]]; then
+  FLUTTER=false
+  RUST=false
+  FFI=false
+  PLATFORM_ANDROID=false
+  PLATFORM_IOS=false
+  PLATFORM_MACOS=false
+  PLATFORM_WINDOWS=false
+  PLATFORM_LINUX=false
+  IMPORT_FILESYSTEM=false
+  EXPORT_ENGINE=false
+  CI=false
+fi
+
 # CI/build-system changes are intentionally conservative because they can alter
 # which validation runs at all.
 BROAD=false
@@ -67,19 +95,6 @@ if [[ "$CI" == true ]]; then
   PLATFORM_LINUX=true
   IMPORT_FILESYSTEM=true
   EXPORT_ENGINE=true
-fi
-
-DOCS_ONLY=true
-if [[ -z "$CHANGED_FILES" ]]; then
-  DOCS_ONLY=false
-else
-  while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
-    if [[ ! "$file" =~ ^docs/ && ! "$file" =~ \.md$ ]]; then
-      DOCS_ONLY=false
-      break
-    fi
-  done <<<"$CHANGED_FILES"
 fi
 
 set_output docs "$DOCS"
