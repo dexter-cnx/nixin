@@ -98,11 +98,13 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
       return;
     }
 
+    final workplaceChanged = state.workplaceId != workplaceId;
     state = state.copyWith(
       workplaceId: workplaceId,
+      assets: workplaceChanged ? const [] : state.assets,
       loading: true,
       clearError: true,
-      clearSelection: state.workplaceId != workplaceId,
+      clearSelection: workplaceChanged,
     );
 
     try {
@@ -122,6 +124,8 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     } catch (error) {
       if (revision != _loadRevision) return;
       state = state.copyWith(
+        assets: const [],
+        clearSelection: true,
         loading: false,
         errorMessage: '$error',
       );
@@ -133,6 +137,16 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
   void select(String assetId) {
     if (!state.assets.any((asset) => asset.id == assetId)) return;
     state = state.copyWith(selectedAssetId: assetId, clearError: true);
+  }
+
+  bool selectByEffectivePath(String path) {
+    for (final asset in state.assets) {
+      if (asset.effectivePath == path) {
+        select(asset.id);
+        return true;
+      }
+    }
+    return false;
   }
 
   void setSortOrder(AssetSortOrder order) {
