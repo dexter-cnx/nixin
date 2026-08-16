@@ -1,6 +1,6 @@
 # Dextryx Images — Code Walkthrough
 
-This is the current code orientation for `dexter-cnx/nixin` during **W2 Import System + live Workplace wiring**.
+Current code orientation for `dexter-cnx/nixin` after W3 Workplace Browser + Filmstrip implementation.
 
 ## Bootstrap
 
@@ -19,152 +19,135 @@ import_batches
 lib/
   app/          app shell/theme/localization
   engine/       Rust FFI processing boundary
-  studio/       preview/Develop/Mask/LUT/Export compatibility UI
-  workplaces/   catalog, Workplace state and import orchestration
+  studio/       Develop/Mask/LUT/Export compatibility UI + Filmstrip
+  workplaces/   Workplace/catalog/import/browser state and UI
 ```
 
 ## Workplace core
 
-`lib/workplaces/application/workplace_controller.dart` owns:
+`lib/workplaces/application/workplace_controller.dart` owns Workplace lifecycle and persistence-facing application state.
+
+Responsibilities include:
+
+- initialize/restore Workplaces
+- create default `My workplace`
+- create / switch / rename / delete
+- preserve the last-Workplace invariant
+- expose the active Workplace ID used by browser/import flows
+
+Widgets do not access Hive directly.
+
+## Import system
+
+`ImportController` owns file/folder selection, discovery, duplicate filtering, linked/managed storage behavior, catalog writes, progress, cancellation and `ImportBatch` persistence.
+
+Import remains catalog orchestration, not image processing.
+
+## Asset browser state
+
+`lib/workplaces/application/asset_browser_controller.dart` introduces the W3 catalog selection boundary.
+
+`AssetBrowserState` owns:
 
 ```text
-WorkplaceState
-WorkplaceController
-workplaceControllerProvider
-workplaceRepositoryProvider
-assetRepositoryProvider
-```
-
-The live Studio UI now consumes `workplaceControllerProvider` through `StudioImportControls`, so Riverpod creates the controller and `initialize()` performs real launch-time Workplace initialization.
-
-`initialize()` loads Workplaces, creates `My workplace` when empty, restores/repairs current Workplace ID, and publishes ready state.
-
-The visible W2 controls allow switching, creating, renaming and deleting Workplaces while preserving the last-Workplace invariant.
-
-## Import domain
-
-New W2 domain pieces:
-
-```text
-lib/workplaces/domain/import_batch.dart
-lib/workplaces/domain/repositories/import_repository.dart
-```
-
-`ImportBatch` records one import operation including source type, requested/imported/duplicate/failed counts, timestamps and terminal status.
-
-## Import persistence
-
-```text
-lib/workplaces/data/hive/hive_import_repository.dart
-```
-
-`HiveImportRepository` persists batches in `import_batches` and supports lookup by ID and Workplace.
-
-## Import application state
-
-```text
-lib/workplaces/application/import_state.dart
-lib/workplaces/application/import_controller.dart
-```
-
-`ImportState` exposes:
-
-```text
-phase
-storageMode
-total / processed
-imported
-skippedDuplicates
-failed
-currentFile
-lastImportedPath
-batch
+workplaceId
+assets
+selectedAssetId
+sortOrder
+loading
 errorMessage
 ```
 
-Import phases:
+`AssetBrowserController`:
 
-```text
-idle
-selecting
-scanning
-checkingDuplicates
-copying
-cataloging
-completed
-cancelled
-failed
-```
+- listens to active Workplace changes
+- queries `AssetRepository.getByWorkplace()`
+- refreshes after completed/cancelled imports
+- sorts the active list
+- owns the single selected asset ID
+- clears stale assets and selection immediately when switching Workplaces
+- keeps failed queries from exposing the previous Workplace's assets
+- can select an imported asset by effective path after catalog refresh
 
-`ImportController` owns source selection and catalog orchestration. The Studio UI does not own file discovery or Hive writes.
+The browser uses revision-based load protection so a stale async query cannot overwrite a newer Workplace load.
 
-## Import flow
+## Workplace browser UI
 
-Multi-file path:
-
-```text
-FilePicker multi-select
-  → supported extension filter
-  → normalize absolute paths
-  → load active Workplace assets
-  → duplicate check by normalized source path
-  → optional managed copy
-  → create AssetRecord
-  → AssetRepository.save
-  → persist ImportBatch
-  → publish terminal ImportState
-  → hand latest imported effectivePath to StudioController
-  → existing Develop preview path
-```
-
-Folder path:
-
-```text
-FilePicker directory
-  → Directory.list(recursive: true by default)
-  → supported file filter
-  → same catalog pipeline
-```
-
-A current-folder-only option passes `recursive: false`.
-
-## Storage modes
-
-`AssetStorageMode.linked` keeps the original in place and catalogs `sourcePath`.
-
-`AssetStorageMode.managed` asks for a managed root when one is not already stored, remembers it in `studio_settings`, and copies originals under:
-
-```text
-<managed-root>/originals/YYYY/MM/DD/<asset-id>-<filename>
-```
-
-`sourcePath` and `managedPath` remain separate; Workplace display names do not drive filesystem layout.
-
-## Cancellation and partial failure
-
-`ImportController.cancel()` sets a cancellation request. The per-file loop stops before starting the next asset, preserving already cataloged assets and writing a cancelled `ImportBatch`.
-
-Per-file filesystem/catalog errors increment `failed` and do not abort later candidates.
-
-The loop yields with `Future.delayed(Duration.zero)` between candidates so large batches do not monopolize the UI isolate continuously.
-
-## Studio integration
-
-`lib/studio/studio_import_controls.dart` is the presentation adapter between live Workplace/import state and the existing Studio preview.
+`lib/workplaces/ui/workplace_browser.dart` renders the Workplaces module central surface.
 
 It provides:
 
-- current Workplace dropdown
-- create/rename/delete Workplace menu
-- primary multi-select Import
-- folder import menu
-- linked/managed storage selection
-- progress/cancel/summary UI
-- latest imported asset handoff to `StudioController.selectRawPath()` then `develop()`
+- responsive lazy `GridView.builder`
+- loading state
+- empty state
+- error/retry state
+- basic sort control
+- selected tile indication
+- missing-asset indicator foundation
+- thumbnail display through `AssetPreviewProvider`
 
-`lib/studio/studio_page.dart` now uses these controls in wide, medium and compact compositions instead of the legacy direct Open Image action.
+The browser does not decode full RAW sensor data.
 
-The existing `StudioController.pickRaw()` remains as legacy compatibility code but is no longer the primary Studio entry UI.
+## Preview boundary
+
+`lib/workplaces/application/asset_preview_provider.dart` defines:
+
+```dart
+abstract interface class AssetPreviewProvider {
+  Future<Uint8List?> thumbnail(AssetRecord asset);
+}
+```
+
+The current local provider reads existing `thumbnailPath` or `previewPath` cache files. This keeps the browser independent from future RAW-engine or PixelCraft processing internals.
+
+Thumbnail generation/cache writing can be hardened later without changing Grid/Filmstrip ownership.
+
+## Filmstrip synchronization
+
+`lib/studio/filmstrip.dart` no longer treats the currently developed file as a one-item strip.
+
+Instead, Grid and Filmstrip consume the same `AssetBrowserState.assets` ordered list and the same `selectedAssetId`.
+
+Conceptually:
+
+```text
+active Workplace
+      ↓
+AssetBrowserController
+      ├── ordered assets → Workplace Grid
+      ├── ordered assets → Filmstrip
+      └── selectedAssetId
+             ├── Grid highlight
+             ├── Filmstrip highlight
+             └── Develop current asset
+```
+
+Missing assets remain visible in the catalog but are not sent to Develop.
+
+## Post-import selection
+
+`lib/studio/studio_import_controls.dart` synchronizes imported catalog selection before opening the latest imported asset in Develop.
+
+Flow:
+
+```text
+ImportController completes
+  → AssetBrowserController.refresh()
+  → select imported AssetRecord by effectivePath
+  → StudioController.selectRawPath(effectivePath)
+  → StudioController.develop()
+```
+
+This avoids a split-brain state where Develop shows a newly imported image while Grid/Filmstrip still highlight an older asset.
+
+## Studio module integration
+
+`lib/studio/studio_page.dart` switches the central surface by module:
+
+- **Workplaces** → catalog Grid
+- **Develop / Export** → existing Studio preview surface
+
+The existing editor/processing controls remain intact.
 
 ## Processing boundary
 
@@ -177,18 +160,22 @@ StudioController
       → Rust C ABI
 ```
 
-W2 does not add RAW demosaic/debayer, new adjustment semantics, GPU processing, or PixelCraft processing code.
+W3 adds no sensor RAW demosaic/debayer, new adjustment semantics, GPU processing, or PixelCraft processing code.
 
 ## Tests
 
-`test/workplaces/import_controller_test.dart` covers:
+W3 adds/extends `test/workplaces/asset_browser_controller_test.dart` coverage for:
 
-- supported file import and batch persistence
-- duplicate source-path prevention
-- managed-copy behavior while preserving original
-- unsupported-file filtering
+- active Workplace filtering
+- import-order loading
+- selection as a single source of truth
+- selection survival across refresh
+- Workplace switching clears incompatible selection
+- failed Workplace switch/query clears stale assets
+- imported asset selection by effective path
+- recent-first and filename sorting
 
-Existing Workplace and Studio tests remain regression coverage.
+Existing import, Workplace and Studio tests remain regression coverage.
 
 ## Validation
 
@@ -202,8 +189,8 @@ cargo check
 cargo test
 ```
 
-Manual W2 gate should include multi-select import, nested folder import, linked mode, managed mode, cancellation, restart persistence, Workplace CRUD, and existing RAW/raster preview + Develop/Mask/LUT/JPEG export.
+The W3 review-fix head passed CI before this documentation sync. The final documentation commit must also pass the normal PR CI gate before merge.
 
-## Next
+## Next — W4
 
-After W2 merges, W3 makes the catalog visible as the primary Workplace Grid and evolves Filmstrip to share the same ordered assets and selected-asset truth.
+W4 hardens the catalog for desktop use: missing-file detection/relink, disconnected volumes, managed-storage/file failure recovery, catalog-only removal, import recovery and large-catalog performance profiling. New RAW/image-processing work remains deferred.

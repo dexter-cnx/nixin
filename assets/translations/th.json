@@ -9,6 +9,6 @@
   "status": {"ready": "พร้อม", "engine_unavailable": "Engine ใช้งานไม่ได้", "selected": "เลือกแล้ว", "exported": "ส่งออกแล้ว"},
   "settings": {"jpeg_quality": "คุณภาพ JPEG"},
   "label": {"no_file": "ไม่มีไฟล์", "image": "ภาพ", "engine": "Engine"},
-  "workplace": {"title": "Workplaces", "default_name": "My workplace", "loading": "กำลังโหลด Workplaces…", "create": "สร้าง Workplace", "rename": "เปลี่ยนชื่อ Workplace", "delete": "ลบ Workplace", "cannot_delete_last": "ต้องมี Workplace อย่างน้อยหนึ่งรายการ"},
+  "workplace": {"title": "Workplaces", "default_name": "My workplace", "loading": "กำลังโหลด Workplaces…", "create": "สร้าง Workplace", "rename": "เปลี่ยนชื่อ Workplace", "delete": "ลบ Workplace", "cannot_delete_last": "ต้องมี Workplace อย่างน้อยหนึ่งรายการ", "assets": "รายการ", "sort_imported": "ลำดับนำเข้า", "sort_recent": "ล่าสุดก่อน", "sort_name": "ชื่อ", "browser_error": "โหลด Workplace นี้ไม่สำเร็จ", "retry": "ลองใหม่", "empty_assets": "ยังไม่มีรูปใน Workplace นี้", "empty_assets_hint": "นำเข้ารูปหรือโฟลเดอร์เพื่อเริ่มต้น"},
   "import": {"options": "ตัวเลือกการนำเข้า", "folder": "นำเข้าโฟลเดอร์…", "folder_no_subfolders": "นำเข้าเฉพาะโฟลเดอร์นี้…", "linked": "Linked / Add", "managed": "Managed / Copy", "cancel": "ยกเลิกการนำเข้า", "cancelled": "ยกเลิกการนำเข้าแล้ว", "progress": "กำลังนำเข้า {processed} / {total}  {file}", "summary": "นำเข้า {imported} · ซ้ำ {duplicates} · ล้มเหลว {failed}"}
 }
