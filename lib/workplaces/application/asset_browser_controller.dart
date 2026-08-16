@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../domain/asset_record.dart';
 import '../domain/repositories/asset_repository.dart';
@@ -165,16 +166,33 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
       if (revision != _availabilityRevision) return;
       final updated = <AssetRecord>[];
       for (final asset in snapshot) {
-        final missing = missingById[asset.id] ?? asset.missing;
-        final next = missing == asset.missing
-            ? asset
-            : asset.copyWith(missing: missing);
+        if (revision != _availabilityRevision) return;
+        final currentIndex = state.assets.indexWhere((item) => item.id == asset.id);
+        if (currentIndex < 0) continue;
+        final current = state.assets[currentIndex];
+        if (current.effectivePath != asset.effectivePath) continue;
+
+        final missing = missingById[asset.id] ?? current.missing;
+        final next = missing == current.missing
+            ? current
+            : current.copyWith(missing: missing);
         updated.add(next);
-        if (!identical(next, asset)) await _assetRepository.save(next);
+        if (!identical(next, current)) {
+          await _assetRepository.save(next);
+          if (revision != _availabilityRevision) return;
+        }
       }
       if (revision != _availabilityRevision) return;
+
+      final currentById = {for (final asset in state.assets) asset.id: asset};
+      for (final asset in updated) {
+        final current = currentById[asset.id];
+        if (current != null && current.effectivePath == asset.effectivePath) {
+          currentById[asset.id] = asset;
+        }
+      }
       state = state.copyWith(
-        assets: _sort(updated, state.sortOrder),
+        assets: _sort(currentById.values, state.sortOrder),
         scanningAvailability: false,
       );
     } catch (_) {
@@ -199,6 +217,9 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
   }
 
   Future<bool> relinkAsset(String assetId, String replacementPath) async {
+    ++_availabilityRevision;
+    state = state.copyWith(scanningAvailability: false);
+
     final index = state.assets.indexWhere((asset) => asset.id == assetId);
     if (index < 0) return false;
     final current = state.assets[index];
@@ -221,7 +242,11 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     final index = await _availabilityService.filesByLowercaseFilename(root);
     var relinked = 0;
     for (final asset in state.assets.where((asset) => asset.missing).toList()) {
-      final matches = index[asset.originalFilename.toLowerCase()];
+      final recoveryFilename = asset.storageMode == AssetStorageMode.managed &&
+              asset.managedPath != null
+          ? p.basename(asset.managedPath!).toLowerCase()
+          : asset.originalFilename.toLowerCase();
+      final matches = index[recoveryFilename];
       if (matches != null &&
           matches.length == 1 &&
           await relinkAsset(asset.id, matches.single)) {
@@ -233,6 +258,9 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
   }
 
   Future<void> removeFromWorkplace(String assetId) async {
+    ++_availabilityRevision;
+    state = state.copyWith(scanningAvailability: false);
+
     await _assetRepository.delete(assetId);
     final assets = state.assets.where((asset) => asset.id != assetId).toList();
     state = state.copyWith(
