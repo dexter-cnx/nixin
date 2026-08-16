@@ -145,8 +145,8 @@ class StudioImportControls extends ConsumerWidget {
     final batch = ref.read(importControllerProvider).batch;
     if (batch == null || !batch.canRetry) return;
     final controller = ref.read(importControllerProvider.notifier);
-    await controller.retryBatch(batch.id);
-    await _openLastImported(ref);
+    final succeeded = await controller.retryBatch(batch.id);
+    if (succeeded) await _openLastImported(ref);
   }
 
   static Future<void> _openLastImported(WidgetRef ref) async {
