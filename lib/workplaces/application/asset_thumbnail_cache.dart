@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ typedef ThumbnailEncoder = Future<Uint8List?> Function(
   Uint8List sourceBytes,
   int maxDimension,
 );
+typedef ThumbnailValidator = Future<bool> Function(Uint8List bytes);
 
 class AssetThumbnailCache {
   AssetThumbnailCache({
@@ -17,27 +19,46 @@ class AssetThumbnailCache {
     this.maxDimension = 512,
     this.maxEntries = 2048,
     this.maxBytes = 512 * 1024 * 1024,
+    this.maxConcurrentGenerations = 2,
     ThumbnailEncoder? encoder,
-  })  : _root = root,
-        _encoder = encoder ?? _defaultEncoder;
+    ThumbnailValidator? validator,
+  })  : assert(maxConcurrentGenerations > 0),
+        _root = root,
+        _encoder = encoder ?? _defaultEncoder,
+        _validator = validator ?? _defaultValidator,
+        _generationLimiter = _AsyncLimiter(maxConcurrentGenerations);
 
   final Directory _root;
   final int maxDimension;
   final int maxEntries;
   final int maxBytes;
+  final int maxConcurrentGenerations;
   final ThumbnailEncoder _encoder;
+  final ThumbnailValidator _validator;
+  final _AsyncLimiter _generationLimiter;
   final Map<String, Future<Uint8List?>> _inFlight = {};
 
   Future<Uint8List?> thumbnail(AssetRecord asset) async {
     if (asset.mediaType != AssetMediaType.raster || asset.missing) return null;
 
-    final cacheFile = File(p.join(_root.path, _cacheName(asset)));
+    final source = File(asset.effectivePath);
+    FileStat sourceStat;
+    try {
+      sourceStat = await source.stat();
+      if (sourceStat.type != FileSystemEntityType.file) return null;
+    } catch (_) {
+      return null;
+    }
+
+    final cacheFile = File(p.join(_root.path, _cacheName(asset, sourceStat)));
     final cached = await _readValidCache(cacheFile);
     if (cached != null) return cached;
 
     return _inFlight.putIfAbsent(cacheFile.path, () async {
       try {
-        return await _generate(asset, cacheFile);
+        return await _generationLimiter.run(
+          () => _generate(asset, source, sourceStat, cacheFile),
+        );
       } finally {
         _inFlight.remove(cacheFile.path);
       }
@@ -45,24 +66,24 @@ class AssetThumbnailCache {
   }
 
   Future<void> invalidate(AssetRecord asset) async {
+    if (!await _root.exists()) return;
+    final prefix = '${_safeId(asset.id)}-';
     try {
-      if (!await _root.exists()) return;
-      final prefix = '${_safeId(asset.id)}-';
       await for (final entity in _root.list(followLinks: false)) {
         if (entity is File && p.basename(entity.path).startsWith(prefix)) {
           await _deleteBestEffort(entity);
         }
       }
-    } catch (_) {
-      // Cache maintenance is best-effort and must not affect catalog use.
+    } on FileSystemException {
+      // Cache may disappear during shutdown or external cleanup.
     }
   }
 
   Future<void> prune() async {
+    if (!await _root.exists()) return;
+    final files = <({File file, int bytes, DateTime modified})>[];
+    var totalBytes = 0;
     try {
-      if (!await _root.exists()) return;
-      final files = <({File file, int bytes, DateTime modified})>[];
-      var totalBytes = 0;
       await for (final entity in _root.list(followLinks: false)) {
         if (entity is! File || entity.path.endsWith('.partial')) continue;
         try {
@@ -73,24 +94,34 @@ class AssetThumbnailCache {
           // Cache maintenance is best-effort and must not affect catalog use.
         }
       }
+    } on FileSystemException {
+      return;
+    }
 
-      if (files.length <= maxEntries && totalBytes <= maxBytes) return;
-      files.sort((a, b) => a.modified.compareTo(b.modified));
-      var count = files.length;
-      for (final entry in files) {
-        if (count <= maxEntries && totalBytes <= maxBytes) break;
-        await _deleteBestEffort(entry.file);
-        count--;
-        totalBytes -= entry.bytes;
-      }
-    } catch (_) {
-      // The cache directory can disappear during teardown or volume changes.
+    if (files.length <= maxEntries && totalBytes <= maxBytes) return;
+    files.sort((a, b) => a.modified.compareTo(b.modified));
+    var count = files.length;
+    for (final entry in files) {
+      if (count <= maxEntries && totalBytes <= maxBytes) break;
+      await _deleteBestEffort(entry.file);
+      count--;
+      totalBytes -= entry.bytes;
     }
   }
 
-  Future<Uint8List?> _generate(AssetRecord asset, File cacheFile) async {
-    final source = File(asset.effectivePath);
-    if (!await source.exists()) return null;
+  Future<Uint8List?> _generate(
+    AssetRecord asset,
+    File source,
+    FileStat expectedStat,
+    File cacheFile,
+  ) async {
+    FileStat currentStat;
+    try {
+      currentStat = await source.stat();
+    } catch (_) {
+      return null;
+    }
+    if (!_sameSourceVersion(expectedStat, currentStat)) return null;
 
     Uint8List sourceBytes;
     try {
@@ -99,6 +130,13 @@ class AssetThumbnailCache {
       return null;
     }
     if (sourceBytes.isEmpty) return null;
+
+    try {
+      currentStat = await source.stat();
+    } catch (_) {
+      return null;
+    }
+    if (!_sameSourceVersion(expectedStat, currentStat)) return null;
 
     final encoded = await _encoder(sourceBytes, maxDimension);
     if (encoded == null || encoded.isEmpty) return null;
@@ -122,7 +160,7 @@ class AssetThumbnailCache {
     if (!await file.exists()) return null;
     try {
       final bytes = await file.readAsBytes();
-      if (_looksLikeJpeg(bytes)) return bytes;
+      if (bytes.isNotEmpty && await _validator(bytes)) return bytes;
     } catch (_) {
       return null;
     }
@@ -134,9 +172,9 @@ class AssetThumbnailCache {
     AssetRecord asset, {
     required String keepPath,
   }) async {
+    if (!await _root.exists()) return;
+    final prefix = '${_safeId(asset.id)}-';
     try {
-      if (!await _root.exists()) return;
-      final prefix = '${_safeId(asset.id)}-';
       await for (final entity in _root.list(followLinks: false)) {
         if (entity is File &&
             entity.path != keepPath &&
@@ -144,8 +182,8 @@ class AssetThumbnailCache {
           await _deleteBestEffort(entity);
         }
       }
-    } catch (_) {
-      // Cache maintenance is best-effort and must not affect catalog use.
+    } on FileSystemException {
+      // Cache cleanup races are intentionally non-fatal.
     }
   }
 
@@ -157,17 +195,15 @@ class AssetThumbnailCache {
     }
   }
 
-  static String _cacheName(AssetRecord asset) =>
-      '${_safeId(asset.id)}-${asset.modifiedAt.microsecondsSinceEpoch}.jpg';
+  static String _cacheName(AssetRecord asset, FileStat stat) =>
+      '${_safeId(asset.id)}-${asset.modifiedAt.microsecondsSinceEpoch}-'
+      '${stat.modified.microsecondsSinceEpoch}-${stat.size}.jpg';
 
-  static String _safeId(String id) => id.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+  static bool _sameSourceVersion(FileStat a, FileStat b) =>
+      a.type == b.type && a.size == b.size && a.modified == b.modified;
 
-  static bool _looksLikeJpeg(Uint8List bytes) =>
-      bytes.length >= 4 &&
-      bytes[0] == 0xff &&
-      bytes[1] == 0xd8 &&
-      bytes[bytes.length - 2] == 0xff &&
-      bytes[bytes.length - 1] == 0xd9;
+  static String _safeId(String id) =>
+      id.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
 
   static Future<Uint8List?> _defaultEncoder(
     Uint8List sourceBytes,
@@ -177,6 +213,32 @@ class AssetThumbnailCache {
         'bytes': sourceBytes,
         'maxDimension': maxDimension,
       });
+
+  static Future<bool> _defaultValidator(Uint8List bytes) =>
+      compute(_validateCachedJpeg, bytes);
+}
+
+class _AsyncLimiter {
+  _AsyncLimiter(this.maxConcurrent);
+
+  final int maxConcurrent;
+  int _active = 0;
+  final Queue<Completer<void>> _waiters = Queue<Completer<void>>();
+
+  Future<T> run<T>(Future<T> Function() action) async {
+    if (_active >= maxConcurrent) {
+      final waiter = Completer<void>();
+      _waiters.add(waiter);
+      await waiter.future;
+    }
+    _active++;
+    try {
+      return await action();
+    } finally {
+      _active--;
+      if (_waiters.isNotEmpty) _waiters.removeFirst().complete();
+    }
+  }
 }
 
 Uint8List? _encodeThumbnail(Map<String, Object> job) {
@@ -200,4 +262,13 @@ Uint8List? _encodeThumbnail(Map<String, Object> job) {
               interpolation: img.Interpolation.average,
             );
   return Uint8List.fromList(img.encodeJpg(resized, quality: 82));
+}
+
+bool _validateCachedJpeg(Uint8List bytes) {
+  if (bytes.length < 4 || bytes[0] != 0xff || bytes[1] != 0xd8) return false;
+  try {
+    return img.decodeJpg(bytes) != null;
+  } catch (_) {
+    return false;
+  }
 }
