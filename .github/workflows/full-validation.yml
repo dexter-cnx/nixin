@@ -42,11 +42,9 @@ jobs:
       - name: Rust format (candidate delta)
         run: bash tool/ci-rust-format-check.sh
       - name: Rust clippy
-        working-directory: rust
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: make rust-clippy
       - name: Rust compile check
-        working-directory: rust
-        run: cargo check --locked
+        run: make rust-check
       - run: flutter test test/ffi_smoke_test.dart
 
   flutter-tests:
