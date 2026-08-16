@@ -20,7 +20,7 @@ Before pushing, run:
 make preflight
 ```
 
-`make preflight` resolves Flutter dependencies and runs repository shell syntax checks, Dart formatting, Flutter analysis, fast Flutter tests, Rust formatting, Clippy and `cargo check`.
+`make preflight` resolves Flutter dependencies and runs repository shell syntax checks, changed-file Dart formatting, Flutter analysis, fast Flutter tests, changed-file Rust formatting, Clippy and `cargo check`.
 
 Useful narrower commands:
 
@@ -35,6 +35,19 @@ make ci-fast
 ```
 
 `make validate` remains the broader local Flutter + Rust validation command.
+
+### Existing formatting/lint baseline
+
+At the time this CI architecture was introduced, `main` already contained Dart/Rust source that was not fully formatter-clean and the handwritten Rust FFI boundary also contained existing `dead_code` and `clippy::not_unsafe_ptr_arg_deref` findings. Reformatting or changing those FFI functions would be unrelated product/native work, so this CI PR does not rewrite them.
+
+The regression policy is therefore:
+
+- Dart formatting is enforced on changed Dart files.
+- Rust formatting is enforced on changed Rust source files.
+- Clippy remains strict with `-D warnings`, but explicitly allows only the two documented legacy classes: `dead_code` and `clippy::not_unsafe_ptr_arg_deref`.
+- all other Clippy warnings remain fatal.
+
+The two Clippy allowances are a named baseline exception, not permission to broaden lint suppression. Removing them should be done in a focused Rust/FFI cleanup once the corresponding ABI/runtime implications are intentionally addressed.
 
 ## Fast CI
 
@@ -53,7 +66,7 @@ Detect changes
 
 Fast CI always validates repository shell/YAML syntax. Flutter setup/checks run only when Flutter, FFI, import/filesystem or CI paths are affected. Rust setup/checks run only when Rust, FFI, export-engine or CI paths are affected.
 
-This guarantees Dart/Rust formatting, lint and compile failures are detected before platform runners are allowed to start.
+This guarantees new Dart/Rust formatting, lint and compile failures are detected before platform runners are allowed to start.
 
 ## Central change detection
 
@@ -119,7 +132,7 @@ Whole-workflow `paths:` filtering is intentionally not used, avoiding required-c
 
 Full validation does not use change filtering. Its `Merge gate` requires all of the following to succeed for the merge candidate SHA:
 
-- full preflight: repository syntax, Dart format, Flutter analyze, Rust fmt/Clippy/check, FFI smoke;
+- full preflight: repository syntax, candidate-delta Dart/Rust formatting, Flutter analyze, strict baseline-aware Clippy, Rust compile check and FFI smoke;
 - all standard Flutter tests;
 - all Rust tests + release native build;
 - Android native + release APK build;
@@ -132,14 +145,9 @@ This preserves the final cross-platform quality bar while keeping normal PR comm
 
 ## Branch-protection requirement
 
-To make full validation non-bypassable, repository settings must require merge queue for protected `main` merges and require both stable aggregate checks:
+To make full validation non-bypassable, repository settings must require merge queue for protected `main` merges and require the stable checks appropriate to the repository rule set, including the full merge-queue `Full validation / Merge gate` for merge candidates. `CI / PR CI required` is the stable normal-PR aggregate check.
 
-```text
-CI / PR CI required
-Full validation / Merge gate
-```
-
-The GitHub App used for this change cannot read or modify `main` branch-protection settings, so repository settings must be verified by an administrator after this PR lands. Do not treat the merge-queue full gate as mandatory until that setting is enabled.
+The GitHub App used for this change cannot read or modify `main` branch-protection settings, so repository settings must be verified by an administrator after this PR lands. Do not treat the merge-queue full gate as mandatory until that setting is enabled and a merge-queue candidate confirms the configured required checks report correctly.
 
 ## Caching and concurrency
 
@@ -177,4 +185,4 @@ CI/workflow change
 
 ## Merge guarantee
 
-Normal PR CI optimizes feedback. It is not the final cross-platform proof. The final merge candidate must pass `Full validation / Merge gate` through merge queue (or an explicit full run when diagnosing), with branch protection configured as described above.
+Normal PR CI optimizes feedback. It is not the final cross-platform proof. The final merge candidate must pass `Full validation / Merge gate` through merge queue (or an explicit full run when diagnosing), with branch protection configured and verified as described above.
