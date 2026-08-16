@@ -14,7 +14,9 @@
 - **W3 Workplace Browser + Filmstrip: merged in PR #11**
 - W3 merge commit on `main`: `3a8dda81efec1f3d81cae6291f057dd255f8cb75`
 - Current branch: `feature/desktop-catalog-hardening`
+- Current PR: **#12 — W4-A missing/relink/catalog-removal hardening**
 - Current milestone: **W4 — Desktop Catalog Hardening**
+- Detailed W4 implementation/acceptance guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
 - Real RAW demosaic/debayer and other new image-processing work remain deferred.
 
 ## Product responsibility
@@ -33,7 +35,7 @@ W3 added the persisted Workplace Grid, `AssetBrowserController`, one ordered ass
 
 ## Current — W4 Desktop Catalog Hardening
 
-### W4-A — Missing/relink/removal foundation
+### W4-A — PR #12: missing/relink/removal foundation
 
 Current branch implements:
 
@@ -53,6 +55,8 @@ Current branch implements:
 - catalog identity (`AssetRecord.id`) remains stable across relink
 - **Remove from Workplace** deletes only the catalog record
 - removal explicitly does not delete/move the original file
+
+W4-A acceptance and recovery semantics are documented in `docs/W4_DESKTOP_CATALOG_HARDENING.md`.
 
 ### W4-B — Remaining hardening after W4-A is merged
 
@@ -75,6 +79,7 @@ Do not claim W4 complete until these remaining items are either implemented or d
 - Workplace rename never moves managed originals
 - availability failures must not make the catalog itself unavailable
 - no synchronous filesystem checks per Grid tile
+- folder relink must not guess between duplicate filenames
 - no broad state-management rewrite solely for W4
 - no new RAW/image-processing scope
 
@@ -98,6 +103,14 @@ cargo check
 cargo test
 ```
 
+## Documentation map
+
+```text
+docs/PROJECT_HANDOFF.md                    canonical project status / execution queue
+docs/CODE_WALKTHROUGH.md                   current code ownership and data flow
+docs/W4_DESKTOP_CATALOG_HARDENING.md       W4 implementation, recovery semantics and acceptance gates
+```
+
 ## Future — PixelCraft external-editor integration
 
 Only after catalog workflows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority. Future integration should exchange stable asset/edit references rather than duplicate processing internals.
@@ -105,7 +118,7 @@ Only after catalog workflows stabilize. Dextryx Images remains catalog authority
 ## Immediate execution order
 
 ```text
-CURRENT   W4-A missing/relink/catalog-removal hardening
+CURRENT   W4-A PR #12 missing/relink/catalog-removal hardening
 NEXT      W4-B managed/import/cache/performance hardening
 FUTURE    PixelCraft external-editor contract
 ```
