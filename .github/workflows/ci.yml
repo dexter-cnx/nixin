@@ -72,7 +72,10 @@ jobs:
 
       - name: Dart format
         if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
-        run: dart format --output=none --set-exit-if-changed lib test integration_test
+        run: |
+          paths="lib test"
+          if [ -d integration_test ]; then paths="$paths integration_test"; fi
+          dart format --output=none --set-exit-if-changed $paths
 
       - name: Flutter analyze
         if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
