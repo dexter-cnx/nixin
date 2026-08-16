@@ -1,6 +1,9 @@
 name: Full validation
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
@@ -9,12 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: full-validation-${{ github.sha }}
-  cancel-in-progress: false
+  group: full-validation-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   preflight:
     name: Full preflight
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -189,6 +193,7 @@ jobs:
     steps:
       - name: Require every full-validation job
         env:
+          IS_DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
           PREFLIGHT: ${{ needs.preflight.result }}
           FLUTTER: ${{ needs.flutter-tests.result }}
           RUST: ${{ needs.rust-tests.result }}
@@ -198,6 +203,10 @@ jobs:
           WINDOWS: ${{ needs.windows.result }}
           LINUX: ${{ needs.linux.result }}
         run: |
+          if [ "$IS_DRAFT_PR" = "true" ]; then
+            echo "Draft PR: full validation is deferred until ready for review."
+            exit 0
+          fi
           for result in "$PREFLIGHT" "$FLUTTER" "$RUST" "$ANDROID" "$IOS" "$MACOS" "$WINDOWS" "$LINUX"; do
             test "$result" = success
           done
