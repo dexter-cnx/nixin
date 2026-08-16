@@ -125,16 +125,19 @@ Runs Rust tests, FFI-sensitive validation when bridge paths are touched, and con
 
 Whole-workflow `paths:` filtering is intentionally not used, avoiding required-check states that never report because a workflow was skipped.
 
-The same workflow listens for `merge_group` so a repository that requires this check and uses GitHub Merge Queue does not strand the queue waiting for a status that can never report.
+The same workflow listens for `merge_group` so the repository remains compatible with GitHub Merge Queue if it becomes available in the future.
 
 ## Full validation
 
-`.github/workflows/full-validation.yml` is deliberately separate from normal PR feedback CI. It runs on:
+`.github/workflows/full-validation.yml` is deliberately separate from change-aware PR feedback CI. It runs on:
 
-- GitHub merge queue (`merge_group: checks_requested`), and
+- normal pull requests targeting `main`,
+- GitHub merge queue (`merge_group: checks_requested`) for future compatibility, and
 - explicit `workflow_dispatch` for manual full validation.
 
-Full validation does not use change filtering. Its `Merge gate` requires all of the following to succeed for the merge candidate SHA:
+For pull requests, draft PRs defer the expensive full matrix. `Merge gate` reports successfully for a draft, and marking the PR ready for review triggers a fresh full-validation run. Subsequent commits to the same PR cancel obsolete full-validation runs so old candidate matrices do not keep consuming runners.
+
+Full validation does not use change filtering. Its `Merge gate` requires all of the following to succeed for the current merge candidate:
 
 - full preflight: repository syntax, candidate-delta Dart/Rust formatting, Flutter analyze, strict baseline-aware Clippy, Rust compile check and FFI smoke;
 - all standard Flutter tests;
@@ -145,20 +148,20 @@ Full validation does not use change filtering. Its `Merge gate` requires all of 
 - Windows Rust + Flutter release build;
 - Linux Rust + Flutter release build.
 
-This preserves the final cross-platform quality bar while keeping normal PR commits change-aware.
+This preserves the final cross-platform quality bar. Normal PR feedback remains change-aware in `ci.yml`, while a ready-for-review PR must also pass the full matrix before merge.
 
 ## Branch-protection requirement
 
-To make full validation non-bypassable, protected `main` should require GitHub Merge Queue and both stable aggregate checks:
+The repository is currently owned by a personal GitHub account, so GitHub Merge Queue is not available in its current repository configuration. Protected `main` therefore uses normal pull-request validation and should require both stable aggregate checks:
 
 ```text
 CI / PR CI required
 Full validation / Merge gate
 ```
 
-Both workflows listen for `merge_group`, so both required checks can report on the merge-group SHA. The CI workflow reports its shared fast gate without duplicating its expensive affected platform jobs; Full validation owns the platform matrix.
+`Require branches to be up to date before merging` should be enabled so the required checks are evaluated against a PR that includes the latest `main` before it can merge.
 
-The GitHub App used for this change cannot read or modify `main` branch-protection settings, so repository settings must be verified by an administrator after this PR lands. Do not treat the merge-queue full gate as mandatory until that setting is enabled and a merge-queue candidate confirms the configured required checks report correctly.
+Both workflows retain `merge_group` support so the repository can move to merge-queue validation later without redesigning the CI topology if repository ownership/plan changes make Merge Queue available.
 
 ## Caching and concurrency
 
@@ -166,38 +169,45 @@ The GitHub App used for this change cannot read or modify `main` branch-protecti
 - Rust uses `Swatinem/rust-cache` keyed from the Rust workspace/manifests/toolchain inputs.
 - identical format/lint checks are kept on Ubuntu rather than repeated per OS.
 - PR CI uses `cancel-in-progress: true` scoped by PR/ref, so superseded commits stop consuming runners.
-- Full validation is scoped by candidate SHA and uses `cancel-in-progress: false`, preventing an unrelated run from cancelling a final merge gate.
+- PR-triggered Full validation is scoped by PR number and cancels obsolete candidate runs when a new commit arrives.
+- merge-group/manual Full validation remains scoped by candidate SHA and is not cancelled by unrelated runs.
 
 ## Examples
 
 ```text
 Formatting-only Dart fix
   Detect -> Fast CI -> Flutter full tests -> PR CI required
-  No native/platform matrix unless an engine/import/CI path changed.
+  Ready PR -> Full validation matrix -> Merge gate
 
 Docs-only fix
   Detect -> Fast CI(repository syntax only) -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
 Flutter-only change
   Detect -> Fast CI(Flutter) -> Flutter full tests -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
 Rust-only change
   Detect -> Fast CI(Rust) -> Rust tests + configured platform builds -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
 FFI change
   Detect -> Fast CI(Flutter+Rust+FFI) -> Flutter/Rust tests + all platform builds -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
 iOS-only change
   Detect -> Fast CI(repository syntax) -> iOS build -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
 CI/workflow change
   Detect -> Fast CI(Flutter+Rust) -> broad affected validation -> PR CI required
+  Ready PR -> Full validation matrix -> Merge gate
 
-Merge-queue candidate
+Future merge-queue candidate
   CI: Detect -> Fast CI -> affected heavy jobs skipped -> PR CI required
   Full validation: Full preflight -> all Flutter/Rust/platform jobs -> Merge gate
 ```
 
 ## Merge guarantee
 
-Normal PR CI optimizes feedback. It is not the final cross-platform proof. The final merge candidate must pass `Full validation / Merge gate` through merge queue, together with the stable `CI / PR CI required` check, with branch protection configured and verified as described above.
+Normal change-aware PR CI optimizes feedback. A ready-for-review PR cannot merge until both required aggregate checks pass. With `Require branches to be up to date before merging` enabled, the current fallback for this personal-account repository validates the latest PR candidate through `Full validation / Merge gate` before merge. If Merge Queue becomes available later, the existing `merge_group` triggers can be used as the stronger final-candidate mechanism without changing the full-validation matrix.
