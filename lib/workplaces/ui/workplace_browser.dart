@@ -23,7 +23,7 @@ class WorkplaceBrowser extends ConsumerWidget {
     final controller = ref.read(assetBrowserControllerProvider.notifier);
 
     return Container(
-      color: StudioColors.background,
+      color: StudioColors.workspace,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -136,18 +136,19 @@ class _BrowserBody extends StatelessWidget {
           children: [
             const Icon(
               Icons.photo_library_outlined,
-              size: 42,
+              size: 44,
               color: StudioColors.textSecondary,
             ),
             const SizedBox(height: StudioSpacing.sm),
             Text(
-              'workplace.empty_assets'.tr(),
+              'workplace.empty'.tr(),
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: StudioSpacing.xs),
             Text(
-              'workplace.empty_assets_hint'.tr(),
+              'workplace.empty_body'.tr(),
               style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -156,21 +157,21 @@ class _BrowserBody extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 1400
-            ? 7
-            : width >= 1100
-                ? 6
-                : width >= 800
-                    ? 4
-                    : 2;
+        final columns = switch (constraints.maxWidth) {
+          >= 1400 => 7,
+          >= 1100 => 6,
+          >= 900 => 5,
+          >= 700 => 4,
+          >= 520 => 3,
+          _ => 2,
+        };
         return GridView.builder(
           padding: const EdgeInsets.all(StudioSpacing.md),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: StudioSpacing.sm,
             mainAxisSpacing: StudioSpacing.sm,
-            childAspectRatio: 1.05,
+            childAspectRatio: 1.08,
           ),
           itemCount: state.assets.length,
           itemBuilder: (context, index) {
@@ -200,21 +201,21 @@ class _AssetTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final previewProvider = ref.watch(assetPreviewProvider);
     return Material(
-      color: StudioColors.surface,
-      borderRadius: BorderRadius.circular(StudioRadius.sm),
-      clipBehavior: Clip.antiAlias,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(StudioRadius.md),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(StudioRadius.sm),
+            color: StudioColors.surface,
+            borderRadius: BorderRadius.circular(StudioRadius.md),
             border: Border.all(
               color: selected ? StudioColors.accent : StudioColors.divider,
               width: selected ? 2 : 1,
             ),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -222,34 +223,15 @@ class _AssetTile extends ConsumerWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    FutureBuilder<Uint8List?>(
-                      future: previewProvider.thumbnail(asset),
-                      builder: (context, snapshot) {
-                        final bytes = snapshot.data;
-                        if (bytes == null) {
-                          return const Center(
-                            child: Icon(
-                              Icons.image_outlined,
-                              size: 34,
-                              color: StudioColors.textSecondary,
-                            ),
-                          );
-                        }
-                        return Image.memory(
-                          bytes,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        );
-                      },
-                    ),
+                    _AssetThumbnail(asset: asset),
                     if (asset.missing)
                       const Positioned(
-                        top: StudioSpacing.xs,
                         right: StudioSpacing.xs,
+                        top: StudioSpacing.xs,
                         child: Icon(
                           Icons.link_off,
                           size: 18,
-                          color: StudioColors.textSecondary,
+                          color: StudioColors.error,
                         ),
                       ),
                   ],
@@ -272,6 +254,37 @@ class _AssetTile extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AssetThumbnail extends ConsumerWidget {
+  const _AssetThumbnail({required this.asset});
+
+  final AssetRecord asset;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final preview = ref.watch(assetPreviewProviderProvider).thumbnail(asset);
+    return FutureBuilder<Uint8List?>(
+      future: preview,
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) {
+          return const Center(
+            child: Icon(
+              Icons.image_outlined,
+              size: 30,
+              color: StudioColors.textSecondary,
+            ),
+          );
+        }
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+        );
+      },
     );
   }
 }
