@@ -2,12 +2,13 @@
   "app_name": "Dextryx",
   "module": {"library": "Workplaces", "develop": "Develop", "export": "Export"},
   "panel": {"navigator": "Navigator", "presets": "Presets", "tools": "Tools", "light": "Light", "color": "Color", "export": "Export"},
-  "action": {"open_raw": "Open Image", "develop": "Develop Image", "subject_mask": "Subject Mask", "sky_mask": "Sky Mask", "apply_lut": "Apply .cube LUT", "reset_adjustments": "Reset adjustments", "export_jpeg": "Export JPEG"},
+  "action": {"open_raw": "Import", "import": "Import", "develop": "Develop Image", "subject_mask": "Subject Mask", "sky_mask": "Sky Mask", "apply_lut": "Apply .cube LUT", "reset_adjustments": "Reset adjustments", "export_jpeg": "Export JPEG"},
   "adjustment": {"exposure": "Exposure", "contrast": "Contrast", "temperature": "Temperature"},
-  "preview": {"empty_title": "No image selected", "empty_body": "Open a RAW or image file to start editing.", "processing": "Processing image...", "error": "Preview unavailable", "fit": "Fit", "one_to_one": "1:1"},
-  "filmstrip": {"title": "Filmstrip", "empty": "Open a RAW or image file to add it to the current strip", "show": "Show filmstrip", "hide": "Hide filmstrip"},
+  "preview": {"empty_title": "No image selected", "empty_body": "Import an image or RAW file to start editing.", "processing": "Processing image...", "error": "Preview unavailable", "fit": "Fit", "one_to_one": "1:1"},
+  "filmstrip": {"title": "Filmstrip", "empty": "Import an image or RAW file to add it to the current strip", "show": "Show filmstrip", "hide": "Hide filmstrip"},
   "status": {"ready": "Ready", "engine_unavailable": "Engine unavailable", "selected": "Selected", "exported": "Exported"},
   "settings": {"jpeg_quality": "JPEG quality"},
   "label": {"no_file": "No file", "image": "Image", "engine": "Engine"},
-  "workplace": {"title": "Workplaces", "default_name": "My workplace", "create": "New Workplace", "rename": "Rename Workplace", "delete": "Delete Workplace", "cannot_delete_last": "At least one Workplace must remain"}
+  "workplace": {"title": "Workplaces", "default_name": "My workplace", "loading": "Loading Workplaces…", "create": "New Workplace", "rename": "Rename Workplace", "delete": "Delete Workplace", "cannot_delete_last": "At least one Workplace must remain"},
+  "import": {"options": "Import options", "folder": "Import Folder…", "folder_no_subfolders": "Import Folder (current folder only)…", "linked": "Linked / Add", "managed": "Managed / Copy", "cancel": "Cancel Import", "cancelled": "Import cancelled", "progress": "Importing {processed} / {total}  {file}", "summary": "Imported {imported} · duplicates {duplicates} · failed {failed}"}
 }

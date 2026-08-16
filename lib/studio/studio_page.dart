@@ -8,6 +8,7 @@ import 'editor_controls.dart';
 import 'filmstrip.dart';
 import 'preview_surface.dart';
 import 'studio_controller.dart';
+import 'studio_import_controls.dart';
 import 'studio_state.dart';
 import 'studio_widgets.dart';
 
@@ -144,10 +145,8 @@ class _MediumWorkspace extends StatelessWidget {
           top: StudioSpacing.sm,
           child: Column(
             children: [
-              IconButton.filledTonal(
-                tooltip: 'action.open_raw'.tr(),
-                onPressed: controller.pickRaw,
-                icon: const Icon(Icons.folder_open),
+              const StudioImportControls(
+                mode: StudioImportControlMode.floating,
               ),
               const SizedBox(height: StudioSpacing.xs),
               IconButton.filledTonal(
@@ -188,12 +187,9 @@ class _CompactWorkspace extends StatelessWidget {
           padding: const EdgeInsets.all(StudioSpacing.sm),
           child: Row(
             children: [
-              Expanded(
-                child: ActionButton(
-                  icon: Icons.folder_open,
-                  label: 'action.open_raw'.tr(),
-                  onPressed: controller.pickRaw,
-                  primary: true,
+              const Expanded(
+                child: StudioImportControls(
+                  mode: StudioImportControlMode.compact,
                 ),
               ),
               const SizedBox(width: StudioSpacing.sm),
@@ -238,12 +234,7 @@ class _LeftPanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ActionButton(
-                icon: Icons.folder_open,
-                label: 'action.open_raw'.tr(),
-                onPressed: controller.pickRaw,
-                primary: true,
-              ),
+              const StudioImportControls(),
               if (state.fileName != null) ...[
                 const SizedBox(height: StudioSpacing.sm),
                 Text(
