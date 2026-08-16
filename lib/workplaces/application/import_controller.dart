@@ -112,6 +112,7 @@ class ImportController extends StateNotifier<ImportState> {
 
   Future<void> importFiles() async {
     if (state.busy) return;
+    _cancelRequested = false;
     state = state.copyWith(
       phase: ImportPhase.selecting,
       clearError: true,
@@ -123,15 +124,24 @@ class ImportController extends StateNotifier<ImportState> {
       allowedExtensions: supportedExtensions.toList(growable: false),
     );
     final paths = result?.files.map((file) => file.path).whereType<String>().toList();
+    if (_cancelRequested) {
+      state = state.copyWith(phase: ImportPhase.cancelled);
+      return;
+    }
     if (paths == null || paths.isEmpty) {
       state = state.copyWith(phase: ImportPhase.idle);
       return;
     }
-    await importPaths(paths, sourceType: ImportSourceType.files);
+    await importPaths(
+      paths,
+      sourceType: ImportSourceType.files,
+      preserveCancellation: true,
+    );
   }
 
   Future<void> importFolder({bool recursive = true}) async {
     if (state.busy) return;
+    _cancelRequested = false;
     state = state.copyWith(
       phase: ImportPhase.selecting,
       clearError: true,
@@ -140,6 +150,10 @@ class ImportController extends StateNotifier<ImportState> {
     final root = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Select folder to import',
     );
+    if (_cancelRequested) {
+      state = state.copyWith(phase: ImportPhase.cancelled);
+      return;
+    }
     if (root == null) {
       state = state.copyWith(phase: ImportPhase.idle);
       return;
@@ -152,16 +166,22 @@ class ImportController extends StateNotifier<ImportState> {
         recursive: recursive,
         followLinks: false,
       )) {
+        if (_cancelRequested) break;
         if (entity is File && isSupported(entity.path)) paths.add(entity.path);
       }
     } catch (error) {
       state = state.copyWith(phase: ImportPhase.failed, errorMessage: '$error');
       return;
     }
+    if (_cancelRequested) {
+      state = state.copyWith(phase: ImportPhase.cancelled);
+      return;
+    }
     await importPaths(
       paths,
       sourceType: ImportSourceType.folder,
       sourceRoot: root,
+      preserveCancellation: true,
     );
   }
 
@@ -169,6 +189,7 @@ class ImportController extends StateNotifier<ImportState> {
     List<String> paths, {
     required ImportSourceType sourceType,
     String? sourceRoot,
+    bool preserveCancellation = false,
   }) async {
     final workplaceId = _currentWorkplaceId();
     if (workplaceId == null) {
@@ -179,6 +200,12 @@ class ImportController extends StateNotifier<ImportState> {
       return;
     }
 
+    if (!preserveCancellation) _cancelRequested = false;
+    if (_cancelRequested) {
+      state = state.copyWith(phase: ImportPhase.cancelled);
+      return;
+    }
+
     final candidates = paths
         .where(isSupported)
         .map((path) => p.normalize(p.absolute(path)))
@@ -186,7 +213,6 @@ class ImportController extends StateNotifier<ImportState> {
     final startedAt = _now();
     final batchId = 'import-${startedAt.microsecondsSinceEpoch}';
     final selectedStorageMode = state.storageMode;
-    _cancelRequested = false;
     state = ImportState(
       phase: ImportPhase.checkingDuplicates,
       storageMode: selectedStorageMode,
@@ -194,13 +220,17 @@ class ImportController extends StateNotifier<ImportState> {
     );
 
     final existing = await _assetRepository.getByWorkplace(workplaceId);
+    if (_cancelRequested) {
+      state = state.copyWith(phase: ImportPhase.cancelled);
+      return;
+    }
     final known = existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
     String? managedRoot = _preferences.readManagedDestination();
     if (selectedStorageMode == AssetStorageMode.managed && managedRoot == null) {
       managedRoot = await FilePicker.platform.getDirectoryPath(
         dialogTitle: 'Choose managed originals location',
       );
-      if (managedRoot == null) {
+      if (_cancelRequested || managedRoot == null) {
         state = state.copyWith(phase: ImportPhase.cancelled);
         return;
       }
@@ -251,6 +281,7 @@ class ImportController extends StateNotifier<ImportState> {
           await file.copy(managedPath);
         }
 
+        if (_cancelRequested) break;
         state = state.copyWith(
           phase: ImportPhase.cataloging,
           currentFile: p.basename(source),
