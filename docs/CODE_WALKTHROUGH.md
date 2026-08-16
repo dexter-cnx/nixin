@@ -1,31 +1,41 @@
 # Dextryx Images — Code Walkthrough
 
-This document is the current code orientation for `dexter-cnx/nixin` after the Studio workspace milestones and **W1 Workplace Core**. Historical implementation details belong in milestone-specific handoff documents; this file describes the structure developers should use now.
+This document describes the current code structure of `dexter-cnx/nixin` after the completed Studio workspace milestones and W1 Workplace Core foundation. It distinguishes implemented code from behavior that is actually reachable through the live application.
 
 ## 1. Application bootstrap
 
-`lib/main.dart` is bootstrap-only.
-
-Startup sequence:
+`lib/main.dart` initializes:
 
 ```text
-WidgetsFlutterBinding.ensureInitialized()
-  → EasyLocalization.ensureInitialized()
-  → Hive.initFlutter()
-  → open Hive boxes
-       ├─ studio_settings
-       ├─ workplaces
-       └─ assets
-  → ProviderScope
-  → EasyLocalization
-  → NixinApp
+WidgetsFlutterBinding
+EasyLocalization
+Hive
+  ├─ studio_settings
+  ├─ workplaces
+  └─ assets
+ProviderScope
+EasyLocalization
+NixinApp
 ```
 
-The three Hive boxes currently separate lightweight studio preferences from Workplace and Asset catalog persistence.
+Opening Hive boxes does not initialize Riverpod providers by itself.
 
-## 2. Top-level ownership
+## 2. Current live application root
 
-Current Flutter structure:
+`lib/app/nixin_app.dart` currently builds:
+
+```text
+MaterialApp
+  → StudioPage
+```
+
+This is important: the live app does **not** currently watch `workplaceControllerProvider`.
+
+Because Riverpod providers are lazy, merely defining `workplaceControllerProvider` does not instantiate `WorkplaceController`, and therefore does not run `WorkplaceController.initialize()` during a normal app launch.
+
+That wiring gap is the first implementation item in W2.
+
+## 3. Top-level structure
 
 ```text
 lib/
@@ -41,35 +51,13 @@ Responsibilities:
 ```text
 app/         application shell, theme, localization root
 engine/      native image-processing boundary and FFI implementation
-studio/      existing workspace, preview, Develop/Mask/LUT/Export compatibility
-workplaces/  catalog domain, persistence, current Workplace state
+studio/      current live workspace and existing processing interactions
+workplaces/  catalog domain, repositories, persistence, controller foundation
 ```
 
-The current roadmap expands `workplaces/`; it should not move new catalog behavior into leaf Studio widgets.
+## 4. Native processing path
 
-## 3. App root
-
-`lib/app/nixin_app.dart` owns the Flutter application shell and localization/theme wiring.
-
-The app layer should stay ignorant of FFI details and catalog persistence implementation. Those concerns belong behind `engine/` and `workplaces/` boundaries.
-
-## 4. Native engine boundary
-
-### `lib/engine/engine_image.dart`
-
-`EngineImage` represents a native image result:
-
-```text
-RGBA bytes
-width
-height
-```
-
-### `lib/engine/raw_engine.dart`
-
-`StudioEngine` is the Flutter-facing processing contract. `RawEngine` is the concrete FFI implementation.
-
-The dependency direction remains:
+The existing processing dependency direction is:
 
 ```text
 Studio UI
@@ -79,28 +67,26 @@ Studio UI
         → Rust C ABI
 ```
 
-Widgets must not call `DynamicLibrary` or native functions directly.
+Widgets must not call native functions directly.
 
-The existing processing path currently supports embedded RAW previews/raster decoding plus the already-shipped adjustment, mask, LUT, and JPEG export behavior. Real RAW sensor development remains deferred.
+The current Rust/Studio path supports the already-existing embedded RAW preview/raster decode, adjustments, masks, LUT, and JPEG export behavior. Real sensor RAW development remains deferred.
 
-## 5. FFI memory ownership
-
-The native boundary preserves explicit allocator ownership:
+## 5. FFI ownership
 
 ```text
 Dart UTF-8 input
-  → calloc allocation
+  → calloc
   → Rust call
   → Dart frees with calloc.free()
 
 Rust string output
   → CString::into_raw()
-  → Dart converts to String
+  → Dart converts
   → free_string_rust()
 
 Rust ImageBuffer
-  → Dart reads width/height/len/data
-  → Dart copies RGBA into Uint8List
+  → Dart reads metadata/data
+  → Dart copies RGBA bytes
   → free_image_buffer()
 ```
 
@@ -110,29 +96,28 @@ Dart validates:
 len == width * height * 4
 ```
 
-before accepting an RGBA result.
+before accepting returned RGBA data.
 
-## 6. Studio compatibility layer
+## 6. Studio layer
 
-`lib/studio/` contains the completed studio workspace foundation. It remains operational while Workplaces becomes the catalog authority.
+`lib/studio/` is still the live UI root today.
 
-Important responsibilities include:
+It owns existing:
 
-- `StudioState` for preview/editor state
-- `StudioController` for existing native actions
-- responsive workspace composition
-- module/status bars
+- Studio state/controller
 - preview surface
-- Develop, mask, LUT, and JPEG export interactions
-- existing Filmstrip implementation to be evolved during W3
+- responsive workspace composition
+- Develop actions
+- Subject/Sky mask actions
+- LUT flow
+- JPEG export
+- existing Filmstrip behavior
 
-During W2–W4, avoid a broad Studio state-management rewrite. Use adapters where needed to migrate from legacy single-path selection toward catalog-selected assets.
+W2–W4 should preserve this path as a regression boundary while progressively making catalog state authoritative.
 
 ## 7. Workplaces domain
 
-`lib/workplaces/domain/` contains catalog concepts independent of Hive and widgets.
-
-Current files:
+Current domain files:
 
 ```text
 lib/workplaces/domain/
@@ -145,45 +130,23 @@ lib/workplaces/domain/
 
 ### `Workplace`
 
-Represents a logical catalog/container. A Workplace is not a physical folder alias.
-
-Current behavior expects:
-
-- stable ID
-- display name
-- created/updated timestamps
-- default marker
+Logical catalog/container identity. It is not a physical-folder alias.
 
 ### `AssetRecord`
 
-Represents catalog identity for an imported image/RAW asset.
+Catalog identity and storage metadata for an image/RAW asset. It is distinct from runtime Studio preview/editor state.
 
-The model keeps catalog metadata separate from the existing runtime Studio preview state. W2 should extend import behavior around this model rather than reverting to file-path-only application state.
+## 8. Repository boundary
 
-## 8. Repository contracts
-
-Domain repository interfaces are intentionally small and persistence-agnostic:
+The dependency direction is:
 
 ```text
-WorkplaceRepository
-AssetRepository
-```
-
-Dependency direction:
-
-```text
-Controller / application logic
+application/controller
   → repository interface
     → Hive implementation
 ```
 
-Widgets must not read/write Hive directly.
-
-This keeps a future catalog-store migration possible without rewriting UI/domain code.
-
-## 9. Hive persistence
-
-Current concrete implementations:
+Concrete implementations:
 
 ```text
 lib/workplaces/data/hive/
@@ -191,7 +154,9 @@ lib/workplaces/data/hive/
   hive_asset_repository.dart
 ```
 
-Current boxes:
+Widgets should not read/write Hive directly.
+
+Current Hive boxes:
 
 ```text
 studio_settings
@@ -199,11 +164,7 @@ workplaces
 assets
 ```
 
-`studio_settings` also stores the current Workplace ID through the Workplace repository boundary.
-
-The catalog database is authoritative for logical Workplace membership. Physical source paths and future managed-copy paths must remain storage metadata, not Workplace identity.
-
-## 10. Workplace application state
+## 9. WorkplaceController
 
 `lib/workplaces/application/workplace_controller.dart` defines:
 
@@ -215,7 +176,7 @@ workplaceRepositoryProvider
 assetRepositoryProvider
 ```
 
-`WorkplaceState` currently owns:
+`WorkplaceState` owns:
 
 ```text
 workplaces
@@ -224,30 +185,25 @@ loading
 errorMessage
 ```
 
-It exposes `currentWorkplace` as a derived lookup.
-
-### Initialization
-
-`WorkplaceController.initialize()`:
+The controller implements:
 
 ```text
-load all Workplaces
-  → if empty, create "My workplace"
-  → restore current Workplace ID
-  → if missing/invalid, choose first Workplace
-  → persist repaired current ID
-  → publish ready state
-```
-
-### Commands
-
-Current controller commands:
-
-```text
+initialize()
 createWorkplace(name)
 switchWorkplace(id)
 renameWorkplace(id, name)
 deleteWorkplace(id)
+```
+
+`initialize()` implements this logic:
+
+```text
+load Workplaces
+  → if empty, create "My workplace"
+  → restore current Workplace ID
+  → repair invalid/missing current ID
+  → persist current ID
+  → publish state
 ```
 
 Important invariant:
@@ -256,45 +212,75 @@ Important invariant:
 At least one Workplace must remain.
 ```
 
-Deleting a Workplace removes its catalog records through `AssetRepository.deleteByWorkplace(id)` but does not imply deletion of original files on disk.
+Deleting a Workplace removes its catalog records through `AssetRepository`; it does not imply deleting original files.
 
-## 11. Current catalog flow
+## 10. Implemented foundation vs live behavior
 
-After W1, the conceptual authority is:
+The following are implemented/testable through `WorkplaceController` and repositories:
+
+- default Workplace creation logic
+- persistence/restoration logic
+- Workplace CRUD commands
+- last-Workplace invariant
+- Asset persistence boundary
+
+They are **not yet live end-user behavior**, because the current `NixinApp → StudioPage` tree does not consume `workplaceControllerProvider`.
+
+Current reality:
 
 ```text
-Current Workplace
-  → WorkplaceController
-  → WorkplaceRepository
+Live app
+  → StudioPage
+  → studioControllerProvider
 
-Workplace assets
-  → AssetRepository
+Workplace foundation
+  → workplaceControllerProvider
+  → not yet mounted/consumed by live app
 ```
 
-W2 should add import orchestration on top of these boundaries.
+Any documentation or test plan must preserve this distinction until W2 wires the provider into the real application.
 
-Do not make the file picker itself the catalog owner. File picking is only the source-selection step of an import pipeline.
+## 11. W2.0 target — live Workplace wiring
 
-## 12. W2 target architecture — Import System
+First W2 step:
 
-The next implementation should introduce an application-level import boundary resembling:
+```text
+Live application/workspace
+  → watch workplaceControllerProvider
+  → initialize WorkplaceController
+  → expose current Workplace context
+```
+
+Required outcomes:
+
+- real fresh launch creates `My workplace`
+- restart restores the active Workplace
+- current Workplace is observable by the live UI
+- Workplace CRUD/switching is reachable through the application
+- current Studio behavior does not regress
+
+Add widget/integration tests that mount the real provider path; controller-only tests are not sufficient for this acceptance gate.
+
+## 12. W2.1 target — Import System
+
+Once Workplace state is live, add import orchestration above repository boundaries:
 
 ```text
 Import UI
   → ImportController / ImportService
     → source discovery
-    → supported-format filter
+    → supported-format filtering
     → duplicate checks
     → optional managed copy
     → metadata/catalog creation
     → AssetRepository
 ```
 
-The durable flow defined in `docs/WORKPLACES_HANDOFF.md` is:
+Durable flow:
 
 ```text
 Select source
-  → discover candidate files
+  → discover candidates
   → filter supported types
   → normalize paths
   → check duplicates
@@ -318,11 +304,11 @@ cancellation
 partial-failure handling
 ```
 
-Keep picker/filesystem operations out of leaf widgets.
+File picker and filesystem work belong in application/service boundaries, not leaf widgets.
 
-## 13. W3 target state relationship
+## 13. W3 target — shared Browser/Filmstrip state
 
-Grid and Filmstrip must converge on shared catalog state:
+The target relationship is:
 
 ```text
 Current Workplace
@@ -337,7 +323,7 @@ selectedAssetId
        └─ Develop current asset
 ```
 
-Do not create independent asset arrays or independent selection state for Grid and Filmstrip.
+Do not create separate asset collections or independent selection truth for Grid and Filmstrip.
 
 The existing Filmstrip should be evolved rather than duplicated.
 
@@ -345,7 +331,7 @@ The existing Filmstrip should be evolved rather than duplicated.
 
 Workplaces should not depend directly on future RAW processing internals.
 
-A preview abstraction should remain replaceable, conceptually:
+Conceptual boundary:
 
 ```dart
 abstract interface class AssetPreviewProvider {
@@ -353,65 +339,71 @@ abstract interface class AssetPreviewProvider {
 }
 ```
 
-During the Workplaces phase:
+During W2–W4:
 
-- RAW may use the existing embedded JPEG preview path
-- raster images may use the existing raster decode path
-- thumbnail/preview caching can be added without introducing real RAW development
+- RAW previews may continue using embedded JPEGs
+- raster images may use existing raster decode
+- caching may evolve independently
+- real RAW demosaic/debayer remains out of scope
 
-## 15. Catalog removal semantics
+## 15. Removal semantics
 
-Keep these concepts separate:
+Keep catalog removal and filesystem deletion separate:
 
 ```text
 Remove from Workplace
 ```
 
-and any future destructive filesystem operation such as:
+is not equivalent to:
 
 ```text
-Move Original to Trash…
+Move Original to Trash
 ```
 
-Deleting a Workplace or catalog record must never silently delete the source original.
+No Workplace/catalog operation should silently delete source originals.
 
 ## 16. Localization
 
-Visible UI strings use `easy_localization`.
-
-Resources:
+Visible UI strings use `easy_localization` with:
 
 ```text
 assets/translations/en.json
 assets/translations/th.json
 ```
 
-New Workplaces/import strings should be translation keys rather than hard-coded widget text.
+New Workplace/import UI strings should be translation keys.
 
-## 17. Test seams
+## 17. Test strategy
 
-The architecture should continue to preserve deterministic test boundaries:
+Current seams:
 
 ```text
 Widget tests
-  → fake/mocked application state
+  → application/UI wiring
 
 Controller/service tests
   → repository fakes
-  → fake StudioEngine where processing compatibility is involved
 
 Repository tests
-  → Hive-backed persistence
+  → Hive persistence
 
 Rust tests
   → native processing/core behavior
 ```
 
-W1 added catalog tests around Workplace persistence and invariants. W2 should add tests for import state transitions, duplicate rules, path normalization, linked/managed decisions, cancellation, and partial failures.
+W2.0 specifically requires tests proving the real live app/provider path initializes Workplace state.
+
+W2.1 should add tests for:
+
+- import state transitions
+- duplicate rules
+- path normalization
+- linked/managed decisions
+- cancellation
+- partial failures
+- restart persistence
 
 ## 18. Validation gate
-
-Core validation:
 
 ```bash
 flutter pub get
@@ -423,12 +415,12 @@ cargo check
 cargo test
 ```
 
-Manual regression gate during W2–W4:
+Manual regression coverage during W2–W4:
 
-- launch and localization
-- `My workplace` initialization/restoration
-- create/switch/rename/delete Workplace
-- existing embedded RAW preview
+- launch/localization
+- real fresh-launch Workplace initialization once W2.0 lands
+- Workplace create/switch/rename/delete once wired
+- embedded RAW preview
 - raster preview
 - Develop
 - Subject Mask
@@ -437,16 +429,15 @@ Manual regression gate during W2–W4:
 - JPEG export
 - responsive workspace behavior
 
-New catalog work must not regress existing processing behavior.
-
 ## 19. Current execution order
 
 ```text
-DONE     W1 Workplace Core
-CURRENT  W2 Import System
+DONE     W1 Workplace Core foundation
+CURRENT  W2.0 Live Workplace wiring
+THEN     W2.1 Import System
 NEXT     W3 Workplace Browser + Filmstrip
 THEN     W4 Desktop Catalog Hardening
 FUTURE   PixelCraft external-editor contract
 ```
 
-See `docs/PROJECT_HANDOFF.md` for canonical current status and `docs/WORKPLACES_HANDOFF.md` for the detailed Workplaces specification.
+See `docs/PROJECT_HANDOFF.md` for canonical status and `docs/WORKPLACES_HANDOFF.md` for the detailed Workplaces/import specification.
