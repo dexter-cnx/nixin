@@ -2,7 +2,7 @@
 
 Current code orientation for `dexter-cnx/nixin` during **W4 Desktop Catalog Hardening**.
 
-Detailed W4 recovery/acceptance rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`.
+Detailed W4 rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`. Physical desktop gates live in `docs/W4_DESKTOP_VALIDATION.md`.
 
 ## Bootstrap and ownership
 
@@ -14,101 +14,43 @@ Top-level ownership remains:
 app/          shell/theme/localization
 engine/       Rust FFI processing boundary
 studio/       Develop/Mask/LUT/Export + Filmstrip + import controls
-workplaces/   catalog/import/browser/recovery state and UI
+workplaces/   catalog/import/browser/recovery/thumbnail state and UI
 ```
 
-Widgets do not access Hive directly.
+Widgets do not access Hive records directly.
 
 ## Workplace and catalog core
 
 `WorkplaceController` owns Workplace lifecycle and active Workplace state.
 
-`AssetBrowserController` remains the active Workplace catalog/selection source shared by Grid and Filmstrip. W4-A added missing-file scanning, relink and catalog-only removal; those semantics remain unchanged in W4-B.
+`AssetBrowserController` remains the active Workplace catalog/selection source shared by Grid and Filmstrip. W4-A added missing-file scanning, relink and catalog-only removal.
 
 ## ImportController
 
 `lib/workplaces/application/import_controller.dart` owns file/folder discovery, duplicate prevention, linked/managed storage, progress/cancellation, managed copy commit behavior and `ImportBatch` recovery.
 
-The import path remains catalog orchestration only; image processing is not performed here.
-
-### Managed destination validation
-
-Managed imports read the remembered managed destination from `ImportPreferences`.
+Managed import safety from W4-B1 remains:
 
 ```text
-remembered destination exists
-  -> use it
-
-remembered destination missing/unmounted
-  -> do NOT recreate it
-  -> ask for a replacement destination
-  -> validate replacement exists
-  -> persist replacement preference
+validate managed root
+  -> collision-free destination
+  -> copy to .partial
+  -> rename to final
+  -> persist AssetRecord
 ```
 
-This avoids accidentally creating an ordinary local directory at a path that normally belongs to a disconnected external volume.
-
-### Managed copy commit protocol
-
-For each managed source:
-
-```text
-source
-  -> choose collision-free final path
-  -> copy to <final>.partial
-  -> rename partial to final
-  -> write AssetRecord
-```
-
-Safety rules:
-
-- an existing managed destination file is never overwritten;
-- generated asset IDs are checked against catalog persistence;
-- failed copy removes the partial file;
-- cancellation after copy but before catalog commit removes the new managed copy;
-- catalog-save failure removes the newly copied managed original;
-- the source original remains untouched.
-
-## ImportBatch recovery model
-
-`lib/workplaces/domain/import_batch.dart` now persists:
-
-```text
-sourcePaths
-failedPaths
-storageMode
-status
-counts / timestamps / source metadata
-```
-
-A `running` batch is persisted before per-file processing starts. If the app terminates during import, that record retains the candidate source list required for a later retry.
-
-Backward compatibility is retained for older Hive maps:
-
-```text
-missing sourcePaths -> []
-missing failedPaths -> []
-missing storageMode -> linked
-```
-
-## Retry semantics
-
-`ImportController.retryBatch(batchId)`:
-
-1. requires the original Workplace to be active;
-2. uses `failedPaths` when the prior batch completed/failed partially;
-3. uses all `sourcePaths` when recovering an interrupted `running` batch;
-4. uses the **original batch storage mode**, not the current UI option;
-5. creates a new import attempt/batch rather than mutating historical results;
-6. relies on existing source-path duplicate detection so already-successful assets are not duplicated.
-
-The Studio import controls expose failed status plus **Retry failed import** when the current batch is recoverable.
+A missing mount/root is never silently recreated. Copy/catalog failures clean up uncommitted managed output. Persisted recoverable batches are restored per active Workplace and retry keeps the original batch storage mode without mutating the user's configured import mode.
 
 ## Asset availability and relink boundary
 
-W4-A introduced `AssetFileSystem` / `AssetAvailabilityService` for asynchronous file availability and folder indexing. No synchronous `File.exists()` calls are made per Grid tile.
+`AssetFileSystem` / `AssetAvailabilityService` isolate async file availability and folder indexing from Grid tiles.
 
-Availability scans use revision guards so stale scans cannot resurrect removed assets or undo relinks.
+Availability rules:
+
+- default existence-check batch size is 32;
+- stale scan revisions cannot resurrect removed assets or undo relinks;
+- only changed `missing` state is persisted;
+- filesystem probing failure is a soft failure and does not replace a loaded catalog with an error state.
 
 Relink remains storage-specific:
 
@@ -117,11 +59,83 @@ linked  -> sourcePath
 managed -> managedPath
 ```
 
-Managed folder recovery matches the stored managed filename, not `originalFilename`, because managed copies use an asset-ID-prefixed filename.
+## Browser preview resolution
+
+`lib/workplaces/application/asset_preview_provider.dart` resolves browser preview bytes in this order:
+
+```text
+AssetRecord.thumbnailPath
+  -> AssetRecord.previewPath
+  -> AssetThumbnailCache for raster assets
+  -> null / placeholder
+```
+
+This preserves pre-existing preview/embedded-preview behavior while adding a catalog-local raster cache fallback.
+
+## AssetThumbnailCache
+
+`lib/workplaces/application/asset_thumbnail_cache.dart` owns generated browser thumbnails.
+
+### Scope boundary
+
+The cache accepts only `AssetMediaType.raster` for source generation. RAW assets do not enter `image.decodeImage` here. RAW preview extraction/development remains outside the catalog thumbnail service.
+
+### Generation path
+
+```text
+raster effectivePath
+  -> async read
+  -> compute(_encodeThumbnail)
+  -> image decode/resize off synchronous widget build
+  -> longest edge <= 512 px
+  -> JPEG quality 82
+  -> <cache-key>.jpg.partial
+  -> rename to <cache-key>.jpg
+```
+
+`compute(...)` keeps the decode/resize work away from the synchronous Grid build path.
+
+### Cache identity / invalidation
+
+Generated cache name:
+
+```text
+<safe-asset-id>-<modifiedAt.microsecondsSinceEpoch>.jpg
+```
+
+A changed persisted `modifiedAt` creates a new version key. When that version is generated, older generated versions for the same asset ID are removed.
+
+### Concurrency and failure behavior
+
+- one in-flight Future per cache path prevents duplicate concurrent generation;
+- empty/truncated generated JPEG cache entries are discarded and regenerated;
+- missing source assets are not decoded;
+- read/write/delete/prune failures are soft failures;
+- cache failures never make the catalog unavailable;
+- source originals are never modified.
+
+### Filesystem pressure
+
+Default cache bounds:
+
+```text
+maxEntries = 2048
+maxBytes   = 512 MiB
+```
+
+`prune()` orders cache files by modification time and removes oldest files until both limits are satisfied. `.partial` files are excluded from normal cache accounting and handled by generation cleanup.
+
+The cache root is placed beside the Hive assets box on desktop; a system-temp fallback exists only when the Hive box has no filesystem path.
+
+## Workplace browser UI
+
+`GridView.builder` remains lazy. `_AssetThumbnail` requests bytes through `AssetPreviewProvider` and does not synchronously probe original files or decode source images during build.
+
+Grid and Filmstrip continue sharing `AssetBrowserController.assets` and `selectedAssetId`.
 
 ## Catalog-only removal
 
-`removeFromWorkplace(assetId)` deletes only the catalog record and updates browser state. It performs no filesystem delete, move or Trash operation.
+`removeFromWorkplace(assetId)` deletes only the catalog record and updates browser state. It performs no source/managed-original filesystem deletion.
 
 ## Processing boundary
 
@@ -138,25 +152,36 @@ W4 adds no RAW demosaic/debayer or PixelCraft processing code.
 
 ## Tests
 
-W4-A browser tests cover:
+### Browser/recovery tests
 
-- missing detection/recovery;
-- relink identity;
-- duplicate filename ambiguity;
-- scan-vs-remove race protection;
-- managed-folder filename recovery;
-- catalog-only removal.
+Cover missing detection/recovery, relink identity, ambiguous filenames, scan-vs-remove races, managed folder recovery and catalog-only removal.
 
-W4-B import tests cover:
+### Managed/import tests
 
-- managed copy success;
-- missing remembered managed root replacement without recreating the stale path;
-- destination collision safety;
-- cleanup when catalog save fails;
-- recoverable failed-path persistence;
-- retry without duplicating prior successes;
-- original-Workplace retry requirement;
-- legacy `ImportBatch` map compatibility.
+Cover managed-root validation, copy collision/cleanup, restart-safe batch restoration, retry semantics, Workplace gating and storage-mode preservation.
+
+### Thumbnail cache tests
+
+`test/workplaces/asset_thumbnail_cache_test.dart` covers:
+
+- concurrent generation deduplication;
+- version invalidation through `modifiedAt`;
+- corrupt/truncated cache regeneration;
+- RAW decoder exclusion;
+- missing-original exclusion;
+- oldest-first pruning to configured entry bounds.
+
+### Large-catalog profile tests
+
+`test/workplaces/catalog_profile_test.dart` uses representative in-memory fixtures:
+
+- 5,000 asset load and sort;
+- 5,000 availability probes;
+- max probe concurrency <= 32;
+- no persistence writes when state is unchanged;
+- exactly changed-record writes for missing-state transitions.
+
+Stopwatch metrics are captured for diagnostics, but CI does not use machine-specific millisecond thresholds that would be flaky across runners.
 
 ## Validation
 
@@ -170,23 +195,21 @@ cargo check
 cargo test
 ```
 
+Physical external-volume/manual gates are separate from automated CI and must be recorded in `docs/W4_DESKTOP_VALIDATION.md`.
+
 ## W4 execution split
 
 ```text
-W4-A / PR #12 / merged
-  missing detection
-  disconnected-volume behavior
-  Locate Missing File / Folder
-  catalog-only removal
+W4-A  / PR #12 / merged
+  missing detection + relink + catalog-only removal
 
-W4-B / current
-  managed destination recovery
-  collision-safe managed copy commit
-  import-batch recovery/retry
+W4-B1 / PR #13 / merged
+  managed destination/copy recovery + import-batch recovery
 
-W4-B / next
-  thumbnail/cache hardening
-  representative large-catalog profiling
+W4-B2 / current
+  raster thumbnail cache hardening
+  large-catalog structural/profile gates
+  desktop external-volume validation checklist
 ```
 
-W4 is not complete until the remaining thumbnail/cache and large-catalog gates are finished or deliberately moved to a documented later milestone.
+W4 should not be declared fully validated until CI/review is clean and real desktop evidence exists for the manual external-volume gates.
