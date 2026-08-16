@@ -58,12 +58,12 @@ class AssetAvailabilityService {
     return result;
   }
 
-  Future<String?> findByFilename(String root, String filename) async {
-    final target = filename.toLowerCase();
+  Future<Map<String, String>> filesByLowercaseFilename(String root) async {
+    final result = <String, String>{};
     for (final path in await _fileSystem.filesUnder(root)) {
-      if (p.basename(path).toLowerCase() == target) return path;
+      result.putIfAbsent(p.basename(path).toLowerCase(), () => path);
     }
-    return null;
+    return result;
   }
 }
 
