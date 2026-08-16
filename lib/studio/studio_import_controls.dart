@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/theme/studio_theme.dart';
+import '../workplaces/application/asset_browser_controller.dart';
 import '../workplaces/application/import_controller.dart';
 import '../workplaces/application/import_state.dart';
 import '../workplaces/application/workplace_controller.dart';
@@ -133,6 +134,11 @@ class StudioImportControls extends ConsumerWidget {
   static Future<void> _openLastImported(WidgetRef ref) async {
     final path = ref.read(importControllerProvider).lastImportedPath;
     if (path == null) return;
+
+    final browser = ref.read(assetBrowserControllerProvider.notifier);
+    await browser.refresh();
+    browser.selectByEffectivePath(path);
+
     final studio = ref.read(studioControllerProvider.notifier);
     studio.selectRawPath(path);
     await studio.develop();
