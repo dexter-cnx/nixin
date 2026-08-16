@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nixin_studio_v8/workplaces/application/asset_availability_service.dart';
 import 'package:nixin_studio_v8/workplaces/application/asset_browser_controller.dart';
 import 'package:nixin_studio_v8/workplaces/domain/asset_record.dart';
 import 'package:nixin_studio_v8/workplaces/domain/repositories/asset_repository.dart';
@@ -10,10 +13,8 @@ void main() {
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
       _asset('x', 'w2', 'x.jpg', DateTime.utc(2026, 8, 16, 0)),
     ]);
-    final controller = AssetBrowserController(assetRepository: repo);
-
+    final controller = _controller(repo);
     await controller.load('w1');
-
     expect(controller.state.loading, isFalse);
     expect(controller.state.assets.map((asset) => asset.id), ['a', 'b']);
   });
@@ -23,12 +24,10 @@ void main() {
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
       _asset('b', 'w1', 'b.jpg', DateTime.utc(2026, 8, 16, 2)),
     ]);
-    final controller = AssetBrowserController(assetRepository: repo);
+    final controller = _controller(repo);
     await controller.load('w1');
-
     controller.select('b');
     await controller.refresh();
-
     expect(controller.state.selectedAssetId, 'b');
     expect(controller.state.selectedAsset?.originalFilename, 'b.jpg');
   });
@@ -38,12 +37,10 @@ void main() {
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
       _asset('b', 'w2', 'b.jpg', DateTime.utc(2026, 8, 16, 2)),
     ]);
-    final controller = AssetBrowserController(assetRepository: repo);
+    final controller = _controller(repo);
     await controller.load('w1');
     controller.select('a');
-
     await controller.load('w2');
-
     expect(controller.state.selectedAssetId, isNull);
     expect(controller.state.assets.single.id, 'b');
   });
@@ -52,12 +49,10 @@ void main() {
     final repo = _MemoryAssetRepository([
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
     ], failWorkplaceIds: {'w2'});
-    final controller = AssetBrowserController(assetRepository: repo);
+    final controller = _controller(repo);
     await controller.load('w1');
     controller.select('a');
-
     await controller.load('w2');
-
     expect(controller.state.workplaceId, 'w2');
     expect(controller.state.assets, isEmpty);
     expect(controller.state.selectedAssetId, isNull);
@@ -69,13 +64,133 @@ void main() {
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
       _asset('b', 'w1', 'b.jpg', DateTime.utc(2026, 8, 16, 2)),
     ]);
-    final controller = AssetBrowserController(assetRepository: repo);
+    final controller = _controller(repo);
     await controller.load('w1');
-
     expect(controller.selectByEffectivePath('/tmp/b.jpg'), isTrue);
     expect(controller.state.selectedAssetId, 'b');
     expect(controller.selectByEffectivePath('/tmp/missing.jpg'), isFalse);
     expect(controller.state.selectedAssetId, 'b');
+  });
+
+  test('availability scan persists missing state and recovery', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+    ]);
+    final fs = _MemoryFileSystem(existing: const {});
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+    await controller.scanAvailability();
+    expect(controller.state.assets.single.missing, isTrue);
+    expect((await repo.getById('a'))?.missing, isTrue);
+    fs.existing.add('/tmp/a.jpg');
+    await controller.scanAvailability();
+    expect(controller.state.assets.single.missing, isFalse);
+    expect((await repo.getById('a'))?.missing, isFalse);
+  });
+
+  test('running availability scan cannot resurrect removed asset', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+    ]);
+    final fs = _BlockingFileSystem();
+    final controller = AssetBrowserController(
+      assetRepository: repo,
+      availabilityService: AssetAvailabilityService(fs),
+      autoScanAvailability: false,
+    );
+    await controller.load('w1');
+
+    final scan = controller.scanAvailability();
+    await fs.started.future;
+    await controller.removeFromWorkplace('a');
+    fs.release.complete(false);
+    await scan;
+
+    expect(controller.state.assets, isEmpty);
+    expect(await repo.getById('a'), isNull);
+  });
+
+  test('relinks one missing asset without changing catalog identity', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1))
+          .copyWith(missing: true),
+    ]);
+    final fs = _MemoryFileSystem(existing: {'/moved/a.jpg'});
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+    expect(await controller.relinkAsset('a', '/moved/a.jpg'), isTrue);
+    final asset = controller.state.assets.single;
+    expect(asset.id, 'a');
+    expect(asset.sourcePath, '/moved/a.jpg');
+    expect(asset.missing, isFalse);
+  });
+
+  test('batch relink scans folder once and matches by filename', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1))
+          .copyWith(missing: true),
+      _asset('b', 'w1', 'b.jpg', DateTime.utc(2026, 8, 16, 2))
+          .copyWith(missing: true),
+    ]);
+    final fs = _MemoryFileSystem(
+      existing: {'/archive/a.jpg', '/archive/nested/b.jpg'},
+      folders: {
+        '/archive': ['/archive/a.jpg', '/archive/nested/b.jpg'],
+      },
+    );
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+    expect(await controller.relinkMissingFromFolder('/archive'), 2);
+    expect(controller.state.missingCount, 0);
+    expect(fs.folderScans, 1);
+  });
+
+  test('managed folder relink matches stored managed-copy filename', () async {
+    final importedAt = DateTime.utc(2026, 8, 16, 1);
+    final managed = AssetRecord(
+      id: 'asset-1',
+      workplaceId: 'w1',
+      originalFilename: 'photo.jpg',
+      sourcePath: '/source/photo.jpg',
+      managedPath: '/old/originals/asset-1-photo.jpg',
+      storageMode: AssetStorageMode.managed,
+      mediaType: AssetMediaType.raster,
+      format: 'jpg',
+      fileSize: 10,
+      importedAt: importedAt,
+      modifiedAt: importedAt,
+      missing: true,
+    );
+    final repo = _MemoryAssetRepository([managed]);
+    final fs = _MemoryFileSystem(
+      existing: {'/recovered/asset-1-photo.jpg'},
+      folders: {
+        '/recovered': ['/recovered/asset-1-photo.jpg'],
+      },
+    );
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+
+    expect(await controller.relinkMissingFromFolder('/recovered'), 1);
+    final asset = controller.state.assets.single;
+    expect(asset.managedPath, '/recovered/asset-1-photo.jpg');
+    expect(asset.sourcePath, '/source/photo.jpg');
+    expect(asset.missing, isFalse);
+  });
+
+  test('remove from Workplace deletes catalog record only', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+    ]);
+    final fs = _MemoryFileSystem(existing: {'/tmp/a.jpg'});
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+    controller.select('a');
+    await controller.removeFromWorkplace('a');
+    expect(controller.state.assets, isEmpty);
+    expect(controller.state.selectedAssetId, isNull);
+    expect(await repo.getById('a'), isNull);
+    expect(fs.existing, contains('/tmp/a.jpg'));
   });
 
   test('supports recent-first and filename sorting', () async {
@@ -83,15 +198,33 @@ void main() {
       _asset('a', 'w1', 'Zulu.jpg', DateTime.utc(2026, 8, 16, 1)),
       _asset('b', 'w1', 'alpha.jpg', DateTime.utc(2026, 8, 16, 2)),
     ]);
-    final controller = AssetBrowserController(assetRepository: repo);
+    final controller = _controller(repo);
     await controller.load('w1');
-
     controller.setSortOrder(AssetSortOrder.importedDescending);
     expect(controller.state.assets.first.id, 'b');
-
     controller.setSortOrder(AssetSortOrder.nameAscending);
     expect(controller.state.assets.first.id, 'b');
   });
+}
+
+AssetBrowserController _controller(
+  AssetRepository repo, {
+  _MemoryFileSystem? fs,
+}) {
+  return AssetBrowserController(
+    assetRepository: repo,
+    availabilityService: AssetAvailabilityService(
+      fs ??
+          _MemoryFileSystem(existing: {
+            '/tmp/a.jpg',
+            '/tmp/b.jpg',
+            '/tmp/x.jpg',
+            '/tmp/Zulu.jpg',
+            '/tmp/alpha.jpg',
+          }),
+    ),
+    autoScanAvailability: false,
+  );
 }
 
 AssetRecord _asset(
@@ -112,6 +245,41 @@ AssetRecord _asset(
     importedAt: importedAt,
     modifiedAt: importedAt,
   );
+}
+
+class _MemoryFileSystem implements AssetFileSystem {
+  _MemoryFileSystem({
+    required Set<String> existing,
+    Map<String, List<String>> folders = const {},
+  })  : existing = {...existing},
+        folders = {...folders};
+
+  final Set<String> existing;
+  final Map<String, List<String>> folders;
+  int folderScans = 0;
+
+  @override
+  Future<bool> exists(String path) async => existing.contains(path);
+
+  @override
+  Future<List<String>> filesUnder(String root) async {
+    folderScans++;
+    return folders[root] ?? const [];
+  }
+}
+
+class _BlockingFileSystem implements AssetFileSystem {
+  final started = Completer<void>();
+  final release = Completer<bool>();
+
+  @override
+  Future<bool> exists(String path) async {
+    if (!started.isCompleted) started.complete();
+    return release.future;
+  }
+
+  @override
+  Future<List<String>> filesUnder(String root) async => const [];
 }
 
 class _MemoryAssetRepository implements AssetRepository {

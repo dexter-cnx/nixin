@@ -41,6 +41,34 @@ class AssetRecord {
 
   String get effectivePath => managedPath ?? sourcePath;
 
+  AssetRecord copyWith({
+    String? sourcePath,
+    String? managedPath,
+    bool clearManagedPath = false,
+    String? thumbnailPath,
+    String? previewPath,
+    bool? missing,
+  }) {
+    return AssetRecord(
+      id: id,
+      workplaceId: workplaceId,
+      originalFilename: originalFilename,
+      sourcePath: sourcePath ?? this.sourcePath,
+      managedPath: clearManagedPath ? null : managedPath ?? this.managedPath,
+      storageMode: storageMode,
+      mediaType: mediaType,
+      format: format,
+      fileSize: fileSize,
+      importedAt: importedAt,
+      modifiedAt: modifiedAt,
+      captureDate: captureDate,
+      thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+      previewPath: previewPath ?? this.previewPath,
+      missing: missing ?? this.missing,
+      importBatchId: importBatchId,
+    );
+  }
+
   Map<String, Object?> toMap() => {
         'id': id,
         'workplaceId': workplaceId,

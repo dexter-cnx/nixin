@@ -11,108 +11,75 @@
 - Studio workspace UI-01 through UI-15: complete
 - **W1 Workplace Core: merged**
 - **W2 Import System + live Workplace wiring: merged**
-- **W3 Workplace Browser + Filmstrip: implementation complete in PR #11**
-- Current implementation branch: `feature/workplace-browser-filmstrip`
-- Next milestone after merge: **W4 — Desktop Catalog Hardening**
+- **W3 Workplace Browser + Filmstrip: merged in PR #11**
+- W3 merge commit on `main`: `3a8dda81efec1f3d81cae6291f057dd255f8cb75`
+- Current branch: `feature/desktop-catalog-hardening`
+- Current PR: **#12 — W4-A missing/relink/catalog-removal hardening**
+- Current milestone: **W4 — Desktop Catalog Hardening**
+- Detailed W4 implementation/acceptance guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
 - Real RAW demosaic/debayer and other new image-processing work remain deferred.
 
 ## Product responsibility
 
-Dextryx Images owns image/catalog management:
+Dextryx Images owns Workplaces, catalog identity, import/storage organization, thumbnail/preview browsing, Grid/Filmstrip selection, missing/relink workflows, catalog metadata, large-library UX and future external-edit orchestration.
 
-```text
-Workplaces
-asset catalog identity
-import and folder discovery
-linked vs managed storage
-asset organization
-thumbnail/preview browsing
-grid and filmstrip selection
-missing/relink workflows
-catalog metadata
-large-library UX
-external-edit orchestration
-```
+PixelCraft / Dextryx Pixels remains processing authority. Do not duplicate its processing roadmap here.
 
-PixelCraft / Dextryx Pixels owns editing and image-processing semantics. Keep its processing roadmap separate from this repository.
+## Completed — W1 to W3
 
-## Completed — W1 Workplace Core
+W1 established Workplace/AssetRecord persistence and lifecycle.
 
-Delivered:
+W2 added live Workplace wiring plus multi-file/folder Import, linked/managed storage, ImportBatch persistence, duplicate prevention, progress and cancellation.
 
-- `Workplace` and `AssetRecord`
-- repository contracts with Hive-backed persistence
-- default `My workplace`
-- active Workplace persistence/restoration
-- create / switch / rename / delete behavior
-- invariant that at least one Workplace remains
-- catalog-only Workplace removal semantics
+W3 added the persisted Workplace Grid, `AssetBrowserController`, one ordered asset list, one `selectedAssetId`, Grid ↔ Filmstrip synchronization, basic sorting, preview boundary and missing-indicator foundation.
 
-## Completed — W2 Import System + live wiring
+## Current — W4 Desktop Catalog Hardening
 
-Delivered:
+### W4-A — PR #12: missing/relink/removal foundation
 
-- live `workplaceControllerProvider` wiring
-- active Workplace controls in Studio
-- primary multi-select Import
-- recursive folder import plus current-folder-only option
-- supported raster/RAW filtering
-- `ImportBatch` persistence
-- async progress and cancellation
-- baseline duplicate detection
-- linked/add mode
-- desktop managed/copy mode
-- remembered managed destination/storage mode
-- partial-failure accounting
-- imported assets persisted to the active Workplace
-- compatibility handoff to existing Studio Develop preview
+Current branch implements:
 
-## W3 — Workplace Browser + Filmstrip
+- filesystem availability abstraction separate from widgets/Hive
+- asynchronous asset availability scans
+- bounded file-existence concurrency in batches of 32
+- `AssetRecord.missing` persistence only when state changes
+- automatic availability scan after Workplace load plus manual rescan action
+- disconnected/missing originals remain visible in catalog
+- missing assets are not opened into Develop
+- **Locate Missing File…** for single-asset relink
+- **Locate Missing Folder…** for recursive batch relink
+- batch folder scan is indexed once instead of rescanning per asset
+- automatic folder relink only when filename match is unique; ambiguous duplicates remain unresolved
+- linked relink updates `sourcePath`
+- managed relink updates `managedPath`
+- catalog identity (`AssetRecord.id`) remains stable across relink
+- **Remove from Workplace** deletes only the catalog record
+- removal explicitly does not delete/move the original file
 
-PR #11 delivers:
+W4-A acceptance and recovery semantics are documented in `docs/W4_DESKTOP_CATALOG_HARDENING.md`.
 
-- `AssetBrowserController` as owner of active Workplace ordered assets
-- one `selectedAssetId` source of truth
-- active-Workplace asset querying and refresh after import
-- responsive lazy Workplace Grid
-- loading / empty / error states
-- basic sorting: import order, recent-first, filename
-- missing-asset indicator foundation
-- `AssetPreviewProvider` boundary
-- Filmstrip evolved to consume the same catalog list and selection state as Grid
-- Grid ↔ Filmstrip selection synchronization
-- selected asset handoff to the existing Develop path
-- post-import browser selection synchronization
-- stale assets cleared when Workplace switching/querying fails
+### W4-B — Remaining hardening after W4-A is merged
 
-Review hardening for PR #11 specifically closes two state-consistency risks:
+Still required before W4 is complete:
 
-1. assets from the previous Workplace cannot remain actionable after a failed switch/query;
-2. post-import Develop selection also updates catalog `selectedAssetId`, so Grid, Filmstrip and Develop remain aligned.
+- managed-storage destination/recovery hardening
+- managed-copy collision and filesystem failure recovery
+- import-batch recovery / retry semantics
+- thumbnail generation/cache hardening where needed by real catalog use
+- representative large-catalog profiling and performance measurements
+- additional desktop/manual external-volume recovery gates
 
-W3 intentionally does **not** add sensor RAW decoding, demosaic/debayer, PixelCraft processing, advanced rating/search/filter UX, or full missing-file relink behavior.
+Do not claim W4 complete until these remaining items are either implemented or deliberately moved to a later documented milestone.
 
-## Next — W4 Desktop Catalog Hardening
+## W4 guardrails
 
-Scope:
-
-- missing-file detection
-- Locate Missing File
-- Locate Missing Folder / batch relink
-- disconnected external-storage behavior
-- managed-storage preference/recovery hardening
-- copy collision and filesystem failure recovery
-- import-batch recovery
-- catalog-only asset removal
-- explicit original deletion path only if intentionally enabled later
-- thumbnail cache/generation hardening where required by real catalog use
-- large-catalog profiling and performance hardening
-
-Guardrails:
-
-- catalog removal and physical deletion remain separate operations
-- linked originals are never silently moved/deleted
-- Workplace rename must not move managed originals
+- catalog removal and physical deletion are separate operations
+- linked originals are never silently moved or deleted
+- missing/disconnected linked assets stay cataloged
+- Workplace rename never moves managed originals
+- availability failures must not make the catalog itself unavailable
+- no synchronous filesystem checks per Grid tile
+- folder relink must not guess between duplicate filenames
 - no broad state-management rewrite solely for W4
 - no new RAW/image-processing scope
 
@@ -120,7 +87,7 @@ Guardrails:
 
 Every Workplaces/catalog PR must preserve:
 
-- existing embedded RAW preview behavior
+- embedded RAW preview behavior
 - raster preview
 - Develop adjustments
 - Subject/Sky masks
@@ -136,14 +103,22 @@ cargo check
 cargo test
 ```
 
+## Documentation map
+
+```text
+docs/PROJECT_HANDOFF.md                    canonical project status / execution queue
+docs/CODE_WALKTHROUGH.md                   current code ownership and data flow
+docs/W4_DESKTOP_CATALOG_HARDENING.md       W4 implementation, recovery semantics and acceptance gates
+```
+
 ## Future — PixelCraft external-editor integration
 
-Only after catalog workflows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority. A future integration should exchange stable asset/edit references rather than duplicate processing internals.
+Only after catalog workflows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority. Future integration should exchange stable asset/edit references rather than duplicate processing internals.
 
 ## Immediate execution order
 
 ```text
-FINALIZE  W3 Workplace Browser + Filmstrip (PR #11)
-NEXT      W4 Desktop Catalog Hardening
+CURRENT   W4-A PR #12 missing/relink/catalog-removal hardening
+NEXT      W4-B managed/import/cache/performance hardening
 FUTURE    PixelCraft external-editor contract
 ```
