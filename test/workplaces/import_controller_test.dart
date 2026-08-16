@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nixin_studio_v8/workplaces/application/import_controller.dart';
+import 'package:nixin_studio_v8/workplaces/application/import_state.dart';
 import 'package:nixin_studio_v8/workplaces/domain/asset_record.dart';
 import 'package:nixin_studio_v8/workplaces/domain/import_batch.dart';
 import 'package:nixin_studio_v8/workplaces/domain/repositories/asset_repository.dart';
