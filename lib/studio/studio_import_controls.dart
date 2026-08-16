@@ -38,9 +38,18 @@ class StudioImportControls extends ConsumerWidget {
 
     if (mode == StudioImportControlMode.floating) {
       return _FloatingImport(
-        busy: importState.busy,
+        workplaceState: workplaceState,
+        importState: importState,
+        workplaceController: workplaceController,
         onImport: () => _importFiles(ref),
-        onMenu: (value) => _handleMenu(ref, value),
+        onImportMenu: (value) => _handleMenu(ref, value),
+        onWorkplaceMenu: (value) => _handleWorkplaceMenu(
+          context,
+          workplaceController,
+          workplaceState,
+          value,
+          importBusy: importState.busy,
+        ),
       );
     }
 
@@ -67,65 +76,17 @@ class StudioImportControls extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: workplaceState.currentWorkplaceId,
-                  hint: Text(
-                    workplaceState.loading
-                        ? 'workplace.loading'.tr()
-                        : 'workplace.title'.tr(),
-                  ),
-                  items: workplaceState.workplaces
-                      .map(
-                        (workplace) => DropdownMenuItem(
-                          value: workplace.id,
-                          child: Text(
-                            workplace.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: workplaceState.loading
-                      ? null
-                      : (id) {
-                          if (id != null) {
-                            workplaceController.switchWorkplace(id);
-                          }
-                        },
-                ),
-              ),
-            ),
-            PopupMenuButton<_WorkplaceMenu>(
-              tooltip: 'workplace.title'.tr(),
-              onSelected: (value) => _handleWorkplaceMenu(
-                context,
-                workplaceController,
-                workplaceState,
-                value,
-              ),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _WorkplaceMenu.create,
-                  child: Text('workplace.create'.tr()),
-                ),
-                PopupMenuItem(
-                  value: _WorkplaceMenu.rename,
-                  enabled: workplaceState.currentWorkplace != null,
-                  child: Text('workplace.rename'.tr()),
-                ),
-                PopupMenuItem(
-                  value: _WorkplaceMenu.delete,
-                  enabled: workplaceState.workplaces.length > 1,
-                  child: Text('workplace.delete'.tr()),
-                ),
-              ],
-            ),
-          ],
+        _WorkplaceControls(
+          state: workplaceState,
+          busy: importState.busy,
+          controller: workplaceController,
+          onMenuSelected: (value) => _handleWorkplaceMenu(
+            context,
+            workplaceController,
+            workplaceState,
+            value,
+            importBusy: importState.busy,
+          ),
         ),
         const SizedBox(height: StudioSpacing.sm),
         Row(
@@ -204,8 +165,9 @@ class StudioImportControls extends ConsumerWidget {
     BuildContext context,
     WorkplaceController controller,
     WorkplaceState state,
-    _WorkplaceMenu value,
-  ) async {
+    _WorkplaceMenu value, {
+    required bool importBusy,
+  }) async {
     switch (value) {
       case _WorkplaceMenu.create:
         final name = await _askName(context, 'workplace.create'.tr(), '');
@@ -228,7 +190,7 @@ class StudioImportControls extends ConsumerWidget {
         return;
       case _WorkplaceMenu.delete:
         final current = state.currentWorkplace;
-        if (current == null || state.workplaces.length <= 1) return;
+        if (importBusy || current == null || state.workplaces.length <= 1) return;
         await controller.deleteWorkplace(current.id);
         return;
     }
@@ -285,6 +247,81 @@ class StudioImportControls extends ConsumerWidget {
   }
 }
 
+class _WorkplaceControls extends StatelessWidget {
+  const _WorkplaceControls({
+    required this.state,
+    required this.busy,
+    required this.controller,
+    required this.onMenuSelected,
+    this.compact = false,
+  });
+
+  final WorkplaceState state;
+  final bool busy;
+  final WorkplaceController controller;
+  final ValueChanged<_WorkplaceMenu> onMenuSelected;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final dropdown = DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        isExpanded: true,
+        value: state.currentWorkplaceId,
+        hint: Text(
+          state.loading ? 'workplace.loading'.tr() : 'workplace.title'.tr(),
+        ),
+        items: state.workplaces
+            .map(
+              (workplace) => DropdownMenuItem(
+                value: workplace.id,
+                child: Text(
+                  workplace.name,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            )
+            .toList(growable: false),
+        onChanged: state.loading
+            ? null
+            : (id) {
+                if (id != null) controller.switchWorkplace(id);
+              },
+      ),
+    );
+
+    return Row(
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+      children: [
+        if (compact)
+          SizedBox(width: 170, child: dropdown)
+        else
+          Expanded(child: dropdown),
+        PopupMenuButton<_WorkplaceMenu>(
+          tooltip: 'workplace.title'.tr(),
+          onSelected: onMenuSelected,
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: _WorkplaceMenu.create,
+              child: Text('workplace.create'.tr()),
+            ),
+            PopupMenuItem(
+              value: _WorkplaceMenu.rename,
+              enabled: state.currentWorkplace != null,
+              child: Text('workplace.rename'.tr()),
+            ),
+            PopupMenuItem(
+              value: _WorkplaceMenu.delete,
+              enabled: !busy && state.workplaces.length > 1,
+              child: Text('workplace.delete'.tr()),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _ImportMenuButton extends StatelessWidget {
   const _ImportMenuButton({required this.state, required this.onSelected});
 
@@ -335,40 +372,42 @@ class _ImportMenuButton extends StatelessWidget {
 
 class _FloatingImport extends StatelessWidget {
   const _FloatingImport({
-    required this.busy,
+    required this.workplaceState,
+    required this.importState,
+    required this.workplaceController,
     required this.onImport,
-    required this.onMenu,
+    required this.onImportMenu,
+    required this.onWorkplaceMenu,
   });
 
-  final bool busy;
+  final WorkplaceState workplaceState;
+  final ImportState importState;
+  final WorkplaceController workplaceController;
   final VoidCallback onImport;
-  final ValueChanged<_ImportMenu> onMenu;
+  final ValueChanged<_ImportMenu> onImportMenu;
+  final ValueChanged<_WorkplaceMenu> onWorkplaceMenu;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _WorkplaceControls(
+          state: workplaceState,
+          busy: importState.busy,
+          controller: workplaceController,
+          onMenuSelected: onWorkplaceMenu,
+          compact: true,
+        ),
+        const SizedBox(width: StudioSpacing.xs),
         IconButton.filledTonal(
           tooltip: 'action.import'.tr(),
-          onPressed: busy ? null : onImport,
+          onPressed: importState.busy ? null : onImport,
           icon: const Icon(Icons.add_photo_alternate_outlined),
         ),
-        PopupMenuButton<_ImportMenu>(
-          tooltip: 'import.options'.tr(),
-          onSelected: onMenu,
-          itemBuilder: (context) => [
-            PopupMenuItem(
-              value: _ImportMenu.folder,
-              enabled: !busy,
-              child: Text('import.folder'.tr()),
-            ),
-            PopupMenuItem(
-              value: _ImportMenu.folderCurrentOnly,
-              enabled: !busy,
-              child: Text('import.folder_no_subfolders'.tr()),
-            ),
-          ],
+        _ImportMenuButton(
+          state: importState,
+          onSelected: onImportMenu,
         ),
       ],
     );
