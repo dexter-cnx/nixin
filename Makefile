@@ -23,6 +23,7 @@ APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
 CONFIGURE_IDS_SCRIPT := tool/configure-identifiers.sh
 W4_VALIDATION_SCRIPT := tool/w4-desktop-validation.sh
 CI_FORMAT_SCRIPT := tool/ci-format-check.sh
+CI_RUST_FORMAT_SCRIPT := tool/ci-rust-format-check.sh
 DEVICE ?=
 
 .PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
@@ -104,8 +105,8 @@ flutter-test: ## Run all standard Flutter tests
 rust-fetch: ## Download Rust dependencies without building
 	cd $(RUST_DIR) && $(CARGO) fetch
 
-rust-format-check: ## Check Rust formatting without modifying files
-	cd $(RUST_DIR) && $(CARGO) fmt --all -- --check
+rust-format-check: ## Check formatting of changed Rust source files
+	@bash $(CI_RUST_FORMAT_SCRIPT)
 
 rust-clippy: ## Run Rust clippy with warnings denied
 	cd $(RUST_DIR) && $(CARGO) clippy --locked --all-targets -- -D warnings
