@@ -8,11 +8,77 @@
 - Compact app label: **Dxtr Imgs**
 - Canonical application/bundle ID: `com.cnxdev.dextryx.images`
 - Repository remains `dexter-cnx/nixin`
-- Existing studio workspace milestone UI-01 through UI-15 is complete.
+- Existing studio workspace milestone UI-01 through UI-15 is complete and retained as historical/compatibility capability.
 - Current active implementation branch: `feature/workplaces-foundation`
 - Current open PR: **PR #7 — Workplace Core + product identity**
-- Real RAW development / demosaic / debayer remains deferred.
-- New image-processing features must not derail Workplaces/catalog UX work.
+- Canonical product direction: **image management / catalog / Workplaces**.
+- PixelCraft / Dextryx Pixels is the dedicated **photo-editing / image-processing** product.
+- Future integration may invoke PixelCraft as an external editor from Nixin.
+
+## Canonical product boundary — Nixin vs PixelCraft
+
+This section overrides any earlier roadmap wording that blurred the responsibilities of the two products.
+
+### Nixin / Dextryx Images
+
+**Primary role: image manager / catalog / Workplaces product.**
+
+Nixin owns:
+
+```text
+Workplaces
+asset catalog identity
+import / folder discovery
+linked vs managed source storage
+asset organization
+thumbnail/preview browsing
+grid / filmstrip selection
+missing / relink workflows
+catalog metadata
+large-library UX
+future ratings / flags / keywords / search when explicitly scheduled
+external-edit orchestration
+```
+
+### PixelCraft / Dextryx Pixels
+
+**Primary role: photo editor + image-processing product.**
+
+PixelCraft owns:
+
+```text
+edit session UX
+Rust authoritative recipes/history/checkpoints
+image-processing semantics
+adjustments / masks / transforms
+GPU preview
+Film / Creative processing
+render / export
+editor recovery / session continuity
+```
+
+### Future external-edit direction
+
+Expected long-term relationship:
+
+```text
+Nixin / Dextryx Images
+  owns asset + Workplace/catalog identity
+  ↓ external edit request
+PixelCraft / Dextryx Pixels
+  owns edit session + processing + render/export
+  ↓ edited result / recipe reference / return contract
+Nixin resumes asset management
+```
+
+Guardrails:
+
+1. Nixin must not become authoritative for PixelCraft edit recipes or committed pixel semantics.
+2. PixelCraft must not become authoritative for Nixin Workplaces/library organization.
+3. Do not create two competing authoritative catalogs.
+4. The external-edit protocol is future work and must be explicitly designed/versioned before implementation.
+5. Existing Nixin Develop/Rust behavior may remain for compatibility and current workflows, but new heavy image-processing roadmap work must not be pulled forward by default.
+6. Do not copy PixelCraft editor roadmap items into Nixin unless explicitly approved for Nixin.
 
 ## Canonical document map
 
@@ -22,7 +88,7 @@
 | `docs/WORKPLACES_HANDOFF.md` | Detailed Workplaces/catalog/import specification |
 | `docs/DEXTRYX_IDENTITY.md` | Canonical product naming and identifier rules |
 | `docs/DEXTRYX_IMAGES_HANDOFF.md` | Identity migration record/checklist |
-| `docs/STUDIO_WORKSPACE_HANDOFF.md` | Historical/completed studio workspace milestone |
+| `docs/STUDIO_WORKSPACE_HANDOFF.md` | Historical/completed studio/editor milestone; not the forward product roadmap |
 | `docs/CODE_WALKTHROUGH.md` | Code orientation/reference |
 
 Do not place plans for unrelated packages or repositories in this handoff. Separate projects must keep their own handoff and roadmap.
@@ -40,10 +106,10 @@ Workplace browser / filmstrip integration
     ↓
 Desktop catalog hardening
     ↓
-Advanced Develop / real RAW pipeline (deferred)
+Future external-editor contract with PixelCraft
 ```
 
-The normal photo-management path should stay short:
+The normal image-management path should stay short:
 
 ```text
 Launch
@@ -56,10 +122,38 @@ Select photos/folder
   ↓
 Assets appear in Workplace
   ↓
-Select / double-click
+Browse / organize / select
   ↓
-Develop
+Edit when needed
+    ├── current embedded Develop compatibility path
+    └── future: Open/Edit in PixelCraft
 ```
+
+The goal is **not** to make Nixin duplicate PixelCraft's processing roadmap.
+
+## Existing Develop capability — corrected status
+
+Nixin already contains real Rust/FFI editing behavior from the completed Studio milestone. Keep it working while Workplaces evolves, but treat it as an existing compatibility capability rather than the primary future product direction.
+
+Allowed maintenance:
+
+- regressions and stability fixes;
+- ensuring imported assets can still open in the existing Develop surface;
+- preserving current mask/LUT/export behavior;
+- lightweight integration changes required by Workplaces.
+
+Not a default forward roadmap:
+
+```text
+new advanced adjustment families
+new masking engines
+GPU processing architecture expansion
+real RAW demosaic/debayer pipeline
+new film-processing platform
+large processing-engine redesign
+```
+
+If those capabilities become strategically necessary, first decide whether they belong in PixelCraft and/or the future external-edit contract.
 
 ## PR policy
 
@@ -78,14 +172,15 @@ Purpose:
 - Library → Workplaces user-facing terminology
 - final Dextryx Images identity migration
 - handoff consolidation
+- establish the Nixin ↔ PixelCraft product boundary
 
 Explicitly excluded:
 
 - W2 import implementation
 - Workplace grid/browser beyond W1 needs
 - unrelated package/plugin work
-- real RAW development
 - new image-processing behavior
+- PixelCraft external-edit protocol implementation
 
 Merge gate:
 
@@ -102,8 +197,6 @@ After PR #7 is green, merge it before starting the next implementation PR.
 ## Execution queue
 
 ### Queue 1 — UX-01 / W2A: Import Simplification
-
-Create from updated `main` after PR #7 merges.
 
 Recommended branch:
 
@@ -189,7 +282,8 @@ Desktop target:
 single click      select
 Ctrl/Cmd click    multi-select where supported
 Shift click       range selection where supported
-double-click      open selected asset in Develop
+double-click      open selected asset in current Develop path
+future            Open/Edit in PixelCraft when external-edit contract exists
 ```
 
 ### Queue 4 — UX-05 / W4: Desktop Catalog Hardening + Polish
@@ -215,21 +309,25 @@ Implement:
 
 Guardrail: catalog removal and physical deletion remain distinct actions.
 
-### Queue 5 — Advanced Develop / real RAW pipeline
+### Queue 5 — Future external-editor integration
 
-Still deferred until the Workplaces/catalog workflow is stable.
+Only after Workplaces/catalog flows are stable and only with an explicit cross-product design.
 
-Future scope may include:
+Design before implementation:
 
-- sensor RAW decode
-- demosaic/debayer
-- linear working pipeline
-- camera white balance
-- camera matrices/profiles
-- expanded tone/color tools
-- GPU processing pipeline decisions
+```text
+launch/deep-link/IPC mechanism
+asset/source handoff contract
+security/path-access model
+edit session identity
+recipe/result return contract
+version negotiation
+cancel/failure behavior
+who owns exported derivatives
+how Nixin refreshes metadata/thumbnail after return
+```
 
-Do not pull this work forward merely because a RAW file is present in a Workplace.
+PixelCraft remains the editing/processing authority; Nixin remains the management/catalog authority.
 
 ## Immediate next action
 
@@ -239,6 +337,7 @@ Do not pull this work forward merely because a RAW file is present in a Workplac
 4. Retire `feature/workplaces-foundation` after merge.
 5. Create `feature/workplaces-import-ux` from updated `main`.
 6. Implement Queue 1 before Queue 2.
+7. Do not start new processing-engine work merely because the embedded Develop surface exists.
 
 ## Handoff maintenance rule
 
@@ -249,3 +348,4 @@ At the end of every merged PR:
 3. Move exactly one next queue item to **Current**.
 4. Update supporting specs only when their technical/design decisions change.
 5. Keep unrelated project plans out of this repository handoff.
+6. Re-check the Nixin ↔ PixelCraft ownership boundary before adding any catalog or processing milestone.
