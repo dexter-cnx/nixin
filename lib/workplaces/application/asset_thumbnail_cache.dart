@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -46,38 +45,46 @@ class AssetThumbnailCache {
   }
 
   Future<void> invalidate(AssetRecord asset) async {
-    if (!await _root.exists()) return;
-    final prefix = '${_safeId(asset.id)}-';
-    await for (final entity in _root.list(followLinks: false)) {
-      if (entity is File && p.basename(entity.path).startsWith(prefix)) {
-        await _deleteBestEffort(entity);
+    try {
+      if (!await _root.exists()) return;
+      final prefix = '${_safeId(asset.id)}-';
+      await for (final entity in _root.list(followLinks: false)) {
+        if (entity is File && p.basename(entity.path).startsWith(prefix)) {
+          await _deleteBestEffort(entity);
+        }
       }
+    } catch (_) {
+      // Cache maintenance is best-effort and must not affect catalog use.
     }
   }
 
   Future<void> prune() async {
-    if (!await _root.exists()) return;
-    final files = <({File file, int bytes, DateTime modified})>[];
-    var totalBytes = 0;
-    await for (final entity in _root.list(followLinks: false)) {
-      if (entity is! File || entity.path.endsWith('.partial')) continue;
-      try {
-        final stat = await entity.stat();
-        files.add((file: entity, bytes: stat.size, modified: stat.modified));
-        totalBytes += stat.size;
-      } catch (_) {
-        // Cache maintenance is best-effort and must not affect catalog use.
+    try {
+      if (!await _root.exists()) return;
+      final files = <({File file, int bytes, DateTime modified})>[];
+      var totalBytes = 0;
+      await for (final entity in _root.list(followLinks: false)) {
+        if (entity is! File || entity.path.endsWith('.partial')) continue;
+        try {
+          final stat = await entity.stat();
+          files.add((file: entity, bytes: stat.size, modified: stat.modified));
+          totalBytes += stat.size;
+        } catch (_) {
+          // Cache maintenance is best-effort and must not affect catalog use.
+        }
       }
-    }
 
-    if (files.length <= maxEntries && totalBytes <= maxBytes) return;
-    files.sort((a, b) => a.modified.compareTo(b.modified));
-    var count = files.length;
-    for (final entry in files) {
-      if (count <= maxEntries && totalBytes <= maxBytes) break;
-      await _deleteBestEffort(entry.file);
-      count--;
-      totalBytes -= entry.bytes;
+      if (files.length <= maxEntries && totalBytes <= maxBytes) return;
+      files.sort((a, b) => a.modified.compareTo(b.modified));
+      var count = files.length;
+      for (final entry in files) {
+        if (count <= maxEntries && totalBytes <= maxBytes) break;
+        await _deleteBestEffort(entry.file);
+        count--;
+        totalBytes -= entry.bytes;
+      }
+    } catch (_) {
+      // The cache directory can disappear during teardown or volume changes.
     }
   }
 
@@ -103,7 +110,7 @@ class AssetThumbnailCache {
       await _deleteBestEffort(partial);
       await partial.writeAsBytes(encoded, flush: true);
       await partial.rename(cacheFile.path);
-      unawaited(prune());
+      await prune();
       return encoded;
     } catch (_) {
       await _deleteBestEffort(File('${cacheFile.path}.partial'));
@@ -127,14 +134,18 @@ class AssetThumbnailCache {
     AssetRecord asset, {
     required String keepPath,
   }) async {
-    if (!await _root.exists()) return;
-    final prefix = '${_safeId(asset.id)}-';
-    await for (final entity in _root.list(followLinks: false)) {
-      if (entity is File &&
-          entity.path != keepPath &&
-          p.basename(entity.path).startsWith(prefix)) {
-        await _deleteBestEffort(entity);
+    try {
+      if (!await _root.exists()) return;
+      final prefix = '${_safeId(asset.id)}-';
+      await for (final entity in _root.list(followLinks: false)) {
+        if (entity is File &&
+            entity.path != keepPath &&
+            p.basename(entity.path).startsWith(prefix)) {
+          await _deleteBestEffort(entity);
+        }
       }
+    } catch (_) {
+      // Cache maintenance is best-effort and must not affect catalog use.
     }
   }
 
