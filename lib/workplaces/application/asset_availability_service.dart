@@ -58,10 +58,13 @@ class AssetAvailabilityService {
     return result;
   }
 
-  Future<Map<String, String>> filesByLowercaseFilename(String root) async {
-    final result = <String, String>{};
+  Future<Map<String, List<String>>> filesByLowercaseFilename(
+    String root,
+  ) async {
+    final result = <String, List<String>>{};
     for (final path in await _fileSystem.filesUnder(root)) {
-      result.putIfAbsent(p.basename(path).toLowerCase(), () => path);
+      final key = p.basename(path).toLowerCase();
+      result.putIfAbsent(key, () => <String>[]).add(path);
     }
     return result;
   }
