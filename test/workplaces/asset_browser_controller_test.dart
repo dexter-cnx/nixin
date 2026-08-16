@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nixin_studio_v8/workplaces/application/asset_availability_service.dart';
 import 'package:nixin_studio_v8/workplaces/application/asset_browser_controller.dart';
@@ -86,6 +88,28 @@ void main() {
     expect((await repo.getById('a'))?.missing, isFalse);
   });
 
+  test('running availability scan cannot resurrect removed asset', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+    ]);
+    final fs = _BlockingFileSystem();
+    final controller = AssetBrowserController(
+      assetRepository: repo,
+      availabilityService: AssetAvailabilityService(fs),
+      autoScanAvailability: false,
+    );
+    await controller.load('w1');
+
+    final scan = controller.scanAvailability();
+    await fs.started.future;
+    await controller.removeFromWorkplace('a');
+    fs.release.complete(false);
+    await scan;
+
+    expect(controller.state.assets, isEmpty);
+    expect(await repo.getById('a'), isNull);
+  });
+
   test('relinks one missing asset without changing catalog identity', () async {
     final repo = _MemoryAssetRepository([
       _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1))
@@ -119,6 +143,39 @@ void main() {
     expect(await controller.relinkMissingFromFolder('/archive'), 2);
     expect(controller.state.missingCount, 0);
     expect(fs.folderScans, 1);
+  });
+
+  test('managed folder relink matches stored managed-copy filename', () async {
+    final importedAt = DateTime.utc(2026, 8, 16, 1);
+    final managed = AssetRecord(
+      id: 'asset-1',
+      workplaceId: 'w1',
+      originalFilename: 'photo.jpg',
+      sourcePath: '/source/photo.jpg',
+      managedPath: '/old/originals/asset-1-photo.jpg',
+      storageMode: AssetStorageMode.managed,
+      mediaType: AssetMediaType.raster,
+      format: 'jpg',
+      fileSize: 10,
+      importedAt: importedAt,
+      modifiedAt: importedAt,
+      missing: true,
+    );
+    final repo = _MemoryAssetRepository([managed]);
+    final fs = _MemoryFileSystem(
+      existing: {'/recovered/asset-1-photo.jpg'},
+      folders: {
+        '/recovered': ['/recovered/asset-1-photo.jpg'],
+      },
+    );
+    final controller = _controller(repo, fs: fs);
+    await controller.load('w1');
+
+    expect(await controller.relinkMissingFromFolder('/recovered'), 1);
+    final asset = controller.state.assets.single;
+    expect(asset.managedPath, '/recovered/asset-1-photo.jpg');
+    expect(asset.sourcePath, '/source/photo.jpg');
+    expect(asset.missing, isFalse);
   });
 
   test('remove from Workplace deletes catalog record only', () async {
@@ -209,6 +266,20 @@ class _MemoryFileSystem implements AssetFileSystem {
     folderScans++;
     return folders[root] ?? const [];
   }
+}
+
+class _BlockingFileSystem implements AssetFileSystem {
+  final started = Completer<void>();
+  final release = Completer<bool>();
+
+  @override
+  Future<bool> exists(String path) async {
+    if (!started.isCompleted) started.complete();
+    return release.future;
+  }
+
+  @override
+  Future<List<String>> filesUnder(String root) async => const [];
 }
 
 class _MemoryAssetRepository implements AssetRepository {
