@@ -9,11 +9,12 @@
 - Canonical application/bundle ID: `com.cnxdev.dextryx.images`
 - Repository remains `dexter-cnx/nixin`
 - Studio workspace UI-01 through UI-15: complete
-- **PR #7 / W1 Workplace Core foundation: merged**
-- **PR #9 / documentation realignment: merged**
-- Current implementation branch: `feature/workplaces-import`
-- Current milestone: **W2 — Import System + live Workplace wiring**
-- Real RAW demosaic/debayer remains deferred.
+- **W1 Workplace Core: merged**
+- **W2 Import System + live Workplace wiring: merged**
+- **W3 Workplace Browser + Filmstrip: implementation complete in PR #11**
+- Current implementation branch: `feature/workplace-browser-filmstrip`
+- Next milestone after merge: **W4 — Desktop Catalog Hardening**
+- Real RAW demosaic/debayer and other new image-processing work remain deferred.
 
 ## Product responsibility
 
@@ -33,97 +34,116 @@ large-library UX
 external-edit orchestration
 ```
 
-PixelCraft / Dextryx Pixels owns editing and image-processing semantics. Do not copy PixelCraft UX or processing milestones into this repository.
+PixelCraft / Dextryx Pixels owns editing and image-processing semantics. Keep its processing roadmap separate from this repository.
 
-## Completed — W1 Workplace Core foundation
+## Completed — W1 Workplace Core
 
-Delivered domain/controller/persistence foundations:
+Delivered:
 
-- `Workplace`
-- `AssetRecord`
-- `WorkplaceRepository`
-- `AssetRepository`
-- Hive-backed persistence
-- `WorkplaceController`
-- default `My workplace` initialization logic
-- current Workplace persistence/restoration
-- create / switch / rename / delete commands
+- `Workplace` and `AssetRecord`
+- repository contracts with Hive-backed persistence
+- default `My workplace`
+- active Workplace persistence/restoration
+- create / switch / rename / delete behavior
 - invariant that at least one Workplace remains
-- catalog-only removal semantics
+- catalog-only Workplace removal semantics
 
-W1 did not wire `workplaceControllerProvider` into the live Studio tree; W2 closes that gap.
+## Completed — W2 Import System + live wiring
 
-## Current — W2 Import System + live Workplace wiring
+Delivered:
 
-Branch:
-
-```text
-feature/workplaces-import
-```
-
-Implementation target:
-
-- consume `workplaceControllerProvider` from live Studio UI
-- expose current Workplace switch/create/rename/delete controls
-- initialize `My workplace` on a real fresh launch
+- live `workplaceControllerProvider` wiring
+- active Workplace controls in Studio
 - primary multi-select Import
-- secondary folder import
-- recursive discovery by default with current-folder-only option
+- recursive folder import plus current-folder-only option
 - supported raster/RAW filtering
 - `ImportBatch` persistence
 - async progress and cancellation
-- baseline duplicate detection by normalized source path within active Workplace
+- baseline duplicate detection
 - linked/add mode
 - desktop managed/copy mode
-- remembered managed destination and storage mode
-- safe partial-failure accounting
-- persist imported assets to active Workplace
-- hand latest imported asset to existing Studio preview/Develop compatibility path
+- remembered managed destination/storage mode
+- partial-failure accounting
+- imported assets persisted to the active Workplace
+- compatibility handoff to existing Studio Develop preview
 
-Regression gates:
+## W3 — Workplace Browser + Filmstrip
 
-- embedded RAW preview remains functional
-- raster preview remains functional
-- Develop/Mask/LUT/JPEG export behavior does not regress
-- no new image-processing scope
-- `flutter analyze`, `flutter test`, `cargo check`, and `cargo test` pass
+PR #11 delivers:
 
-## Next — W3 Workplace Browser + Filmstrip
-
-- Workplace asset grid
-- thumbnail/preview provider boundary
-- thumbnail cache foundation
-- current Workplace asset query
-- lazy/virtualized grid
-- one ordered asset source of truth
-- one selected-asset source of truth
-- Grid ↔ Filmstrip synchronization
-- automatic Filmstrip updates after import
-- basic sorting
+- `AssetBrowserController` as owner of active Workplace ordered assets
+- one `selectedAssetId` source of truth
+- active-Workplace asset querying and refresh after import
+- responsive lazy Workplace Grid
+- loading / empty / error states
+- basic sorting: import order, recent-first, filename
 - missing-asset indicator foundation
+- `AssetPreviewProvider` boundary
+- Filmstrip evolved to consume the same catalog list and selection state as Grid
+- Grid ↔ Filmstrip selection synchronization
+- selected asset handoff to the existing Develop path
+- post-import browser selection synchronization
+- stale assets cleared when Workplace switching/querying fails
 
-## Then — W4 Desktop Catalog Hardening
+Review hardening for PR #11 specifically closes two state-consistency risks:
+
+1. assets from the previous Workplace cannot remain actionable after a failed switch/query;
+2. post-import Develop selection also updates catalog `selectedAssetId`, so Grid, Filmstrip and Develop remain aligned.
+
+W3 intentionally does **not** add sensor RAW decoding, demosaic/debayer, PixelCraft processing, advanced rating/search/filter UX, or full missing-file relink behavior.
+
+## Next — W4 Desktop Catalog Hardening
+
+Scope:
 
 - missing-file detection
-- Locate Missing File / Folder
+- Locate Missing File
+- Locate Missing Folder / batch relink
 - disconnected external-storage behavior
-- managed-storage recovery
-- copy/import failure recovery
+- managed-storage preference/recovery hardening
+- copy collision and filesystem failure recovery
 - import-batch recovery
-- catalog-only removal semantics
+- catalog-only asset removal
+- explicit original deletion path only if intentionally enabled later
+- thumbnail cache/generation hardening where required by real catalog use
 - large-catalog profiling and performance hardening
 
-Catalog removal and physical deletion must remain separate operations.
+Guardrails:
+
+- catalog removal and physical deletion remain separate operations
+- linked originals are never silently moved/deleted
+- Workplace rename must not move managed originals
+- no broad state-management rewrite solely for W4
+- no new RAW/image-processing scope
+
+## Regression gates
+
+Every Workplaces/catalog PR must preserve:
+
+- existing embedded RAW preview behavior
+- raster preview
+- Develop adjustments
+- Subject/Sky masks
+- LUT
+- JPEG export
+
+Automated gate:
+
+```text
+flutter analyze
+flutter test
+cargo check
+cargo test
+```
 
 ## Future — PixelCraft external-editor integration
 
-Only after Workplaces/catalog flows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority.
+Only after catalog workflows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority. A future integration should exchange stable asset/edit references rather than duplicate processing internals.
 
 ## Immediate execution order
 
 ```text
-CURRENT  W2 Import System + live Workplace wiring
-NEXT     W3 Workplace Browser + Filmstrip
-THEN     W4 Desktop Catalog Hardening
-FUTURE   PixelCraft external-editor contract
+FINALIZE  W3 Workplace Browser + Filmstrip (PR #11)
+NEXT      W4 Desktop Catalog Hardening
+FUTURE    PixelCraft external-editor contract
 ```
