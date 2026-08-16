@@ -21,18 +21,13 @@ void main() {
   });
 
   tearDown(() async {
-    await tempDir.delete(recursive: true);
+    if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
   test('imports supported files into active workplace and persists batch', () async {
     final file = File('${tempDir.path}/sample.jpg');
     await file.writeAsBytes([1, 2, 3]);
-    final controller = ImportController(
-      assetRepository: assets,
-      importRepository: batches,
-      preferences: preferences,
-      currentWorkplaceId: () => 'workplace-1',
-    );
+    final controller = _controller(assets, batches, preferences);
 
     await controller.importPaths(
       [file.path],
@@ -47,17 +42,14 @@ void main() {
     expect(assets.values.single.mediaType, AssetMediaType.raster);
     expect(batches.values, hasLength(1));
     expect(batches.values.single.importedCount, 1);
+    expect(batches.values.single.sourcePaths, [file.absolute.path]);
+    expect(batches.values.single.failedPaths, isEmpty);
   });
 
   test('skips duplicate source paths in the same workplace', () async {
     final file = File('${tempDir.path}/duplicate.nef');
     await file.writeAsBytes([1, 2, 3]);
-    final controller = ImportController(
-      assetRepository: assets,
-      importRepository: batches,
-      preferences: preferences,
-      currentWorkplaceId: () => 'workplace-1',
-    );
+    final controller = _controller(assets, batches, preferences);
 
     await controller.importPaths([file.path], sourceType: ImportSourceType.files);
     await controller.importPaths([file.path], sourceType: ImportSourceType.files);
@@ -74,12 +66,7 @@ void main() {
     await destination.create();
     preferences.mode = AssetStorageMode.managed;
     preferences.destination = destination.path;
-    final controller = ImportController(
-      assetRepository: assets,
-      importRepository: batches,
-      preferences: preferences,
-      currentWorkplaceId: () => 'workplace-1',
-    );
+    final controller = _controller(assets, batches, preferences);
 
     await controller.importPaths([source.path], sourceType: ImportSourceType.files);
 
@@ -90,15 +77,156 @@ void main() {
     expect(await source.exists(), isTrue);
   });
 
-  test('unsupported files are filtered without creating catalog records', () async {
-    final file = File('${tempDir.path}/notes.txt');
-    await file.writeAsString('not an image');
+  test('missing remembered managed destination is reselected, not recreated', () async {
+    final source = File('${tempDir.path}/managed-reselect.jpg');
+    await source.writeAsBytes([7, 8, 9]);
+    final missingRoot = '${tempDir.path}/disconnected-volume';
+    final replacement = Directory('${tempDir.path}/replacement-root');
+    await replacement.create();
+    preferences.mode = AssetStorageMode.managed;
+    preferences.destination = missingRoot;
+    var pickerCalls = 0;
+    final controller = _controller(
+      assets,
+      batches,
+      preferences,
+      pickManagedDestination: () async {
+        pickerCalls++;
+        return replacement.path;
+      },
+    );
+
+    await controller.importPaths([source.path], sourceType: ImportSourceType.files);
+
+    expect(pickerCalls, 1);
+    expect(await Directory(missingRoot).exists(), isFalse);
+    expect(preferences.destination, replacement.absolute.path);
+    expect(assets.values.single.managedPath, startsWith(replacement.absolute.path));
+  });
+
+  test('managed copy collision never overwrites an existing file', () async {
+    final source = File('${tempDir.path}/collision.jpg');
+    await source.writeAsBytes([1, 2, 3]);
+    final destination = Directory('${tempDir.path}/managed-root');
+    await destination.create();
+    preferences.mode = AssetStorageMode.managed;
+    preferences.destination = destination.path;
+    final fixedNow = DateTime.utc(2026, 8, 16, 12);
+    final assetId = 'asset-${fixedNow.microsecondsSinceEpoch}-0';
+    final dayFolder = Directory(
+      '${destination.path}/originals/2026/08/16',
+    );
+    await dayFolder.create(recursive: true);
+    final collision = File('${dayFolder.path}/$assetId-collision.jpg');
+    await collision.writeAsBytes([99]);
+    final controller = _controller(
+      assets,
+      batches,
+      preferences,
+      now: () => fixedNow,
+    );
+
+    await controller.importPaths([source.path], sourceType: ImportSourceType.files);
+
+    expect(await collision.readAsBytes(), [99]);
+    final managedPath = assets.values.single.managedPath!;
+    expect(managedPath, isNot(collision.path));
+    expect(await File(managedPath).readAsBytes(), [1, 2, 3]);
+  });
+
+  test('catalog failure cleans up a newly copied managed original', () async {
+    final source = File('${tempDir.path}/catalog-failure.jpg');
+    await source.writeAsBytes([1, 2, 3]);
+    final destination = Directory('${tempDir.path}/managed-root');
+    await destination.create();
+    preferences.mode = AssetStorageMode.managed;
+    preferences.destination = destination.path;
+    assets.failNextSave = true;
+    final controller = _controller(assets, batches, preferences);
+
+    await controller.importPaths([source.path], sourceType: ImportSourceType.files);
+
+    expect(controller.state.phase.name, 'failed');
+    expect(controller.state.failed, 1);
+    expect(assets.values, isEmpty);
+    final copiedFiles = await destination
+        .list(recursive: true)
+        .where((entity) => entity is File)
+        .toList();
+    expect(copiedFiles, isEmpty);
+    expect(await source.exists(), isTrue);
+  });
+
+  test('failed batch can retry without duplicating prior successes', () async {
+    final successful = File('${tempDir.path}/successful.jpg');
+    final initiallyMissing = File('${tempDir.path}/retry.jpg');
+    await successful.writeAsBytes([1]);
+    final controller = _controller(assets, batches, preferences);
+
+    await controller.importPaths(
+      [successful.path, initiallyMissing.path],
+      sourceType: ImportSourceType.files,
+    );
+
+    final firstBatch = controller.state.batch!;
+    expect(controller.state.phase.name, 'completed');
+    expect(firstBatch.importedCount, 1);
+    expect(firstBatch.failedCount, 1);
+    expect(firstBatch.failedPaths, [initiallyMissing.absolute.path]);
+    expect(assets.values, hasLength(1));
+
+    await initiallyMissing.writeAsBytes([2]);
+    expect(await controller.retryBatch(firstBatch.id), isTrue);
+
+    expect(assets.values, hasLength(2));
+    expect(
+      assets.values.map((asset) => asset.sourcePath).toSet(),
+      {successful.absolute.path, initiallyMissing.absolute.path},
+    );
+  });
+
+  test('retry requires the original Workplace', () async {
+    final missing = File('${tempDir.path}/missing.jpg');
+    var workplace = 'workplace-1';
     final controller = ImportController(
       assetRepository: assets,
       importRepository: batches,
       preferences: preferences,
-      currentWorkplaceId: () => 'workplace-1',
+      currentWorkplaceId: () => workplace,
     );
+    await controller.importPaths([missing.path], sourceType: ImportSourceType.files);
+    final batch = controller.state.batch!;
+    workplace = 'workplace-2';
+
+    expect(await controller.retryBatch(batch.id), isFalse);
+    expect(controller.state.phase.name, 'failed');
+    expect(controller.state.errorMessage, contains('original Workplace'));
+  });
+
+  test('old ImportBatch maps remain readable without recovery path fields', () {
+    final batch = ImportBatch.fromMap({
+      'id': 'legacy',
+      'workplaceId': 'w1',
+      'startedAt': DateTime.utc(2026).toIso8601String(),
+      'completedAt': null,
+      'sourceType': 'files',
+      'sourceRoot': null,
+      'requestedCount': 1,
+      'importedCount': 1,
+      'skippedDuplicateCount': 0,
+      'failedCount': 0,
+      'status': 'completed',
+    });
+
+    expect(batch.sourcePaths, isEmpty);
+    expect(batch.failedPaths, isEmpty);
+    expect(batch.canRetry, isFalse);
+  });
+
+  test('unsupported files are filtered without creating catalog records', () async {
+    final file = File('${tempDir.path}/notes.txt');
+    await file.writeAsString('not an image');
+    final controller = _controller(assets, batches, preferences);
 
     await controller.importPaths([file.path], sourceType: ImportSourceType.files);
 
@@ -108,8 +236,26 @@ void main() {
   });
 }
 
+ImportController _controller(
+  _MemoryAssetRepository assets,
+  _MemoryImportRepository batches,
+  _MemoryImportPreferences preferences, {
+  DateTime Function()? now,
+  Future<String?> Function()? pickManagedDestination,
+}) {
+  return ImportController(
+    assetRepository: assets,
+    importRepository: batches,
+    preferences: preferences,
+    currentWorkplaceId: () => 'workplace-1',
+    now: now,
+    pickManagedDestination: pickManagedDestination,
+  );
+}
+
 class _MemoryAssetRepository implements AssetRepository {
   final Map<String, AssetRecord> _assets = {};
+  bool failNextSave = false;
   List<AssetRecord> get values => _assets.values.toList();
 
   @override
@@ -129,6 +275,10 @@ class _MemoryAssetRepository implements AssetRepository {
 
   @override
   Future<void> save(AssetRecord asset) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('catalog write failed');
+    }
     _assets[asset.id] = asset;
   }
 }
