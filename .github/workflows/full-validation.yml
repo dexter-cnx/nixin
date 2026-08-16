@@ -34,7 +34,11 @@ jobs:
         run: |
           bash -n tool/*.sh
           ruby -e 'require "yaml"; Dir[".github/workflows/*.{yml,yaml}"].each { |f| YAML.load_file(f) }'
-      - run: dart format --output=none --set-exit-if-changed lib test integration_test
+      - name: Dart format
+        run: |
+          paths="lib test"
+          if [ -d integration_test ]; then paths="$paths integration_test"; fi
+          dart format --output=none --set-exit-if-changed $paths
       - run: flutter analyze --fatal-infos
       - name: Rust format
         working-directory: rust
