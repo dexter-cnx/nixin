@@ -150,14 +150,17 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     switch (order) {
       case AssetSortOrder.importedAscending:
         sorted.sort((a, b) => a.importedAt.compareTo(b.importedAt));
+        break;
       case AssetSortOrder.importedDescending:
         sorted.sort((a, b) => b.importedAt.compareTo(a.importedAt));
+        break;
       case AssetSortOrder.nameAscending:
         sorted.sort(
           (a, b) => a.originalFilename
               .toLowerCase()
               .compareTo(b.originalFilename.toLowerCase()),
         );
+        break;
     }
     return sorted;
   }
