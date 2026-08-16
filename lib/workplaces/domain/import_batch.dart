@@ -1,3 +1,5 @@
+import 'asset_record.dart';
+
 enum ImportSourceType { files, folder }
 
 enum ImportBatchStatus { running, completed, cancelled, failed }
@@ -13,8 +15,11 @@ class ImportBatch {
     required this.skippedDuplicateCount,
     required this.failedCount,
     required this.status,
+    this.storageMode = AssetStorageMode.linked,
     this.sourceRoot,
     this.completedAt,
+    this.sourcePaths = const [],
+    this.failedPaths = const [],
   });
 
   final String id;
@@ -22,12 +27,17 @@ class ImportBatch {
   final DateTime startedAt;
   final DateTime? completedAt;
   final ImportSourceType sourceType;
+  final AssetStorageMode storageMode;
   final String? sourceRoot;
   final int requestedCount;
   final int importedCount;
   final int skippedDuplicateCount;
   final int failedCount;
   final ImportBatchStatus status;
+  final List<String> sourcePaths;
+  final List<String> failedPaths;
+
+  bool get canRetry => failedPaths.isNotEmpty || status == ImportBatchStatus.running;
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -35,12 +45,15 @@ class ImportBatch {
         'startedAt': startedAt.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
         'sourceType': sourceType.name,
+        'storageMode': storageMode.name,
         'sourceRoot': sourceRoot,
         'requestedCount': requestedCount,
         'importedCount': importedCount,
         'skippedDuplicateCount': skippedDuplicateCount,
         'failedCount': failedCount,
         'status': status.name,
+        'sourcePaths': sourcePaths,
+        'failedPaths': failedPaths,
       };
 
   factory ImportBatch.fromMap(Map<dynamic, dynamic> map) => ImportBatch(
@@ -51,11 +64,17 @@ class ImportBatch {
             ? null
             : DateTime.parse(map['completedAt'] as String),
         sourceType: ImportSourceType.values.byName(map['sourceType'] as String),
+        storageMode: AssetStorageMode.values.firstWhere(
+          (mode) => mode.name == (map['storageMode'] as String? ?? 'linked'),
+          orElse: () => AssetStorageMode.linked,
+        ),
         sourceRoot: map['sourceRoot'] as String?,
         requestedCount: map['requestedCount'] as int,
         importedCount: map['importedCount'] as int,
         skippedDuplicateCount: map['skippedDuplicateCount'] as int,
         failedCount: map['failedCount'] as int,
         status: ImportBatchStatus.values.byName(map['status'] as String),
+        sourcePaths: (map['sourcePaths'] as List<dynamic>?)?.cast<String>() ?? const [],
+        failedPaths: (map['failedPaths'] as List<dynamic>?)?.cast<String>() ?? const [],
       );
 }

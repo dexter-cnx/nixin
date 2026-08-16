@@ -6,200 +6,167 @@ This document describes the implementation and acceptance boundary for W4 in Dex
 
 W4 hardens the Workplaces/catalog layer for real desktop filesystem behavior. It does not expand RAW development, image-processing semantics, or PixelCraft processing ownership.
 
-W4 is split into two slices:
+W4 is split into:
 
 ```text
 W4-A  missing detection, relink, disconnected-volume behavior, catalog-only removal
-W4-B  managed-copy recovery, import recovery, thumbnail/cache hardening, large-catalog profiling
+W4-B1 managed destination/copy recovery and import-batch recovery
+W4-B2 thumbnail/cache hardening and representative large-catalog profiling
 ```
 
-## W4-A — PR #12
+## W4-A — merged in PR #12
 
-Branch:
+PR #12 established:
+
+- asynchronous file availability scanning outside Grid/Filmstrip tiles;
+- persisted `missing` state;
+- disconnected-volume catalog behavior;
+- Locate Missing File / Locate Missing Folder;
+- managed-copy filename-aware folder relink;
+- ambiguous filename safety;
+- scan-vs-remove/relink race protection;
+- catalog-only removal with no physical original deletion.
+
+Merge commit:
 
 ```text
-feature/desktop-catalog-hardening
+f5fb16bdf84f61d92fe93dc7f03c35777227df3b
 ```
 
-PR:
+## W4-B1 — managed/import recovery
+
+Current branch:
 
 ```text
-#12 feat: harden desktop catalog missing and relink flows
+feature/w4b-managed-import-recovery
 ```
 
-### Filesystem boundary
+### Managed destination recovery
 
-`AssetFileSystem` isolates platform filesystem operations from widgets and repository persistence.
+A remembered managed root must be validated before use.
 
-`AssetAvailabilityService` owns availability probing and folder indexing.
-
-Rules:
-
-- no synchronous `File.exists()` calls from Grid/Filmstrip tiles;
-- file existence checks run asynchronously;
-- checks are bounded in batches of 32;
-- control yields between batches to avoid monopolizing the UI isolate;
-- availability probing failure must not make an otherwise loaded catalog unavailable.
-
-### Missing-state lifecycle
-
-On Workplace load, the browser may start an availability scan.
-
-For each catalog asset:
+Policy:
 
 ```text
-effectivePath = managedPath ?? sourcePath
+remembered root exists
+  -> use it
+
+remembered root missing/unmounted
+  -> do not create that path automatically
+  -> request a replacement destination
+  -> replacement must already exist
+  -> persist replacement only after validation
 ```
 
-If the effective path is unavailable:
+The non-recreation rule is important for removable/external storage: recreating a missing mount path can silently redirect managed originals to the wrong local filesystem.
+
+### Managed copy commit protocol
+
+Managed copies use a small commit protocol:
 
 ```text
-AssetRecord remains cataloged
-missing = true
-Grid/Filmstrip remain usable
-Develop handoff is blocked
+source file
+  -> select collision-free final path
+  -> copy to <final>.partial
+  -> rename partial to final
+  -> persist AssetRecord
 ```
 
-If the path later becomes available, the next scan clears `missing`.
+Invariants:
 
-Only records whose missing state changes are persisted again.
+- never overwrite an existing destination file;
+- asset IDs are checked for catalog collision before use;
+- copy failure removes `.partial` output;
+- cancellation after copy but before catalog commit removes the uncommitted copy;
+- catalog persistence failure removes the newly copied managed original;
+- source originals are never deleted or moved.
 
-### Availability scan mutation safety
+This keeps filesystem state and catalog state aligned as closely as possible without introducing a database/filesystem transaction manager.
 
-Availability scans operate from an asynchronous snapshot, but that snapshot must never become authoritative after a catalog mutation.
+### ImportBatch recovery metadata
 
-W4-A review hardening adds these invariants:
-
-- relink/remove invalidates the active availability revision before mutating catalog state;
-- scan application checks the revision again before each persistence write;
-- an asset removed while a scan is running is skipped rather than recreated;
-- an asset whose effective path changed while a scan was running is skipped rather than having the relink undone;
-- final scan results are merged into the current live asset set instead of replacing it with the original snapshot.
-
-This prevents an old availability scan from resurrecting deleted catalog entries or reverting a newer relink.
-
-### Locate Missing File
-
-Single-file relink preserves `AssetRecord.id`.
-
-Storage-specific path update:
+New batches persist:
 
 ```text
-linked  -> sourcePath
-managed -> managedPath
+storageMode
+sourcePaths
+failedPaths
 ```
 
-The replacement path must exist before the catalog record is changed.
+The `running` ImportBatch is saved before per-file processing starts. This makes an interrupted batch discoverable after a process/app failure and retains enough source-path context to retry.
 
-### Locate Missing Folder
-
-Folder relink recursively enumerates the chosen directory once and indexes files by lowercase filename.
-
-Recovery identity depends on storage mode:
+Backward compatibility:
 
 ```text
-linked  -> originalFilename
-managed -> basename(managedPath)
+legacy storageMode missing -> linked
+legacy sourcePaths missing  -> []
+legacy failedPaths missing  -> []
 ```
 
-Managed imports are stored using the managed-copy filename generated by Import, such as:
+Older persisted Hive maps therefore remain readable.
 
-```text
-<asset-id>-<original-filename>
-```
+### Retry semantics
 
-Using the basename of the persisted `managedPath` therefore allows a moved managed library to be recovered without guessing or changing asset identity.
+`retryBatch(batchId)` follows these rules:
 
-Automatic relink policy:
+- retry only when the current batch has failed paths or was left `running`;
+- original Workplace must be active;
+- completed/failed partial batch retries `failedPaths` only;
+- interrupted `running` batch retries all saved `sourcePaths`;
+- original batch `storageMode` overrides the current UI storage option;
+- retry creates a new import attempt/batch;
+- existing source-path duplicate detection prevents already-successful assets from being duplicated;
+- newly imported recovery result can flow through the existing browser/Develop post-import synchronization.
 
-```text
-0 filename matches  -> unresolved
-1 filename match    -> relink
-2+ filename matches -> unresolved; do not guess
-```
+### UI recovery
 
-This prevents unsafe first-match behavior when duplicate filenames exist in different subdirectories.
+Studio import controls expose:
 
-### Disconnected external storage
+- explicit failed-import status;
+- **Retry failed import** in the panel when the current batch is recoverable;
+- the same retry action from the import options menu.
 
-A disconnected linked volume is represented as missing catalog assets rather than a catalog-load failure.
+## W4-B1 regression coverage
 
-Reconnect workflow:
+Automated tests cover:
 
-1. reconnect the original volume and rescan; or
-2. use Locate Missing File; or
-3. use Locate Missing Folder when the hierarchy moved.
+- normal managed-copy import;
+- stale remembered managed root is not recreated;
+- validated replacement destination is remembered;
+- destination collision does not overwrite an existing file;
+- catalog-save failure cleans up the newly copied managed original;
+- source original survives managed-copy failure;
+- partial import records failed source paths;
+- failed path can be retried without duplicating prior successes;
+- retry is blocked from a different Workplace;
+- recovery metadata and managed storage mode round-trip through `ImportBatch.toMap/fromMap`;
+- legacy ImportBatch maps remain readable.
 
-No linked original is silently copied, moved, renamed, or deleted during recovery.
+## W4-B1 acceptance gates
 
-### Catalog-only removal
-
-`Remove from Workplace` removes only the `AssetRecord` from catalog persistence.
-
-It must not:
-
-- delete the source file;
-- delete a managed original;
-- move a file to Trash;
-- rename a file;
-- alter unrelated assets.
-
-Physical-original deletion remains a separate future product decision and is not part of W4-A.
-
-## Tests
-
-W4-A regression coverage includes:
-
-- missing detection persistence;
-- recovery when an unavailable path becomes available again;
-- active availability scan cannot resurrect an asset removed during the scan;
-- stable asset identity during single-file relink;
-- folder relink with one directory scan per operation;
-- managed-folder recovery using the persisted managed-copy filename;
-- ambiguous duplicate filename behavior;
-- catalog-only removal leaving the filesystem abstraction untouched;
-- W3 selection/switching/sorting regression coverage.
-
-## W4-A acceptance gates
-
-- missing originals stay visible in catalog;
-- missing originals cannot be handed to Develop;
-- single-file relink restores a missing asset without changing identity;
-- a stale availability scan cannot resurrect removed records or undo relinks;
-- managed folder recovery matches the actual managed-copy filename;
-- folder relink never guesses between duplicate filenames;
-- Remove from Workplace never deletes an original;
-- Workplace switching cannot expose stale assets;
+- disconnected remembered managed root cannot silently redirect copy output;
+- managed destination collisions never overwrite existing files;
+- no `.partial` file is left after a handled copy failure;
+- failed catalog write does not leave a newly copied managed original orphaned;
+- interrupted/partial batches retain enough source metadata for retry;
+- retry preserves original Workplace and original storage mode semantics;
+- retry cannot duplicate already-successful source paths;
+- existing W4-A missing/relink/removal behavior remains intact;
 - `flutter analyze` passes;
 - `flutter test` passes;
 - `cargo check` passes;
 - `cargo test` passes.
 
-## W4-B — remaining work
-
-After W4-A merges, continue with:
-
-### Managed storage recovery
-
-- validate/recover remembered managed destination;
-- handle missing/unmounted managed roots;
-- collision-safe copy naming/placement;
-- partial copy/filesystem failure recovery;
-- preserve catalog/original consistency after failed copies.
-
-### Import-batch recovery
-
-- define recoverable terminal states;
-- retry failed/partial batches without duplicating successful assets;
-- surface useful recovery summaries;
-- preserve cancellation semantics.
+## W4-B2 — remaining work
 
 ### Thumbnail/cache hardening
 
-- generate/write browser thumbnails or previews without coupling Grid/Filmstrip to RAW processing internals;
-- invalidate stale cache entries safely;
+- generate/write browser thumbnail or preview cache without coupling Grid/Filmstrip to RAW processing internals;
+- atomic/collision-safe cache writes;
 - tolerate missing/corrupt cache files;
-- bound memory and filesystem pressure.
+- invalidate stale cache records safely;
+- bound memory and filesystem pressure;
+- avoid full-source decode work on the UI-critical browser path where possible.
 
 ### Large-catalog profiling
 
@@ -210,15 +177,27 @@ Use representative catalog sizes rather than only small unit fixtures. Measure a
 - Grid/Filmstrip scroll responsiveness;
 - memory growth;
 - persistence write amplification;
+- thumbnail/cache pressure;
 - folder-relink indexing cost.
 
-W4 is not complete until W4-B is implemented or explicitly moved to a later documented milestone.
+### Manual desktop gates
+
+At minimum verify on desktop:
+
+- managed root on external storage, disconnect/reconnect;
+- stale saved managed root chooses replacement correctly;
+- failed/partial import recovery after restarting the app;
+- large catalog remains usable while availability/cache work occurs.
+
+W4 is not complete until W4-B2 is implemented or explicitly moved to a later documented milestone.
 
 ## Guardrails
 
-- Dextryx Images remains catalog authority.
-- PixelCraft / Dextryx Pixels remains processing authority.
+- Dextryx Images remains catalog authority;
+- PixelCraft / Dextryx Pixels remains processing authority;
 - no RAW demosaic/debayer work in W4;
 - no implicit physical deletion;
+- no silent recreation of a missing managed mount/root;
+- no overwrite-based managed copy collision policy;
 - no broad state-management rewrite solely for this milestone;
 - no per-tile synchronous filesystem probing.

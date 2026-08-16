@@ -18,6 +18,7 @@ enum _ImportMenu {
   folderCurrentOnly,
   linked,
   managed,
+  retry,
   cancel,
 }
 
@@ -109,7 +110,8 @@ class StudioImportControls extends ConsumerWidget {
         ),
         if (importState.busy ||
             importState.phase == ImportPhase.completed ||
-            importState.phase == ImportPhase.cancelled) ...[
+            importState.phase == ImportPhase.cancelled ||
+            importState.phase == ImportPhase.failed) ...[
           const SizedBox(height: StudioSpacing.sm),
           if (importState.busy)
             LinearProgressIndicator(value: importState.progress),
@@ -120,6 +122,14 @@ class StudioImportControls extends ConsumerWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
+          if (!importState.busy && importState.batch?.canRetry == true) ...[
+            const SizedBox(height: StudioSpacing.xs),
+            OutlinedButton.icon(
+              onPressed: () => _retryLastBatch(ref),
+              icon: const Icon(Icons.refresh),
+              label: Text('import.retry_failed'.tr()),
+            ),
+          ],
         ],
       ],
     );
@@ -129,6 +139,14 @@ class StudioImportControls extends ConsumerWidget {
     final controller = ref.read(importControllerProvider.notifier);
     await controller.importFiles();
     await _openLastImported(ref);
+  }
+
+  static Future<void> _retryLastBatch(WidgetRef ref) async {
+    final batch = ref.read(importControllerProvider).batch;
+    if (batch == null || !batch.canRetry) return;
+    final controller = ref.read(importControllerProvider.notifier);
+    final succeeded = await controller.retryBatch(batch.id);
+    if (succeeded) await _openLastImported(ref);
   }
 
   static Future<void> _openLastImported(WidgetRef ref) async {
@@ -160,6 +178,9 @@ class StudioImportControls extends ConsumerWidget {
         return;
       case _ImportMenu.managed:
         await controller.setStorageMode(AssetStorageMode.managed);
+        return;
+      case _ImportMenu.retry:
+        await _retryLastBatch(ref);
         return;
       case _ImportMenu.cancel:
         controller.cancel();
@@ -237,6 +258,9 @@ class StudioImportControls extends ConsumerWidget {
   static String _statusText(ImportState state) {
     if (state.phase == ImportPhase.cancelled) {
       return 'import.cancelled'.tr();
+    }
+    if (state.phase == ImportPhase.failed) {
+      return 'import.failed'.tr(namedArgs: {'failed': '${state.failed}'});
     }
     if (state.phase == ImportPhase.completed) {
       return 'import.summary'.tr(namedArgs: {
@@ -364,6 +388,13 @@ class _ImportMenuButton extends StatelessWidget {
           enabled: !state.busy,
           child: Text('import.managed'.tr()),
         ),
+        if (!state.busy && state.batch?.canRetry == true) ...[
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            value: _ImportMenu.retry,
+            child: Text('import.retry_failed'.tr()),
+          ),
+        ],
         if (state.busy) ...[
           const PopupMenuDivider(),
           PopupMenuItem(
