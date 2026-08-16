@@ -61,13 +61,22 @@ final importPreferencesProvider = Provider<ImportPreferences>((ref) {
 
 final importControllerProvider =
     StateNotifierProvider<ImportController, ImportState>((ref) {
-  return ImportController(
+  final controller = ImportController(
     assetRepository: ref.watch(assetRepositoryProvider),
     importRepository: ref.watch(importRepositoryProvider),
     preferences: ref.watch(importPreferencesProvider),
     currentWorkplaceId: () =>
         ref.read(workplaceControllerProvider).currentWorkplaceId,
   );
+
+  ref.listen<String?>(
+    workplaceControllerProvider.select((state) => state.currentWorkplaceId),
+    (_, workplaceId) =>
+        unawaited(controller.restoreLatestRecoverableBatch(workplaceId)),
+    fireImmediately: true,
+  );
+
+  return controller;
 });
 
 class ImportController extends StateNotifier<ImportState> {
@@ -106,6 +115,7 @@ class ImportController extends StateNotifier<ImportState> {
   final Future<String?> Function() _pickManagedDestination;
 
   bool _cancelRequested = false;
+  int _restoreRevision = 0;
 
   Future<void> setStorageMode(AssetStorageMode mode) async {
     state = state.copyWith(storageMode: mode);
@@ -116,8 +126,44 @@ class ImportController extends StateNotifier<ImportState> {
     if (state.busy) _cancelRequested = true;
   }
 
+  Future<void> restoreLatestRecoverableBatch(String? workplaceId) async {
+    final revision = ++_restoreRevision;
+    if (state.busy) return;
+    if (workplaceId == null) {
+      state = state.copyWith(clearBatch: true, clearError: true);
+      return;
+    }
+
+    final batches = await _importRepository.getByWorkplace(workplaceId);
+    if (revision != _restoreRevision || state.busy) return;
+    final recoverable = batches.where((batch) => batch.canRetry).toList()
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    if (recoverable.isEmpty) {
+      state = state.copyWith(clearBatch: true, clearError: true);
+      return;
+    }
+
+    final batch = recoverable.first;
+    final attentionCount = batch.failedPaths.isNotEmpty
+        ? batch.failedPaths.length
+        : batch.sourcePaths.length;
+    state = state.copyWith(
+      phase: ImportPhase.failed,
+      total: batch.requestedCount,
+      processed: batch.importedCount + batch.skippedDuplicateCount,
+      imported: batch.importedCount,
+      skippedDuplicates: batch.skippedDuplicateCount,
+      failed: attentionCount,
+      batch: batch,
+      clearCurrentFile: true,
+      clearLastImportedPath: true,
+      errorMessage: 'Recoverable import found',
+    );
+  }
+
   Future<void> importFiles() async {
     if (state.busy) return;
+    ++_restoreRevision;
     _cancelRequested = false;
     state = state.copyWith(
       phase: ImportPhase.selecting,
@@ -148,6 +194,7 @@ class ImportController extends StateNotifier<ImportState> {
 
   Future<void> importFolder({bool recursive = true}) async {
     if (state.busy) return;
+    ++_restoreRevision;
     _cancelRequested = false;
     state = state.copyWith(
       phase: ImportPhase.selecting,
@@ -194,12 +241,14 @@ class ImportController extends StateNotifier<ImportState> {
 
   Future<bool> retryBatch(String batchId) async {
     if (state.busy) return false;
+    ++_restoreRevision;
     final batch = await _importRepository.getById(batchId);
     if (batch == null || !batch.canRetry) return false;
     final workplaceId = _currentWorkplaceId();
     if (workplaceId != batch.workplaceId) {
       state = state.copyWith(
         phase: ImportPhase.failed,
+        clearLastImportedPath: true,
         errorMessage: 'Switch to the original Workplace before retrying import',
       );
       return false;
@@ -224,6 +273,7 @@ class ImportController extends StateNotifier<ImportState> {
     bool preserveCancellation = false,
     AssetStorageMode? storageModeOverride,
   }) async {
+    ++_restoreRevision;
     final workplaceId = _currentWorkplaceId();
     if (workplaceId == null) {
       state = state.copyWith(
@@ -245,10 +295,11 @@ class ImportController extends StateNotifier<ImportState> {
         .toList(growable: false);
     final startedAt = _now();
     final batchId = 'import-${startedAt.microsecondsSinceEpoch}';
-    final selectedStorageMode = storageModeOverride ?? state.storageMode;
+    final configuredStorageMode = state.storageMode;
+    final selectedStorageMode = storageModeOverride ?? configuredStorageMode;
     state = ImportState(
       phase: ImportPhase.checkingDuplicates,
-      storageMode: selectedStorageMode,
+      storageMode: configuredStorageMode,
       total: candidates.length,
     );
 
@@ -453,20 +504,50 @@ class ImportController extends StateNotifier<ImportState> {
     return '$base-$suffix';
   }
 
+  Future<Directory> _managedDayFolder(
+    String managedRoot,
+    DateTime importedAt,
+  ) async {
+    final root = Directory(managedRoot);
+    if (!await root.exists()) {
+      throw FileSystemException('Managed originals location is unavailable', managedRoot);
+    }
+
+    var current = root;
+    for (final segment in [
+      'originals',
+      importedAt.year.toString().padLeft(4, '0'),
+      importedAt.month.toString().padLeft(2, '0'),
+      importedAt.day.toString().padLeft(2, '0'),
+    ]) {
+      if (!await root.exists()) {
+        throw FileSystemException(
+          'Managed originals location disconnected during import',
+          managedRoot,
+        );
+      }
+      final child = Directory(p.join(current.path, segment));
+      if (!await child.exists()) {
+        await child.create(recursive: false);
+      }
+      current = child;
+    }
+    return current;
+  }
+
   Future<String> _copyManagedOriginal({
     required File file,
     required String managedRoot,
     required String assetId,
     required DateTime importedAt,
   }) async {
-    final folder = Directory(p.join(
-      managedRoot,
-      'originals',
-      importedAt.year.toString().padLeft(4, '0'),
-      importedAt.month.toString().padLeft(2, '0'),
-      importedAt.day.toString().padLeft(2, '0'),
-    ));
-    await folder.create(recursive: true);
+    final folder = await _managedDayFolder(managedRoot, importedAt);
+    if (!await Directory(managedRoot).exists()) {
+      throw FileSystemException(
+        'Managed originals location disconnected during import',
+        managedRoot,
+      );
+    }
 
     final baseName = '$assetId-${p.basename(file.path)}';
     var destination = p.join(folder.path, baseName);
@@ -479,6 +560,12 @@ class ImportController extends StateNotifier<ImportState> {
     final partial = '$destination.partial';
     await _deleteIfExists(partial);
     try {
+      if (!await Directory(managedRoot).exists()) {
+        throw FileSystemException(
+          'Managed originals location disconnected during import',
+          managedRoot,
+        );
+      }
       final copied = await file.copy(partial);
       await copied.rename(destination);
       return destination;
