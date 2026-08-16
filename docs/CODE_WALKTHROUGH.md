@@ -1,8 +1,8 @@
 # Dextryx Images — Code Walkthrough
 
-Current code orientation for `dexter-cnx/nixin` after **W4-B2 Desktop Catalog Hardening**.
+Current code orientation for `dexter-cnx/nixin` after **W4-B2 Desktop Catalog Hardening**, including the repository CI execution architecture.
 
-Detailed W4 rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`. Physical desktop gates live in `docs/W4_DESKTOP_VALIDATION.md`; execution/evidence steps live in `docs/W4_VALIDATION_RUNBOOK.md`.
+Detailed W4 rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`. Physical desktop gates live in `docs/W4_DESKTOP_VALIDATION.md`; execution/evidence steps live in `docs/W4_VALIDATION_RUNBOOK.md`. CI details live in `docs/CI_ARCHITECTURE.md`.
 
 ## Bootstrap and ownership
 
@@ -155,7 +155,7 @@ StudioController
       -> Rust C ABI
 ```
 
-W4 adds no RAW demosaic/debayer or PixelCraft processing code.
+W4 and CI optimization add no RAW demosaic/debayer or PixelCraft processing code.
 
 ## Tests
 
@@ -202,16 +202,96 @@ make w4-validation-automated
 
 `preflight` records commit/branch, dirty state, OS/toolchain, devices and disk/mount snapshot under `build/w4-validation/<timestamp>/`.
 
-`automated` records the same evidence and runs:
+`automated` records the same evidence and runs Flutter analysis, focused Workplaces browser/import/thumbnail/profile tests, `cargo check` and `cargo test`.
+
+The tooling deliberately does not mark D1-D8 physical gates PASS.
+
+## CI execution architecture
+
+CI has one path classifier and two workflows.
+
+### Central classifier
+
+`tool/ci-detect-changes.sh` receives base/head SHAs and emits domains used by downstream job-level conditions:
 
 ```text
-flutter analyze --fatal-infos
-focused Workplaces browser/import/thumbnail/profile tests
-cargo check
-cargo test
+docs
+flutter
+rust
+ffi
+platform_android / platform_ios / platform_macos / platform_windows / platform_linux
+import_filesystem
+export_engine
+ci
 ```
 
-CI syntax-checks the shell runner with `bash -n`. The tooling deliberately does not mark D1-D8 physical gates PASS.
+CI/build-system changes deliberately broaden all domains. Path classification is not copied into individual platform jobs.
+
+### PR workflow
+
+`.github/workflows/ci.yml` is structured as:
+
+```text
+Detect changes
+    -> Fast CI
+        -> Flutter full tests       (when affected)
+        -> Rust full tests          (when affected)
+        -> Android build            (when affected)
+        -> iOS no-sign build        (when affected)
+        -> macOS build              (when affected)
+        -> Windows build            (when affected)
+        -> Linux build              (when affected)
+             \______________________________/
+                         |
+                         v
+                  PR CI required
+```
+
+All expensive jobs depend on `Fast CI`, so Dart/Rust formatting, static-analysis, Clippy or compile errors fail before macOS/Windows/mobile runners start.
+
+`PR CI required` uses `if: always()` and treats only `success` or intentional `skipped` results as acceptable. The workflow itself is never path-filtered.
+
+### Full merge workflow
+
+`.github/workflows/full-validation.yml` runs without path filtering for merge-queue candidate SHAs or explicit manual full runs:
+
+```text
+Full preflight
+    -> all Flutter tests
+    -> all Rust tests/release native build
+    -> Android release
+    -> iOS release --no-codesign
+    -> macOS release
+    -> Windows release
+    -> Linux release
+         |
+         v
+      Merge gate
+```
+
+`Merge gate` accepts no skipped platform jobs.
+
+### Local equivalent
+
+`Makefile` exposes:
+
+```text
+make format-check
+make analyze
+make test-fast
+make rust-format-check
+make rust-clippy
+make rust-check
+make ci-fast
+make preflight
+make validate
+```
+
+`make preflight` is the recommended before-push command.
+
+## Branch-protection boundary
+
+Repository settings are part of the CI contract but are not stored in source. Protected `main` should require the stable PR aggregate check, require merge queue, and require the full `Merge gate` on merge-group candidates. See `docs/CI_ARCHITECTURE.md` for exact check names and the current GitHub App limitation.
 
 ## W4 execution split
 
@@ -226,9 +306,8 @@ W4-B2 / PR #14 / merged
   raster thumbnail cache hardening
   large-catalog structural/profile gates
 
-CURRENT
-  validation tooling
+PARALLEL OUTSTANDING
   physical D1-D8 removable-volume/UI evidence
 ```
 
-W4 code/review/CI is complete through PR #14. The milestone remains physically **NOT VALIDATED** until D1-D8 are run on a real desktop filesystem or an explicit documented deferral is approved.
+W4 code is complete through PR #14. The milestone remains physically **NOT VALIDATED** until D1-D8 are run on a real desktop filesystem or an explicit documented deferral is approved.
