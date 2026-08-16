@@ -51,9 +51,9 @@ The two Clippy allowances are a named baseline exception, not permission to broa
 
 ## Fast CI
 
-`.github/workflows/ci.yml` runs for PRs to `main` and pushes to `main`. Feature-branch pushes are intentionally not a second CI trigger, avoiding duplicate push + pull-request runs.
+`.github/workflows/ci.yml` runs for PRs to `main`, pushes to `main`, and merge-queue `merge_group` checks. Feature-branch pushes are intentionally not a second CI trigger, avoiding duplicate push + pull-request runs.
 
-The dependency graph begins:
+The dependency graph for a normal PR begins:
 
 ```text
 Detect changes
@@ -65,6 +65,8 @@ Detect changes
 ```
 
 Fast CI always validates repository shell/YAML syntax. Flutter setup/checks run only when Flutter, FFI, import/filesystem or CI paths are affected. Rust setup/checks run only when Rust, FFI, export-engine or CI paths are affected.
+
+On `merge_group`, Fast CI deliberately runs the shared Flutter/Rust/FFI preflight regardless of the affected-domain result so the stable `PR CI required` check is reported for the merge-group SHA. The affected heavy jobs are skipped on `merge_group`; the separate Full validation workflow owns the complete platform matrix there, avoiding duplicated expensive runners.
 
 This guarantees new Dart/Rust formatting, lint and compile failures are detected before platform runners are allowed to start.
 
@@ -123,9 +125,11 @@ Runs Rust tests, FFI-sensitive validation when bridge paths are touched, and con
 
 Whole-workflow `paths:` filtering is intentionally not used, avoiding required-check states that never report because a workflow was skipped.
 
+The same workflow listens for `merge_group` so a repository that requires this check and uses GitHub Merge Queue does not strand the queue waiting for a status that can never report.
+
 ## Full validation
 
-`.github/workflows/full-validation.yml` is deliberately separate from PR feedback CI. It runs on:
+`.github/workflows/full-validation.yml` is deliberately separate from normal PR feedback CI. It runs on:
 
 - GitHub merge queue (`merge_group: checks_requested`), and
 - explicit `workflow_dispatch` for manual full validation.
@@ -145,7 +149,14 @@ This preserves the final cross-platform quality bar while keeping normal PR comm
 
 ## Branch-protection requirement
 
-To make full validation non-bypassable, repository settings must require merge queue for protected `main` merges and require the stable checks appropriate to the repository rule set, including the full merge-queue `Full validation / Merge gate` for merge candidates. `CI / PR CI required` is the stable normal-PR aggregate check.
+To make full validation non-bypassable, protected `main` should require GitHub Merge Queue and both stable aggregate checks:
+
+```text
+CI / PR CI required
+Full validation / Merge gate
+```
+
+Both workflows listen for `merge_group`, so both required checks can report on the merge-group SHA. The CI workflow reports its shared fast gate without duplicating its expensive affected platform jobs; Full validation owns the platform matrix.
 
 The GitHub App used for this change cannot read or modify `main` branch-protection settings, so repository settings must be verified by an administrator after this PR lands. Do not treat the merge-queue full gate as mandatory until that setting is enabled and a merge-queue candidate confirms the configured required checks report correctly.
 
@@ -181,8 +192,12 @@ iOS-only change
 
 CI/workflow change
   Detect -> Fast CI(Flutter+Rust) -> broad affected validation -> PR CI required
+
+Merge-queue candidate
+  CI: Detect -> Fast CI -> affected heavy jobs skipped -> PR CI required
+  Full validation: Full preflight -> all Flutter/Rust/platform jobs -> Merge gate
 ```
 
 ## Merge guarantee
 
-Normal PR CI optimizes feedback. It is not the final cross-platform proof. The final merge candidate must pass `Full validation / Merge gate` through merge queue (or an explicit full run when diagnosing), with branch protection configured and verified as described above.
+Normal PR CI optimizes feedback. It is not the final cross-platform proof. The final merge candidate must pass `Full validation / Merge gate` through merge queue, together with the stable `CI / PR CI required` check, with branch protection configured and verified as described above.
