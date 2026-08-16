@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -44,7 +45,7 @@ class AssetAvailabilityService {
     final items = assets.toList(growable: false);
     final result = <String, bool>{};
     for (var offset = 0; offset < items.length; offset += batchSize) {
-      final end = (offset + batchSize).clamp(0, items.length);
+      final end = math.min(offset + batchSize, items.length);
       final batch = items.sublist(offset, end);
       final existence = await Future.wait(
         batch.map((asset) => _fileSystem.exists(asset.effectivePath)),
