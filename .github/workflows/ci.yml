@@ -108,13 +108,11 @@ jobs:
 
       - name: Rust clippy
         if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
-        working-directory: rust
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: make rust-clippy
 
       - name: Rust compile check
         if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
-        working-directory: rust
-        run: cargo check --locked
+        run: make rust-check
 
       - name: FFI contract smoke
         if: needs.changes.outputs.ffi == 'true' || needs.changes.outputs.ci == 'true'
