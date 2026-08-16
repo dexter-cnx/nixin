@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:easy_localization/easy_localization.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -27,16 +28,14 @@ class WorkplaceBrowser extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _BrowserToolbar(
-            state: state,
-            onSortChanged: controller.setSortOrder,
-          ),
+          _BrowserToolbar(state: state, controller: controller),
           const Divider(height: 1, color: StudioColors.divider),
           Expanded(
             child: _BrowserBody(
               state: state,
               onRetry: controller.refresh,
               onAssetSelected: (asset) {
+                if (asset.missing) return;
                 controller.select(asset.id);
                 onAssetSelected(asset);
               },
@@ -49,10 +48,10 @@ class WorkplaceBrowser extends ConsumerWidget {
 }
 
 class _BrowserToolbar extends StatelessWidget {
-  const _BrowserToolbar({required this.state, required this.onSortChanged});
+  const _BrowserToolbar({required this.state, required this.controller});
 
   final AssetBrowserState state;
-  final ValueChanged<AssetSortOrder> onSortChanged;
+  final AssetBrowserController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +66,37 @@ class _BrowserToolbar extends StatelessWidget {
             '${state.assets.length} ${'workplace.assets'.tr()}',
             style: Theme.of(context).textTheme.labelLarge,
           ),
+          if (state.missingCount > 0) ...[
+            const SizedBox(width: StudioSpacing.sm),
+            Text(
+              'workplace.missing_count'.tr(
+                namedArgs: {'count': '${state.missingCount}'},
+              ),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: StudioColors.error),
+            ),
+          ],
           const Spacer(),
+          IconButton(
+            tooltip: 'workplace.scan_missing'.tr(),
+            onPressed: state.scanningAvailability
+                ? null
+                : () => controller.scanAvailability(),
+            icon: state.scanningAvailability
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync, size: 18),
+          ),
+          if (state.missingCount > 0)
+            IconButton(
+              tooltip: 'workplace.locate_folder'.tr(),
+              onPressed: () => _locateMissingFolder(context, controller),
+              icon: const Icon(Icons.folder_open_outlined, size: 18),
+            ),
           DropdownButtonHideUnderline(
             child: DropdownButton<AssetSortOrder>(
               value: state.sortOrder,
@@ -86,11 +115,30 @@ class _BrowserToolbar extends StatelessWidget {
                 ),
               ],
               onChanged: (value) {
-                if (value != null) onSortChanged(value);
+                if (value != null) controller.setSortOrder(value);
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _locateMissingFolder(
+    BuildContext context,
+    AssetBrowserController controller,
+  ) async {
+    final root = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'workplace.locate_folder'.tr(),
+    );
+    if (root == null) return;
+    final count = await controller.relinkMissingFromFolder(root);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'workplace.relinked_count'.tr(namedArgs: {'count': '$count'}),
+        ),
       ),
     );
   }
@@ -109,9 +157,7 @@ class _BrowserBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (state.loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (state.loading) return const Center(child: CircularProgressIndicator());
     if (state.errorMessage != null) {
       return Center(
         child: Column(
@@ -121,10 +167,7 @@ class _BrowserBody extends StatelessWidget {
             const SizedBox(height: StudioSpacing.sm),
             Text('workplace.browser_error'.tr()),
             const SizedBox(height: StudioSpacing.sm),
-            OutlinedButton(
-              onPressed: onRetry,
-              child: Text('workplace.retry'.tr()),
-            ),
+            OutlinedButton(onPressed: onRetry, child: Text('workplace.retry'.tr())),
           ],
         ),
       );
@@ -140,10 +183,7 @@ class _BrowserBody extends StatelessWidget {
               color: StudioColors.textSecondary,
             ),
             const SizedBox(height: StudioSpacing.sm),
-            Text(
-              'workplace.empty'.tr(),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text('workplace.empty'.tr(), style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: StudioSpacing.xs),
             Text(
               'workplace.empty_body'.tr(),
@@ -188,6 +228,8 @@ class _BrowserBody extends StatelessWidget {
   }
 }
 
+enum _AssetMenuAction { locate, remove }
+
 class _AssetTile extends ConsumerWidget {
   const _AssetTile({
     required this.asset,
@@ -225,15 +267,37 @@ class _AssetTile extends ConsumerWidget {
                   children: [
                     _AssetThumbnail(asset: asset),
                     if (asset.missing)
-                      const Positioned(
-                        right: StudioSpacing.xs,
+                      Positioned(
+                        left: StudioSpacing.xs,
                         top: StudioSpacing.xs,
-                        child: Icon(
-                          Icons.link_off,
-                          size: 18,
-                          color: StudioColors.error,
+                        child: Tooltip(
+                          message: 'workplace.missing'.tr(),
+                          child: const Icon(
+                            Icons.link_off,
+                            size: 18,
+                            color: StudioColors.error,
+                          ),
                         ),
                       ),
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: PopupMenuButton<_AssetMenuAction>(
+                        tooltip: 'workplace.asset_options'.tr(),
+                        onSelected: (action) => _handleAction(context, ref, action),
+                        itemBuilder: (context) => [
+                          if (asset.missing)
+                            PopupMenuItem(
+                              value: _AssetMenuAction.locate,
+                              child: Text('workplace.locate_file'.tr()),
+                            ),
+                          PopupMenuItem(
+                            value: _AssetMenuAction.remove,
+                            child: Text('workplace.remove'.tr()),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -255,6 +319,48 @@ class _AssetTile extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _handleAction(
+    BuildContext context,
+    WidgetRef ref,
+    _AssetMenuAction action,
+  ) async {
+    final controller = ref.read(assetBrowserControllerProvider.notifier);
+    switch (action) {
+      case _AssetMenuAction.locate:
+        final result = await FilePicker.platform.pickFiles(
+          allowMultiple: false,
+          dialogTitle: 'workplace.locate_file'.tr(),
+        );
+        final path = result?.files.single.path;
+        if (path == null) return;
+        final ok = await controller.relinkAsset(asset.id, path);
+        if (!context.mounted || ok) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('workplace.relink_failed'.tr())),
+        );
+      case _AssetMenuAction.remove:
+        final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text('workplace.remove'.tr()),
+                content: Text('workplace.remove_body'.tr()),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text('workplace.remove'.tr()),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (confirmed) await controller.removeFromWorkplace(asset.id);
+    }
   }
 }
 
@@ -279,11 +385,7 @@ class _AssetThumbnail extends ConsumerWidget {
             ),
           );
         }
-        return Image.memory(
-          bytes,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-        );
+        return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
       },
     );
   }
