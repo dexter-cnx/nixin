@@ -13,146 +13,119 @@ Top-level ownership remains:
 ```text
 app/          shell/theme/localization
 engine/       Rust FFI processing boundary
-studio/       Develop/Mask/LUT/Export + Filmstrip
+studio/       Develop/Mask/LUT/Export + Filmstrip + import controls
 workplaces/   catalog/import/browser/recovery state and UI
 ```
 
 Widgets do not access Hive directly.
 
-## Workplace and import core
+## Workplace and catalog core
 
 `WorkplaceController` owns Workplace lifecycle and active Workplace state.
 
-`ImportController` owns file/folder selection, duplicate prevention, linked/managed import, progress/cancellation and `ImportBatch` persistence.
+`AssetBrowserController` remains the active Workplace catalog/selection source shared by Grid and Filmstrip. W4-A added missing-file scanning, relink and catalog-only removal; those semantics remain unchanged in W4-B.
 
-These remain catalog concerns; image-processing behavior is unchanged.
+## ImportController
 
-## Asset model recovery semantics
+`lib/workplaces/application/import_controller.dart` owns file/folder discovery, duplicate prevention, linked/managed storage, progress/cancellation, managed copy commit behavior and `ImportBatch` recovery.
 
-`AssetRecord` remains the stable catalog identity. W4 recovery updates file-location metadata without replacing the record identity.
+The import path remains catalog orchestration only; image processing is not performed here.
 
-Relevant path rule:
+### Managed destination validation
 
-```text
-effectivePath = managedPath ?? sourcePath
-```
-
-Storage-specific relink behavior:
+Managed imports read the remembered managed destination from `ImportPreferences`.
 
 ```text
-linked  -> update sourcePath
-managed -> update managedPath
+remembered destination exists
+  -> use it
+
+remembered destination missing/unmounted
+  -> do NOT recreate it
+  -> ask for a replacement destination
+  -> validate replacement exists
+  -> persist replacement preference
 ```
 
-`missing` is persisted as catalog state so disconnected originals remain represented across browser sessions.
+This avoids accidentally creating an ordinary local directory at a path that normally belongs to a disconnected external volume.
 
-## Asset browser state
+### Managed copy commit protocol
 
-`lib/workplaces/application/asset_browser_controller.dart` owns:
+For each managed source:
 
 ```text
-workplaceId
-ordered assets
-selectedAssetId
-sortOrder
-loading
-scanningAvailability
-errorMessage
+source
+  -> choose collision-free final path
+  -> copy to <final>.partial
+  -> rename partial to final
+  -> write AssetRecord
 ```
 
-It remains the single catalog selection source shared by Workplace Grid and Filmstrip.
+Safety rules:
 
-W4 extends it with:
+- an existing managed destination file is never overwritten;
+- generated asset IDs are checked against catalog persistence;
+- failed copy removes the partial file;
+- cancellation after copy but before catalog commit removes the new managed copy;
+- catalog-save failure removes the newly copied managed original;
+- the source original remains untouched.
 
-- automatic/manual availability scans
-- missing-state persistence
-- single-file relink
-- missing-folder batch relink
-- catalog-only removal
+## ImportBatch recovery model
 
-Load revisions and availability-scan revisions prevent stale async work from overwriting a newer Workplace state.
-
-## Filesystem availability boundary
-
-`lib/workplaces/application/asset_availability_service.dart` introduces:
+`lib/workplaces/domain/import_batch.dart` now persists:
 
 ```text
-AssetFileSystem
-LocalAssetFileSystem
-AssetAvailabilityService
+sourcePaths
+failedPaths
+storageMode
+status
+counts / timestamps / source metadata
 ```
 
-This keeps direct filesystem probing out of Grid tiles and repository widgets.
+A `running` batch is persisted before per-file processing starts. If the app terminates during import, that record retains the candidate source list required for a later retry.
 
-Availability checks run asynchronously in bounded batches of 32 and yield between batches. Only assets whose `missing` state changes are persisted again.
-
-An availability-scan failure does not convert a successfully loaded catalog into a browser error state; the catalog remains usable even when an external volume is unavailable or filesystem probing fails.
-
-## Missing assets and disconnected volumes
-
-If `effectivePath` is unavailable:
+Backward compatibility is retained for older Hive maps:
 
 ```text
-AssetRecord remains in catalog
-missing = true
-Grid/Filmstrip can retain catalog/preview representation
-Develop handoff is blocked for that asset
+missing sourcePaths -> []
+missing failedPaths -> []
+missing storageMode -> linked
 ```
 
-When the path becomes available again, a later scan persists `missing = false`.
+## Retry semantics
 
-This means a disconnected external drive is a recoverable asset-availability condition, not a catalog corruption condition.
+`ImportController.retryBatch(batchId)`:
 
-## Relink behavior
+1. requires the original Workplace to be active;
+2. uses `failedPaths` when the prior batch completed/failed partially;
+3. uses all `sourcePaths` when recovering an interrupted `running` batch;
+4. uses the **original batch storage mode**, not the current UI option;
+5. creates a new import attempt/batch rather than mutating historical results;
+6. relies on existing source-path duplicate detection so already-successful assets are not duplicated.
 
-### Locate Missing File
+The Studio import controls expose failed status plus **Retry failed import** when the current batch is recoverable.
 
-`AssetBrowserController.relinkAsset()` preserves asset identity and updates only the path appropriate to storage mode.
+## Asset availability and relink boundary
 
-The replacement path must exist before the catalog record is updated.
+W4-A introduced `AssetFileSystem` / `AssetAvailabilityService` for asynchronous file availability and folder indexing. No synchronous `File.exists()` calls are made per Grid tile.
 
-### Locate Missing Folder
+Availability scans use revision guards so stale scans cannot resurrect removed assets or undo relinks.
 
-The selected folder is recursively enumerated once and indexed by lowercase filename.
-
-Automatic matching rule:
+Relink remains storage-specific:
 
 ```text
-0 matches  -> unresolved
-1 match    -> relink
-2+ matches -> unresolved; do not guess
+linked  -> sourcePath
+managed -> managedPath
 ```
 
-This avoids both repeated O(asset × folder-scan) traversal and unsafe first-match relinking when two folders contain the same filename.
+Managed folder recovery matches the stored managed filename, not `originalFilename`, because managed copies use an asset-ID-prefixed filename.
 
 ## Catalog-only removal
 
-`removeFromWorkplace(assetId)` calls only `AssetRepository.delete(assetId)` and updates browser selection/list state.
+`removeFromWorkplace(assetId)` deletes only the catalog record and updates browser state. It performs no filesystem delete, move or Trash operation.
 
-It performs no filesystem delete, move or Trash operation. The original file remains untouched for both linked and managed catalog records.
+## Processing boundary
 
-Any future physical-delete feature must be a separate explicit operation and is outside W4-A.
-
-## Workplace browser UI
-
-`lib/workplaces/ui/workplace_browser.dart` exposes W4-A actions:
-
-- missing count
-- availability rescan
-- Locate Missing Folder
-- per-asset Locate Missing File
-- per-asset Remove from Workplace
-- missing indicator
-
-Existing responsive lazy Grid construction and sorting remain unchanged.
-
-## Filmstrip / Develop relationship
-
-Grid and Filmstrip still consume the same ordered assets and `selectedAssetId`.
-
-Missing assets remain visible but are not sent to `StudioController` for Develop.
-
-Processing remains:
+Processing remains unchanged:
 
 ```text
 StudioController
@@ -165,15 +138,25 @@ W4 adds no RAW demosaic/debayer or PixelCraft processing code.
 
 ## Tests
 
-`test/workplaces/asset_browser_controller_test.dart` covers W3 state behavior plus W4-A cases:
+W4-A browser tests cover:
 
-- missing detection persistence
-- availability recovery
-- single-asset relink with stable asset ID
-- batch folder relink with one folder scan
-- ambiguous duplicate-filename safety
-- catalog-only removal while source-file abstraction remains untouched
-- existing Workplace switching/selection/sorting regression behavior
+- missing detection/recovery;
+- relink identity;
+- duplicate filename ambiguity;
+- scan-vs-remove race protection;
+- managed-folder filename recovery;
+- catalog-only removal.
+
+W4-B import tests cover:
+
+- managed copy success;
+- missing remembered managed root replacement without recreating the stale path;
+- destination collision safety;
+- cleanup when catalog save fails;
+- recoverable failed-path persistence;
+- retry without duplicating prior successes;
+- original-Workplace retry requirement;
+- legacy `ImportBatch` map compatibility.
 
 ## Validation
 
@@ -190,18 +173,20 @@ cargo test
 ## W4 execution split
 
 ```text
-W4-A / PR #12
+W4-A / PR #12 / merged
   missing detection
   disconnected-volume behavior
-  Locate Missing File
-  Locate Missing Folder
+  Locate Missing File / Folder
   catalog-only removal
 
-W4-B / next
-  managed destination/copy recovery
+W4-B / current
+  managed destination recovery
+  collision-safe managed copy commit
   import-batch recovery/retry
+
+W4-B / next
   thumbnail/cache hardening
   representative large-catalog profiling
 ```
 
-Do not declare W4 complete at the W4-A merge boundary. W4-B remains required unless explicitly moved to a later documented milestone.
+W4 is not complete until the remaining thumbnail/cache and large-catalog gates are finished or deliberately moved to a documented later milestone.
