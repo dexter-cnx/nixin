@@ -221,8 +221,12 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     final index = await _availabilityService.filesByLowercaseFilename(root);
     var relinked = 0;
     for (final asset in state.assets.where((asset) => asset.missing).toList()) {
-      final match = index[asset.originalFilename.toLowerCase()];
-      if (match != null && await relinkAsset(asset.id, match)) relinked++;
+      final matches = index[asset.originalFilename.toLowerCase()];
+      if (matches != null &&
+          matches.length == 1 &&
+          await relinkAsset(asset.id, matches.single)) {
+        relinked++;
+      }
       await Future<void>.delayed(Duration.zero);
     }
     return relinked;
