@@ -77,11 +77,16 @@ class ImportController extends StateNotifier<ImportState> {
     required ImportPreferences preferences,
     required String? Function() currentWorkplaceId,
     DateTime Function()? now,
+    Future<String?> Function()? pickManagedDestination,
   })  : _assetRepository = assetRepository,
         _importRepository = importRepository,
         _preferences = preferences,
         _currentWorkplaceId = currentWorkplaceId,
         _now = now ?? DateTime.now,
+        _pickManagedDestination = pickManagedDestination ??
+            (() => FilePicker.platform.getDirectoryPath(
+                  dialogTitle: 'Choose managed originals location',
+                )),
         super(ImportState(storageMode: preferences.readStorageMode()));
 
   static const supportedExtensions = <String>{
@@ -98,6 +103,7 @@ class ImportController extends StateNotifier<ImportState> {
   final ImportPreferences _preferences;
   final String? Function() _currentWorkplaceId;
   final DateTime Function() _now;
+  final Future<String?> Function() _pickManagedDestination;
 
   bool _cancelRequested = false;
 
@@ -123,7 +129,8 @@ class ImportController extends StateNotifier<ImportState> {
       type: FileType.custom,
       allowedExtensions: supportedExtensions.toList(growable: false),
     );
-    final paths = result?.files.map((file) => file.path).whereType<String>().toList();
+    final paths =
+        result?.files.map((file) => file.path).whereType<String>().toList();
     if (_cancelRequested) {
       state = state.copyWith(phase: ImportPhase.cancelled);
       return;
@@ -185,6 +192,30 @@ class ImportController extends StateNotifier<ImportState> {
     );
   }
 
+  Future<bool> retryBatch(String batchId) async {
+    if (state.busy) return false;
+    final batch = await _importRepository.getById(batchId);
+    if (batch == null || !batch.canRetry) return false;
+    final workplaceId = _currentWorkplaceId();
+    if (workplaceId != batch.workplaceId) {
+      state = state.copyWith(
+        phase: ImportPhase.failed,
+        errorMessage: 'Switch to the original Workplace before retrying import',
+      );
+      return false;
+    }
+    final paths = batch.failedPaths.isNotEmpty
+        ? batch.failedPaths
+        : batch.sourcePaths;
+    if (paths.isEmpty) return false;
+    await importPaths(
+      paths,
+      sourceType: batch.sourceType,
+      sourceRoot: batch.sourceRoot,
+    );
+    return state.phase == ImportPhase.completed;
+  }
+
   Future<void> importPaths(
     List<String> paths, {
     required ImportSourceType sourceType,
@@ -225,22 +256,42 @@ class ImportController extends StateNotifier<ImportState> {
       return;
     }
     final known = existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
-    String? managedRoot = _preferences.readManagedDestination();
-    if (selectedStorageMode == AssetStorageMode.managed && managedRoot == null) {
-      managedRoot = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Choose managed originals location',
-      );
-      if (_cancelRequested || managedRoot == null) {
+
+    String? managedRoot;
+    if (selectedStorageMode == AssetStorageMode.managed) {
+      managedRoot = await _resolveManagedRoot();
+      if (_cancelRequested) {
         state = state.copyWith(phase: ImportPhase.cancelled);
         return;
       }
-      await _preferences.writeManagedDestination(managedRoot);
+      if (managedRoot == null) {
+        state = state.copyWith(
+          phase: ImportPhase.failed,
+          errorMessage: 'Managed originals location is unavailable',
+        );
+        return;
+      }
     }
+
+    await _importRepository.save(ImportBatch(
+      id: batchId,
+      workplaceId: workplaceId,
+      startedAt: startedAt,
+      sourceType: sourceType,
+      sourceRoot: sourceRoot,
+      requestedCount: candidates.length,
+      importedCount: 0,
+      skippedDuplicateCount: 0,
+      failedCount: 0,
+      status: ImportBatchStatus.running,
+      sourcePaths: candidates,
+    ));
 
     var imported = 0;
     var skipped = 0;
     var failed = 0;
     String? lastImportedPath;
+    final failedPaths = <String>[];
 
     for (var index = 0; index < candidates.length; index++) {
       if (_cancelRequested) break;
@@ -256,12 +307,15 @@ class ImportController extends StateNotifier<ImportState> {
         continue;
       }
 
+      String? newlyCopiedManagedPath;
       try {
         final file = File(source);
         final stat = await file.stat();
-        if (stat.type != FileSystemEntityType.file) throw StateError('Not a file');
+        if (stat.type != FileSystemEntityType.file) {
+          throw StateError('Not a file');
+        }
         final importedAt = _now();
-        final assetId = 'asset-${importedAt.microsecondsSinceEpoch}-$index';
+        final assetId = await _uniqueAssetId(importedAt, index);
         String? managedPath;
 
         if (selectedStorageMode == AssetStorageMode.managed) {
@@ -269,19 +323,21 @@ class ImportController extends StateNotifier<ImportState> {
             phase: ImportPhase.copying,
             currentFile: p.basename(source),
           );
-          final folder = Directory(p.join(
-            managedRoot!,
-            'originals',
-            importedAt.year.toString().padLeft(4, '0'),
-            importedAt.month.toString().padLeft(2, '0'),
-            importedAt.day.toString().padLeft(2, '0'),
-          ));
-          await folder.create(recursive: true);
-          managedPath = p.join(folder.path, '$assetId-${p.basename(source)}');
-          await file.copy(managedPath);
+          managedPath = await _copyManagedOriginal(
+            file: file,
+            managedRoot: managedRoot!,
+            assetId: assetId,
+            importedAt: importedAt,
+          );
+          newlyCopiedManagedPath = managedPath;
         }
 
-        if (_cancelRequested) break;
+        if (_cancelRequested) {
+          if (newlyCopiedManagedPath != null) {
+            await _deleteIfExists(newlyCopiedManagedPath);
+          }
+          break;
+        }
         state = state.copyWith(
           phase: ImportPhase.cataloging,
           currentFile: p.basename(source),
@@ -303,12 +359,20 @@ class ImportController extends StateNotifier<ImportState> {
           modifiedAt: stat.modified,
           importBatchId: batchId,
         );
-        await _assetRepository.save(asset);
+        try {
+          await _assetRepository.save(asset);
+        } catch (_) {
+          if (newlyCopiedManagedPath != null) {
+            await _deleteIfExists(newlyCopiedManagedPath);
+          }
+          rethrow;
+        }
         known.add(canonical);
         imported++;
         lastImportedPath = asset.effectivePath;
       } catch (_) {
         failed++;
+        failedPaths.add(source);
       }
 
       state = state.copyWith(
@@ -334,11 +398,21 @@ class ImportController extends StateNotifier<ImportState> {
       importedCount: imported,
       skippedDuplicateCount: skipped,
       failedCount: failed,
-      status: cancelled ? ImportBatchStatus.cancelled : ImportBatchStatus.completed,
+      status: cancelled
+          ? ImportBatchStatus.cancelled
+          : failed > 0 && imported == 0
+              ? ImportBatchStatus.failed
+              : ImportBatchStatus.completed,
+      sourcePaths: candidates,
+      failedPaths: failedPaths,
     );
     await _importRepository.save(batch);
     state = state.copyWith(
-      phase: cancelled ? ImportPhase.cancelled : ImportPhase.completed,
+      phase: cancelled
+          ? ImportPhase.cancelled
+          : failed > 0 && imported == 0
+              ? ImportPhase.failed
+              : ImportPhase.completed,
       processed: cancelled ? state.processed : candidates.length,
       imported: imported,
       skippedDuplicates: skipped,
@@ -346,7 +420,73 @@ class ImportController extends StateNotifier<ImportState> {
       batch: batch,
       clearCurrentFile: true,
       lastImportedPath: lastImportedPath,
+      errorMessage: failed > 0 && imported == 0 ? 'Import failed' : null,
     );
+  }
+
+  Future<String?> _resolveManagedRoot() async {
+    final remembered = _preferences.readManagedDestination();
+    if (remembered != null && remembered.isNotEmpty) {
+      final normalized = p.normalize(p.absolute(remembered));
+      if (await Directory(normalized).exists()) return normalized;
+    }
+
+    final selected = await _pickManagedDestination();
+    if (selected == null || selected.isEmpty) return null;
+    final normalized = p.normalize(p.absolute(selected));
+    if (!await Directory(normalized).exists()) return null;
+    await _preferences.writeManagedDestination(normalized);
+    return normalized;
+  }
+
+  Future<String> _uniqueAssetId(DateTime importedAt, int index) async {
+    final base = 'asset-${importedAt.microsecondsSinceEpoch}-$index';
+    if (await _assetRepository.getById(base) == null) return base;
+    var suffix = 1;
+    while (await _assetRepository.getById('$base-$suffix') != null) {
+      suffix++;
+    }
+    return '$base-$suffix';
+  }
+
+  Future<String> _copyManagedOriginal({
+    required File file,
+    required String managedRoot,
+    required String assetId,
+    required DateTime importedAt,
+  }) async {
+    final folder = Directory(p.join(
+      managedRoot,
+      'originals',
+      importedAt.year.toString().padLeft(4, '0'),
+      importedAt.month.toString().padLeft(2, '0'),
+      importedAt.day.toString().padLeft(2, '0'),
+    ));
+    await folder.create(recursive: true);
+
+    final baseName = '$assetId-${p.basename(file.path)}';
+    var destination = p.join(folder.path, baseName);
+    var suffix = 1;
+    while (await File(destination).exists()) {
+      destination = p.join(folder.path, '$baseName-$suffix');
+      suffix++;
+    }
+
+    final partial = '$destination.partial';
+    await _deleteIfExists(partial);
+    try {
+      final copied = await file.copy(partial);
+      await copied.rename(destination);
+      return destination;
+    } catch (_) {
+      await _deleteIfExists(partial);
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteIfExists(String path) async {
+    final file = File(path);
+    if (await file.exists()) await file.delete();
   }
 
   static bool isSupported(String path) {
