@@ -1,0 +1,71 @@
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+
+import '../domain/asset_record.dart';
+
+abstract interface class AssetFileSystem {
+  Future<bool> exists(String path);
+  Future<List<String>> filesUnder(String root);
+}
+
+class LocalAssetFileSystem implements AssetFileSystem {
+  const LocalAssetFileSystem();
+
+  @override
+  Future<bool> exists(String path) => File(path).exists();
+
+  @override
+  Future<List<String>> filesUnder(String root) async {
+    final directory = Directory(root);
+    if (!await directory.exists()) return const [];
+    final files = <String>[];
+    await for (final entity in directory.list(recursive: true, followLinks: false)) {
+      if (entity is File) files.add(p.normalize(entity.absolute.path));
+    }
+    return files;
+  }
+}
+
+final assetFileSystemProvider = Provider<AssetFileSystem>((ref) {
+  return const LocalAssetFileSystem();
+});
+
+class AssetAvailabilityService {
+  AssetAvailabilityService(this._fileSystem);
+
+  final AssetFileSystem _fileSystem;
+
+  Future<Map<String, bool>> missingById(
+    Iterable<AssetRecord> assets, {
+    int batchSize = 32,
+  }) async {
+    final items = assets.toList(growable: false);
+    final result = <String, bool>{};
+    for (var offset = 0; offset < items.length; offset += batchSize) {
+      final end = (offset + batchSize).clamp(0, items.length);
+      final batch = items.sublist(offset, end);
+      final existence = await Future.wait(
+        batch.map((asset) => _fileSystem.exists(asset.effectivePath)),
+      );
+      for (var index = 0; index < batch.length; index++) {
+        result[batch[index].id] = !existence[index];
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+    return result;
+  }
+
+  Future<String?> findByFilename(String root, String filename) async {
+    final target = filename.toLowerCase();
+    for (final path in await _fileSystem.filesUnder(root)) {
+      if (p.basename(path).toLowerCase() == target) return path;
+    }
+    return null;
+  }
+}
+
+final assetAvailabilityServiceProvider = Provider<AssetAvailabilityService>((ref) {
+  return AssetAvailabilityService(ref.watch(assetFileSystemProvider));
+});
