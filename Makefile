@@ -22,6 +22,7 @@ SETUP_SCRIPT := tool/setup-project.sh
 APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
 CONFIGURE_IDS_SCRIPT := tool/configure-identifiers.sh
 W4_VALIDATION_SCRIPT := tool/w4-desktop-validation.sh
+CI_FORMAT_SCRIPT := tool/ci-format-check.sh
 DEVICE ?=
 
 .PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
@@ -88,8 +89,8 @@ setup-apple: ## Configure signing and install/check macOS+iOS Rust/Xcode tools
 pub-get: ## Run flutter pub get
 	$(FLUTTER) pub get
 
-format-check: ## Check Dart formatting without modifying files
-	@paths="lib test"; if [ -d integration_test ]; then paths="$$paths integration_test"; fi; dart format --output=none --set-exit-if-changed $$paths
+format-check: ## Check formatting of Dart files changed from the local main baseline
+	@bash $(CI_FORMAT_SCRIPT)
 
 analyze: ## Run Flutter static analysis
 	$(FLUTTER) analyze --fatal-infos
