@@ -2,8 +2,6 @@
 
 **Dextryx Images** (`Dxtr Imgs`) is a Flutter + Rust desktop-first photo catalog and image workflow application.
 
-The current development focus is **Workplaces and asset/catalog management**: importing images and RAW files, organizing them into durable logical catalogs, browsing/selecting assets, and preserving compatibility with the existing preview/Develop workflow.
-
 Repository: `dexter-cnx/nixin`
 
 Application/bundle ID:
@@ -12,47 +10,66 @@ Application/bundle ID:
 com.cnxdev.dextryx.images
 ```
 
-## Current status
+## Current direction
 
-Completed:
+The active product phase is **Workplaces and asset/catalog management**. The goal is to build a durable catalog around the existing Studio/preview pipeline before any new RAW-processing work.
+
+The roadmap is:
+
+```text
+DONE     W1 Workplace Core foundation
+CURRENT  W2 Import System + live application wiring
+NEXT     W3 Workplace Browser + Filmstrip
+THEN     W4 Desktop Catalog Hardening
+FUTURE   PixelCraft external-editor contract
+```
+
+See `docs/PROJECT_HANDOFF.md` for the canonical execution queue and `docs/WORKPLACES_HANDOFF.md` for the detailed catalog/import design.
+
+## What is implemented today
+
+Existing Studio/Rust capabilities remain available:
 
 - responsive Studio workspace UI-01 through UI-15
 - Flutter ↔ Rust FFI image boundary
 - embedded JPEG preview extraction for supported RAW containers
 - raster preview support
-- exposure / temperature / contrast processing already present in the Rust core
+- exposure / temperature / contrast processing
 - heuristic Subject Mask and Sky Mask
 - `.cube` LUT application
 - JPEG export
-- Riverpod application/controller boundaries
+- Riverpod Studio controller/state boundaries
 - Hive-backed Studio preferences
 - English/Thai localization
-- **W1 Workplace Core**
-  - `Workplace` model
-  - `AssetRecord` catalog model
-  - repository interfaces
-  - Hive-backed Workplace/Asset persistence
-  - automatic `My workplace`
-  - current Workplace restoration
-  - create / switch / rename / delete behavior
-  - last-Workplace invariant
 
-Current milestone:
+W1 added the **Workplace Core foundation** under `lib/workplaces/`:
 
-```text
-W2 Import System
-```
+- `Workplace` domain model
+- `AssetRecord` catalog model
+- `WorkplaceRepository` and `AssetRepository`
+- Hive-backed Workplace/Asset persistence
+- `WorkplaceController` and `WorkplaceState`
+- controller logic for default `My workplace`
+- current Workplace persistence/restoration logic
+- create / switch / rename / delete commands
+- invariant that at least one Workplace remains
+- catalog-only deletion semantics
 
-Next:
+### Important current wiring state
 
-```text
-W3 Workplace Browser + Filmstrip
-W4 Desktop Catalog Hardening
-```
+W1's Workplace foundation is implemented and tested, but it is **not yet wired into the live application UI**.
 
-See `docs/PROJECT_HANDOFF.md` for the canonical execution queue.
+`NixinApp` still opens `StudioPage`, and the live Studio tree does not yet watch `workplaceControllerProvider`. Because Riverpod providers are lazy, `WorkplaceController.initialize()` is not invoked merely by opening the app today.
 
-## Product scope
+Therefore these are currently **controller/domain capabilities**, not yet end-user behavior:
+
+- automatic creation of `My workplace` on a real fresh app launch
+- visible Workplace switching/creation/rename/delete UI
+- active Workplace driving the current Studio selection
+
+Closing this application-wiring gap is the first part of W2.
+
+## Product responsibility
 
 Dextryx Images owns image/catalog management:
 
@@ -70,124 +87,100 @@ large-library UX
 external-edit orchestration
 ```
 
-A **Workplace** is a logical catalog/container. It is not required to map 1:1 to a physical folder.
+A **Workplace** is a logical catalog/container, not a physical folder alias.
 
-The initial catalog is created automatically as:
-
-```text
-My workplace
-```
-
-## Product boundary with PixelCraft
-
-Dextryx Images is the catalog/management side of the workflow.
-
-PixelCraft / Dextryx Pixels owns photo-editing and image-processing semantics such as editor sessions, adjustments, transforms, GPU preview/render work, and processing authority.
-
-Do not move PixelCraft roadmap or UX milestones into this repository. Stable reusable PixelCraft packages may be integrated later only through explicit module/package boundaries.
-
-A future **Open/Edit in PixelCraft** workflow is a separate cross-product integration milestone.
+PixelCraft / Dextryx Pixels owns photo-editing and image-processing semantics. Do not copy PixelCraft UX or processing milestones into this repository. Future Open/Edit in PixelCraft integration is a separate cross-product contract.
 
 ## Current architecture
 
 ```text
-Flutter UI
-   │
-   ├─ Workplaces
-   │    ├─ WorkplaceController
-   │    ├─ WorkplaceRepository
-   │    ├─ AssetRepository
-   │    └─ Hive persistence
-   │
-   └─ Studio compatibility layer
-        ├─ StudioController
-        ├─ StudioEngine
-        └─ RawEngine / Dart FFI
-                   │
-                   ▼
-               Rust core
-```
+main.dart
+  ├─ localization
+  ├─ Hive init
+  │    ├─ studio_settings
+  │    ├─ workplaces
+  │    └─ assets
+  └─ ProviderScope
+       └─ NixinApp
+            └─ StudioPage        ← current live root
 
-Top-level Flutter structure:
-
-```text
-lib/
-  main.dart
-  app/
-  engine/
-  studio/
-  workplaces/
-```
-
-`main.dart` initializes localization, Riverpod, and these Hive boxes:
-
-```text
-studio_settings
-workplaces
-assets
-```
-
-Widgets should not call native FFI or Hive directly. Processing and persistence flow through explicit controller/repository boundaries.
-
-For code orientation, see `docs/CODE_WALKTHROUGH.md`.
-
-## Workplaces
-
-Current W1 implementation lives under:
-
-```text
 lib/workplaces/
-  application/
-    workplace_controller.dart
-  data/hive/
-    hive_workplace_repository.dart
-    hive_asset_repository.dart
-  domain/
-    workplace.dart
-    asset_record.dart
-    repositories/
-      workplace_repository.dart
-      asset_repository.dart
+  ├─ domain/
+  ├─ data/hive/
+  └─ application/
+       └─ WorkplaceController    ← implemented, not yet consumed by live UI
 ```
 
-Current behavior:
+The processing path remains:
 
-- first launch creates `My workplace`
-- at least one Workplace always remains
-- active Workplace survives restart
-- Workplaces can be created, switched, renamed, and deleted
-- deleting catalog state does not imply deleting original image files
+```text
+Studio UI
+  → StudioController
+    → StudioEngine
+      → RawEngine / Dart FFI
+        → Rust core
+```
 
-## Current milestone — W2 Import System
+Widgets should not call native FFI or Hive directly.
 
-The next implementation phase replaces the legacy single-file Open Image/Open RAW entry path with a catalog-aware import pipeline.
+## W2 — Import System + application wiring
 
-Planned W2 scope:
+W2 starts by making Workplace state part of the live application, then adds the durable import pipeline defined in `docs/WORKPLACES_HANDOFF.md`.
 
-- Import command
-- multi-select images/RAW files
-- folder import
-- recursive folder discovery
+Planned scope:
+
+- wire `workplaceControllerProvider` into the live app/workspace
+- ensure a real fresh launch initializes `My workplace`
+- expose current Workplace context in application UI/state
+- preserve current Studio behavior while catalog state becomes authoritative
+- Import command replacing the legacy single-file entry path
+- multi-select image/RAW import
+- folder import and recursive discovery
 - supported-format filtering
 - `ImportBatch`
-- asynchronous progress
-- cancellation
+- asynchronous progress and cancellation
 - duplicate detection
-- linked/add storage mode
-- desktop managed/copy storage mode
+- linked/add mode
+- desktop managed/copy mode
 - managed destination preference
 - safe partial-failure behavior
-- persistence into the active Workplace
+- imported assets persisted to the active Workplace
 
-Detailed specification: `docs/WORKPLACES_HANDOFF.md`.
+Acceptance includes proving the Workplace foundation is reachable through the real application, not only through controller tests.
+
+## W3 — Workplace Browser + Filmstrip
+
+Planned scope:
+
+- Workplace asset grid
+- thumbnail/preview provider boundary
+- thumbnail cache foundation
+- lazy/virtualized browser
+- one ordered asset source of truth
+- one selected-asset source of truth
+- Grid ↔ Filmstrip synchronization
+- imported assets automatically reflected in Filmstrip
+- basic sorting and missing-asset indicator foundation
+
+## W4 — Desktop Catalog Hardening
+
+Planned scope:
+
+- missing-file detection
+- Locate Missing File / Folder
+- disconnected external-storage behavior
+- managed-storage recovery
+- import/copy failure recovery
+- catalog-only removal semantics
+- large-catalog profiling and performance hardening
+
+Catalog removal and physical deletion must remain separate operations.
 
 ## RAW support today
 
 Dextryx Images is **not yet a full sensor RAW developer**.
 
-Supported RAW containers currently use an embedded JPEG preview when the scanner can locate one and the Rust `image` crate can decode it.
-
-Picker/container coverage currently includes:
+Supported RAW containers currently rely on embedded JPEG previews when available. Current picker/container coverage includes:
 
 ```text
 ARW
@@ -199,22 +192,7 @@ RAF
 ORF
 ```
 
-Real sensor decode, demosaic/debayer, linear RAW processing, camera color matrices/profiles, and a complete RAW color pipeline are explicitly deferred while Workplaces/catalog work is being built.
-
-## Existing processing compatibility
-
-The current Rust/Studio path already provides:
-
-- exposure
-- simple temperature RGB scaling
-- contrast
-- heuristic Subject Mask
-- heuristic Sky Mask
-- `.cube` 3D LUT with trilinear interpolation
-- JPEG export with quality control
-- basic XMP sidecar API support
-
-These existing capabilities are regression gates during W2–W4; this phase does not expand image-processing scope.
+Real sensor decode, demosaic/debayer, linear RAW processing, camera color matrices/profiles, and a complete RAW color pipeline are explicitly deferred during W2–W4.
 
 ## Setup
 
@@ -231,18 +209,7 @@ Bootstrap:
 make setup
 ```
 
-Useful targets:
-
-```bash
-make setup-common
-make setup-android
-make setup-apple
-make bootstrap
-```
-
-## Validation
-
-Full local gate:
+Validation:
 
 ```bash
 make validate
@@ -260,95 +227,40 @@ cargo check
 cargo test
 ```
 
-For Workplaces changes, manually verify at minimum:
+## Platform native builds
 
-- application launch
-- English/Thai initialization
-- `My workplace` creation/restoration
-- create/switch/rename/delete Workplace
-- existing embedded RAW preview
-- PNG/JPEG preview
-- Develop
-- Subject Mask
-- Sky Mask
-- LUT
-- JPEG export
-
-## Android
+Android:
 
 ```bash
 make android-arm64
 make run-android DEVICE=<flutter-device-id>
 ```
 
-Native output:
-
-```text
-android/app/src/main/jniLibs/arm64-v8a/libraw_engine.so
-```
-
-## macOS
+macOS:
 
 ```bash
 make macos-native
 make run-macos
 ```
 
-Native output:
-
-```text
-macos/Native/libraw_engine.a
-```
-
-Apple platforms link the Rust `staticlib` and resolve C ABI symbols through `DynamicLibrary.process()`.
-
-## iOS
+iOS:
 
 ```bash
 make ios-native
 make ios-build-nosign
-flutter devices
 make run-ios DEVICE=<flutter-device-id>
 ```
 
-Generated native archives:
-
-```text
-ios/Native/device/libraw_engine.a
-ios/Native/simulator/libraw_engine.a
-```
-
-The Makefile intentionally does not hard-code a personal device identifier.
-
-## FFI ownership rules
-
-- Dart `toNativeUtf8()` allocations are freed with `calloc.free()` in Dart after the Rust call.
-- Rust `CString::into_raw()` results are freed only through `free_string_rust()`.
-- Rust `ImageBuffer` results are copied into Dart-owned bytes before `free_image_buffer()`.
-- Dart validates RGBA buffer length against `width * height * 4`.
-- native image-returning FFI failures are exposed through the existing error boundary.
+The Makefile does not hard-code a personal device identifier.
 
 ## Documentation
 
-Current source-of-truth documents:
-
 ```text
-docs/PROJECT_HANDOFF.md       current status and execution queue
-docs/WORKPLACES_HANDOFF.md    detailed catalog/import design
-docs/CODE_WALKTHROUGH.md      current code orientation
+docs/PROJECT_HANDOFF.md       canonical current status and execution queue
+docs/WORKPLACES_HANDOFF.md    detailed Workplaces/import/catalog specification
+docs/CODE_WALKTHROUGH.md      current code orientation and wiring state
 docs/DEXTRYX_IDENTITY.md      naming and identifiers
-```
-
-Historical milestone documents such as `docs/STUDIO_WORKSPACE_HANDOFF.md` remain useful for implementation history, but they are not the current roadmap.
-
-## Roadmap
-
-```text
-DONE     W1 Workplace Core
-CURRENT  W2 Import System
-NEXT     W3 Workplace Browser + Filmstrip
-THEN     W4 Desktop Catalog Hardening
-FUTURE   PixelCraft external-editor contract
+docs/STUDIO_WORKSPACE_HANDOFF.md  completed Studio milestone history
 ```
 
 During W2–W4, do not start real RAW demosaic/debayer work and do not mix unrelated PixelCraft milestones into the Dextryx Images roadmap.
