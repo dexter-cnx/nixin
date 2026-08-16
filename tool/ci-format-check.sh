@@ -15,19 +15,17 @@ if [[ -z "$BASE_SHA" ]]; then
   fi
 fi
 
-mapfile -t committed < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.dart' | sort -u)
-mapfile -t unstaged < <(git diff --name-only --diff-filter=ACMR -- '*.dart' | sort -u)
-mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR -- '*.dart' | sort -u)
+changed_files="$({
+  git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.dart'
+  git diff --name-only --diff-filter=ACMR -- '*.dart'
+  git diff --cached --name-only --diff-filter=ACMR -- '*.dart'
+} | sort -u)"
 
 files=()
-declare -A seen=()
-for file in "${committed[@]}" "${unstaged[@]}" "${staged[@]}"; do
+while IFS= read -r file; do
   [[ -z "$file" || ! -f "$file" ]] && continue
-  if [[ -z "${seen[$file]:-}" ]]; then
-    seen[$file]=1
-    files+=("$file")
-  fi
-done
+  files+=("$file")
+done <<<"$changed_files"
 
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "No changed Dart files to format-check."
