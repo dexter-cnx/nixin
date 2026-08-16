@@ -1,6 +1,6 @@
 {
   "app_name": "Dextryx",
-  "module": {"library": "คลังภาพ", "develop": "ปรับแต่ง", "export": "ส่งออก"},
+  "module": {"library": "Workplaces", "develop": "ปรับแต่ง", "export": "ส่งออก"},
   "panel": {"navigator": "ตัวนำทาง", "presets": "พรีเซ็ต", "tools": "เครื่องมือ", "light": "แสง", "color": "สี", "export": "ส่งออก"},
   "action": {"open_raw": "เปิดภาพ", "develop": "ประมวลผลภาพ", "subject_mask": "มาสก์วัตถุ", "sky_mask": "มาสก์ท้องฟ้า", "apply_lut": "ใช้ .cube LUT", "reset_adjustments": "รีเซ็ตการปรับแต่ง", "export_jpeg": "ส่งออก JPEG"},
   "adjustment": {"exposure": "การรับแสง", "contrast": "คอนทราสต์", "temperature": "อุณหภูมิสี"},
@@ -8,5 +8,6 @@
   "filmstrip": {"title": "แถบภาพ", "empty": "เปิดไฟล์ RAW หรือไฟล์ภาพเพื่อเพิ่มเข้าแถบภาพปัจจุบัน", "show": "แสดงแถบภาพ", "hide": "ซ่อนแถบภาพ"},
   "status": {"ready": "พร้อม", "engine_unavailable": "Engine ใช้งานไม่ได้", "selected": "เลือกแล้ว", "exported": "ส่งออกแล้ว"},
   "settings": {"jpeg_quality": "คุณภาพ JPEG"},
-  "label": {"no_file": "ไม่มีไฟล์", "image": "ภาพ", "engine": "Engine"}
+  "label": {"no_file": "ไม่มีไฟล์", "image": "ภาพ", "engine": "Engine"},
+  "workplace": {"title": "Workplaces", "default_name": "My workplace", "create": "สร้าง Workplace", "rename": "เปลี่ยนชื่อ Workplace", "delete": "ลบ Workplace", "cannot_delete_last": "ต้องมี Workplace อย่างน้อยหนึ่งรายการ"}
 }

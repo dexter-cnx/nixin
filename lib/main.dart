@@ -9,7 +9,11 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
   await Hive.initFlutter();
-  await Hive.openBox<dynamic>('studio_settings');
+  await Future.wait([
+    Hive.openBox<dynamic>('studio_settings'),
+    Hive.openBox<dynamic>('workplaces'),
+    Hive.openBox<dynamic>('assets'),
+  ]);
 
   runApp(
     ProviderScope(

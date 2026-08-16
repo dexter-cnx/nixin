@@ -11,7 +11,7 @@ class NixinApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Nixin Studio V8',
+      title: 'Dextryx Images',
       theme: StudioTheme.dark,
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,
