@@ -114,10 +114,10 @@ validate: pub-get rust-check rust-test analyze flutter-test ## Full local valida
 	@echo "Nixin validation PASS"
 
 w4-validation-preflight: ## Record host/toolchain evidence before W4 physical desktop validation
-	@bash $(W4_VALIDATION_SCRIPT) preflight
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(W4_VALIDATION_SCRIPT) preflight
 
 w4-validation-automated: ## Run focused W4 automated gates and capture evidence
-	@bash $(W4_VALIDATION_SCRIPT) automated
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(W4_VALIDATION_SCRIPT) automated
 
 android-arm64: configure-identifiers ## Build raw-engine .so for Android arm64-v8a
 	@command -v cargo-ndk >/dev/null 2>&1 || { echo "ERROR: cargo-ndk is required. Run: make setup-android"; exit 1; }
