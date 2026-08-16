@@ -11,48 +11,32 @@
 - Studio workspace UI-01 through UI-15: complete
 - **PR #7 / W1 Workplace Core: merged**
 - PR #7 merge commit: `befae8ea3976d5d6191df13e59578f80c7ac955f`
-- Current implementation branch: `feature/workplaces-import-ux`
-- Current milestone: **UX-01 / W2A — Import Simplification**
+- Current milestone: **W2 — Import System**
 - Real RAW demosaic/debayer remains deferred.
 
-## Product boundary
+## Product responsibility
 
-### Nixin / Dextryx Images
+Dextryx Images is currently the **image/catalog management application**.
 
-Primary responsibility: **image management / catalog / Workplaces**.
-
-Nixin owns:
+It owns:
 
 ```text
 Workplaces
 asset catalog identity
-import / folder discovery
+import and folder discovery
 linked vs managed storage
 asset organization
 thumbnail/preview browsing
-grid / filmstrip selection
-missing / relink workflows
+grid and filmstrip selection
+missing/relink workflows
 catalog metadata
 large-library UX
 external-edit orchestration
 ```
 
-### PixelCraft / Dextryx Pixels
+Image-processing/editor work belongs to PixelCraft / Dextryx Pixels. Do not copy PixelCraft UX or processing milestones into this repository.
 
-Primary responsibility: **photo editing / image processing**.
-
-PixelCraft owns:
-
-```text
-edit-session UX
-image-processing semantics
-adjustments / masks / transforms
-GPU preview
-render / export
-recipe/history/checkpoint authority
-```
-
-Nixin may reuse stable PixelCraft packages/modules only through explicit reusable boundaries. Do not couple Nixin to PixelCraft app internals or copy PixelCraft's roadmap into this repository.
+Stable PixelCraft packages/modules may be reused only through explicit reusable boundaries. Do not couple Dextryx Images to PixelCraft application state or UI internals.
 
 Future full **Open/Edit in PixelCraft** integration is a separate cross-product contract and is not part of the current Workplaces phase.
 
@@ -62,12 +46,12 @@ Future full **Open/Edit in PixelCraft** integration is a separate cross-product 
 |---|---|
 | `docs/PROJECT_HANDOFF.md` | Current status and execution queue |
 | `docs/WORKPLACES_HANDOFF.md` | Detailed Workplaces/import/catalog specification |
+| `docs/CODE_WALKTHROUGH.md` | Current code orientation and ownership boundaries |
 | `docs/DEXTRYX_IDENTITY.md` | Product naming and identifier rules |
 | `docs/DEXTRYX_IMAGES_HANDOFF.md` | Identity migration record |
 | `docs/STUDIO_WORKSPACE_HANDOFF.md` | Completed studio milestone history |
-| `docs/CODE_WALKTHROUGH.md` | Code orientation/reference |
 
-Keep unrelated repository/package roadmaps out of this handoff.
+`PROJECT_HANDOFF.md` is the source of truth for what to do next. Supporting documents may describe completed history or detailed design, but must not introduce a competing current roadmap.
 
 ## Completed — W1 Workplace Core / PR #7
 
@@ -83,16 +67,17 @@ Delivered:
 
 - `Workplace` domain model
 - `AssetRecord` catalog model
-- repository contracts
-- Hive-backed Workplace/Asset persistence
+- repository interfaces
+- Hive-backed Workplace persistence
+- Hive-backed Asset persistence
 - automatic `My workplace`
-- active Workplace persistence/restoration
+- current Workplace persistence/restoration
 - create / switch / rename / delete behavior
-- last-Workplace invariant
-- catalog-only removal semantics
-- Library → Workplaces terminology
-- final Dextryx Images identity migration
-- Nixin ↔ PixelCraft ownership boundary
+- invariant that at least one Workplace must remain
+- catalog-only asset removal when a Workplace is deleted
+- user-facing Library → Workplaces terminology
+- Dextryx Images identity migration
+- explicit Dextryx Images ↔ PixelCraft ownership boundary
 
 Validation at merge:
 
@@ -103,68 +88,46 @@ cargo check      PASS
 cargo test       PASS
 ```
 
-## Current — UX-01 / W2A Import Simplification
+## Current — W2 Import System
 
-Branch:
-
-```text
-feature/workplaces-import-ux
-```
-
-Goal: replace the current test-app-style asset-entry flow with one obvious modern Import action.
-
-Implement:
-
-- primary action is **Import**
-- normal Import opens multi-select image/file picker directly
-- folder import becomes a secondary action/menu
-- desktop copy/reference choice is an option, not three peer actions
-- remember previous/default storage behavior
-- modern empty Workplace state
-- desktop drag/drop affordance
-- unobtrusive progress/status presentation
-- no success modal after normal completion
-- preserve W1 persistence and current Develop compatibility
-
-UX rule:
-
-> Ask what the user wants to import, not how the internal storage implementation works.
-
-Acceptance:
-
-- common photo import has one obvious primary action
-- secondary import modes remain discoverable
-- no three-choice blocking dialog on the normal path
-- W1 Workplace persistence remains intact
-- current image-processing behavior does not regress
-- no new image-processing scope is introduced
-- `flutter analyze` and `flutter test` pass
-
-## Next — W2B Import Pipeline + Review
-
-Recommended branch after W2A merges:
+Recommended implementation branch:
 
 ```text
-feature/workplaces-import-pipeline
+feature/workplaces-import
 ```
 
-Implement from `docs/WORKPLACES_HANDOFF.md`:
+Goal: replace the legacy single-file Open Image/Open RAW entry path with a durable catalog import system defined by `docs/WORKPLACES_HANDOFF.md`.
 
-- multi-file import pipeline
-- folder import / recursive discovery
-- supported-format filtering
+Scope:
+
+- `Import` becomes the catalog entry command
+- Select Images with multi-select
+- Select Folder
+- recursive folder discovery
+- supported raster/RAW filtering
 - `ImportBatch`
-- async progress and cancellation
-- duplicate detection
+- asynchronous scanning/import progress
+- cancellation
+- baseline duplicate detection
 - linked/add mode
 - desktop managed/copy mode
 - managed destination preference
-- safe partial-failure semantics
-- compact Import Review only when useful
+- safe partial-failure behavior
+- imported assets persist in the active Workplace
+- preserve existing preview/Develop compatibility
 
-Acceptance target: 100+ supported mixed assets import without freezing the UI and persist correctly across restart.
+Acceptance:
 
-## Then — W3 Workplace Browser + Filmstrip
+- 100+ mixed supported assets can be imported without blocking the UI
+- imported catalog records survive restart
+- duplicate prevention blocks obvious repeat catalog entries by default
+- linked mode never copies originals
+- managed mode copies originals to the configured desktop destination
+- failed or cancelled imports leave a consistent catalog
+- current embedded RAW preview, raster preview, masks, LUT, and JPEG export do not regress
+- `flutter analyze`, `flutter test`, `cargo check`, and `cargo test` pass
+
+## Next — W3 Workplace Browser + Filmstrip
 
 Recommended branch:
 
@@ -172,18 +135,27 @@ Recommended branch:
 feature/workplaces-browser
 ```
 
-Implement:
+Scope:
 
 - Workplace asset grid
 - empty/loading/error states
 - thumbnail/preview provider boundary
 - thumbnail cache foundation
+- current Workplace asset query
 - lazy/virtualized grid
+- one ordered asset source of truth
 - one selected-asset source of truth
 - Grid ↔ Filmstrip synchronization
-- automatic filmstrip updates after import
+- automatic Filmstrip updates after import
 - basic sorting
 - missing-asset indicator foundation
+
+Acceptance:
+
+- imported assets are visible in the Workplace Grid
+- Grid and Filmstrip consume the same ordered asset collection
+- Grid, Filmstrip, and Develop stay synchronized on selection
+- large batches remain responsive
 
 ## Then — W4 Desktop Catalog Hardening
 
@@ -193,18 +165,21 @@ Recommended branch:
 feature/workplaces-hardening
 ```
 
-Implement:
+Scope:
 
 - missing-file detection
-- relink file/folder workflows
+- Locate Missing File
+- Locate Missing Folder / batch relink
 - disconnected external-storage behavior
 - managed-storage recovery
+- copy collision/failure recovery
 - import-batch recovery
 - catalog-only removal semantics
-- large-catalog profiling
-- keyboard/context-menu polish
+- explicit original-deletion path only if intentionally enabled later
+- large-catalog profiling and performance hardening
+- desktop keyboard/context-menu polish where useful
 
-Catalog removal and physical deletion must remain separate actions.
+Catalog removal and physical deletion must remain separate operations.
 
 ## Future — PixelCraft external-editor integration
 
@@ -224,35 +199,34 @@ derivative ownership
 catalog refresh after return
 ```
 
-Nixin remains catalog authority; PixelCraft remains editing/processing authority.
+Dextryx Images remains catalog authority; PixelCraft remains editing/processing authority.
 
 ## Guardrails
 
 1. Do not start real RAW demosaic/debayer during W2–W4.
-2. Do not move PixelCraft's processing roadmap into Nixin.
+2. Do not move PixelCraft UX modernization or processing roadmap into this repository.
 3. Reuse PixelCraft code only through stable reusable package/module APIs.
-4. Do not couple Nixin to PixelCraft application state or UI internals.
+4. Do not couple Dextryx Images to PixelCraft application state or UI internals.
 5. Preserve current Develop/Mask/LUT/Export behavior as a regression gate.
 6. Workplaces are logical catalogs, not aliases for physical folders.
 7. Catalog removal must never silently delete originals.
-8. Import must remain responsive and cancellable when the durable pipeline lands.
+8. Import must remain asynchronous, responsive, and cancellable.
 9. Grid and Filmstrip must eventually share one ordered asset source and one selected-asset truth.
-10. Keep unrelated project artifacts out of this repository.
+10. Keep unrelated project artifacts and roadmaps out of this repository.
 
 ## Immediate execution order
 
 ```text
-CURRENT  UX-01 / W2A Import Simplification
-NEXT     W2B Import Pipeline + Review
-THEN     W3 Workplace Browser + Filmstrip
+CURRENT  W2 Import System
+NEXT     W3 Workplace Browser + Filmstrip
 THEN     W4 Desktop Catalog Hardening
 FUTURE   PixelCraft external-editor contract
 ```
 
 At every merged PR:
 
-1. update this file with merge PR/commit;
+1. update this file with the merged PR number and commit;
 2. mark exactly one next milestone as Current;
-3. create the next branch from updated `main`;
-4. keep supporting specs detailed but avoid competing top-level handoffs;
-5. re-check that no unrelated project roadmap or artifact has been mixed into Nixin.
+3. create the next implementation branch from updated `main`;
+4. keep detailed specifications in supporting docs without creating a competing roadmap;
+5. verify that unrelated PixelCraft milestones have not leaked into this project.
