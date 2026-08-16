@@ -39,9 +39,8 @@ jobs:
       - name: Dart format (candidate delta)
         run: bash tool/ci-format-check.sh
       - run: flutter analyze --fatal-infos
-      - name: Rust format
-        working-directory: rust
-        run: cargo fmt --all -- --check
+      - name: Rust format (candidate delta)
+        run: bash tool/ci-rust-format-check.sh
       - name: Rust clippy
         working-directory: rust
         run: cargo clippy --locked --all-targets -- -D warnings
