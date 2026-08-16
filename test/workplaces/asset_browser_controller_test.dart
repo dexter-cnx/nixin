@@ -48,6 +48,36 @@ void main() {
     expect(controller.state.assets.single.id, 'b');
   });
 
+  test('failed Workplace switch cannot retain previous assets', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+    ], failWorkplaceIds: {'w2'});
+    final controller = AssetBrowserController(assetRepository: repo);
+    await controller.load('w1');
+    controller.select('a');
+
+    await controller.load('w2');
+
+    expect(controller.state.workplaceId, 'w2');
+    expect(controller.state.assets, isEmpty);
+    expect(controller.state.selectedAssetId, isNull);
+    expect(controller.state.errorMessage, isNotNull);
+  });
+
+  test('selects imported asset by effective path after refresh', () async {
+    final repo = _MemoryAssetRepository([
+      _asset('a', 'w1', 'a.jpg', DateTime.utc(2026, 8, 16, 1)),
+      _asset('b', 'w1', 'b.jpg', DateTime.utc(2026, 8, 16, 2)),
+    ]);
+    final controller = AssetBrowserController(assetRepository: repo);
+    await controller.load('w1');
+
+    expect(controller.selectByEffectivePath('/tmp/b.jpg'), isTrue);
+    expect(controller.state.selectedAssetId, 'b');
+    expect(controller.selectByEffectivePath('/tmp/missing.jpg'), isFalse);
+    expect(controller.state.selectedAssetId, 'b');
+  });
+
   test('supports recent-first and filename sorting', () async {
     final repo = _MemoryAssetRepository([
       _asset('a', 'w1', 'Zulu.jpg', DateTime.utc(2026, 8, 16, 1)),
@@ -85,10 +115,14 @@ AssetRecord _asset(
 }
 
 class _MemoryAssetRepository implements AssetRepository {
-  _MemoryAssetRepository(Iterable<AssetRecord> assets)
-      : _assets = {for (final asset in assets) asset.id: asset};
+  _MemoryAssetRepository(
+    Iterable<AssetRecord> assets, {
+    Set<String> failWorkplaceIds = const {},
+  })  : _assets = {for (final asset in assets) asset.id: asset},
+        _failWorkplaceIds = failWorkplaceIds;
 
   final Map<String, AssetRecord> _assets;
+  final Set<String> _failWorkplaceIds;
 
   @override
   Future<void> delete(String id) async => _assets.remove(id);
@@ -99,8 +133,14 @@ class _MemoryAssetRepository implements AssetRepository {
   }
 
   @override
-  Future<List<AssetRecord>> getByWorkplace(String workplaceId) async =>
-      _assets.values.where((asset) => asset.workplaceId == workplaceId).toList();
+  Future<List<AssetRecord>> getByWorkplace(String workplaceId) async {
+    if (_failWorkplaceIds.contains(workplaceId)) {
+      throw StateError('failed to load $workplaceId');
+    }
+    return _assets.values
+        .where((asset) => asset.workplaceId == workplaceId)
+        .toList();
+  }
 
   @override
   Future<AssetRecord?> getById(String id) async => _assets[id];
