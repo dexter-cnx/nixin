@@ -96,12 +96,15 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
   AssetBrowserController({
     required AssetRepository assetRepository,
     required AssetAvailabilityService availabilityService,
+    bool autoScanAvailability = true,
   })  : _assetRepository = assetRepository,
         _availabilityService = availabilityService,
+        _autoScanAvailability = autoScanAvailability,
         super(const AssetBrowserState());
 
   final AssetRepository _assetRepository;
   final AssetAvailabilityService _availabilityService;
+  final bool _autoScanAvailability;
   int _loadRevision = 0;
   int _availabilityRevision = 0;
 
@@ -137,7 +140,7 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
         sortOrder: state.sortOrder,
         loading: false,
       );
-      unawaited(scanAvailability());
+      if (_autoScanAvailability) unawaited(scanAvailability());
     } catch (error) {
       if (revision != _loadRevision) return;
       state = state.copyWith(
@@ -156,7 +159,7 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     if (state.loading || state.assets.isEmpty) return;
     final revision = ++_availabilityRevision;
     final snapshot = state.assets;
-    state = state.copyWith(scanningAvailability: true, clearError: true);
+    state = state.copyWith(scanningAvailability: true);
     try {
       final missingById = await _availabilityService.missingById(snapshot);
       if (revision != _availabilityRevision) return;
@@ -174,12 +177,9 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
         assets: _sort(updated, state.sortOrder),
         scanningAvailability: false,
       );
-    } catch (error) {
+    } catch (_) {
       if (revision != _availabilityRevision) return;
-      state = state.copyWith(
-        scanningAvailability: false,
-        errorMessage: '$error',
-      );
+      state = state.copyWith(scanningAvailability: false);
     }
   }
 
@@ -205,7 +205,9 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     final candidate = current.storageMode == AssetStorageMode.managed
         ? current.copyWith(managedPath: replacementPath)
         : current.copyWith(sourcePath: replacementPath);
-    final exists = (await _availabilityService.missingById([candidate]))[current.id] == false;
+    final exists =
+        (await _availabilityService.missingById([candidate]))[current.id] ==
+            false;
     if (!exists) return false;
 
     final updated = candidate.copyWith(missing: false);
