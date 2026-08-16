@@ -13,6 +13,7 @@ Future<void> main() async {
     Hive.openBox<dynamic>('studio_settings'),
     Hive.openBox<dynamic>('workplaces'),
     Hive.openBox<dynamic>('assets'),
+    Hive.openBox<dynamic>('import_batches'),
   ]);
 
   runApp(

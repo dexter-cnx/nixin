@@ -10,6 +10,14 @@ import 'package:nixin_studio_v8/studio/filmstrip.dart';
 import 'package:nixin_studio_v8/studio/studio_controller.dart';
 import 'package:nixin_studio_v8/studio/studio_page.dart';
 import 'package:nixin_studio_v8/studio/studio_widgets.dart';
+import 'package:nixin_studio_v8/workplaces/application/import_controller.dart';
+import 'package:nixin_studio_v8/workplaces/application/workplace_controller.dart';
+import 'package:nixin_studio_v8/workplaces/domain/asset_record.dart';
+import 'package:nixin_studio_v8/workplaces/domain/import_batch.dart';
+import 'package:nixin_studio_v8/workplaces/domain/repositories/asset_repository.dart';
+import 'package:nixin_studio_v8/workplaces/domain/repositories/import_repository.dart';
+import 'package:nixin_studio_v8/workplaces/domain/repositories/workplace_repository.dart';
+import 'package:nixin_studio_v8/workplaces/domain/workplace.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +25,16 @@ void main() {
   setUpAll(() async {
     _mockSharedPreferences();
     await EasyLocalization.ensureInitialized();
+  });
+
+  testWidgets('studio mount initializes the live default workplace', (tester) async {
+    final container = await _pumpStudio(tester, width: 1200, height: 800);
+    addTearDown(container.dispose);
+
+    final state = container.read(workplaceControllerProvider);
+    expect(state.loading, isFalse);
+    expect(state.workplaces, hasLength(1));
+    expect(state.currentWorkplace?.name, 'My workplace');
   });
 
   testWidgets('studio actions are disabled until an image is selected', (tester) async {
@@ -121,10 +139,18 @@ Future<ProviderContainer> _pumpStudio(
     tester.view.resetDevicePixelRatio();
   });
 
+  final workplaceRepository = _MemoryWorkplaceRepository();
+  final assetRepository = _MemoryAssetRepository();
+  final importRepository = _MemoryImportRepository();
+  final importPreferences = _MemoryImportPreferences();
   final container = ProviderContainer(
     overrides: [
       studioEngineProvider.overrideWithValue(_FakeEngine()),
       studioSettingsStoreProvider.overrideWithValue(_MemorySettings()),
+      workplaceRepositoryProvider.overrideWithValue(workplaceRepository),
+      assetRepositoryProvider.overrideWithValue(assetRepository),
+      importRepositoryProvider.overrideWithValue(importRepository),
+      importPreferencesProvider.overrideWithValue(importPreferences),
     ],
   );
 
@@ -158,9 +184,9 @@ class _TestAssetLoader extends AssetLoader {
 
   @override
   Future<Map<String, dynamic>> load(String path, Locale locale) async => const {
-        'app_name': 'Nixin',
+        'app_name': 'Dextryx',
         'module': {
-          'library': 'Library',
+          'library': 'Workplaces',
           'develop': 'Develop',
           'export': 'Export',
         },
@@ -174,7 +200,8 @@ class _TestAssetLoader extends AssetLoader {
           'filmstrip': 'Filmstrip',
         },
         'action': {
-          'open_raw': 'Open Image',
+          'open_raw': 'Import',
+          'import': 'Import',
           'apply_lut': 'Apply LUT',
           'develop': 'Develop',
           'subject_mask': 'Subject Mask',
@@ -194,12 +221,12 @@ class _TestAssetLoader extends AssetLoader {
           'processing': 'Processing',
           'error': 'Preview error',
           'empty_title': 'No image selected',
-          'empty_body': 'Open an image to begin',
+          'empty_body': 'Import an image to begin',
           'fit': 'Fit',
           'one_to_one': '1:1',
         },
         'label': {
-          'filmstrip_empty': 'Open an image',
+          'filmstrip_empty': 'Import an image',
           'no_file': 'No file',
           'engine': 'Engine',
         },
@@ -208,6 +235,26 @@ class _TestAssetLoader extends AssetLoader {
           'engine_unavailable': 'Engine unavailable',
           'selected': 'Selected',
           'exported': 'Exported',
+        },
+        'workplace': {
+          'title': 'Workplaces',
+          'default_name': 'My workplace',
+          'loading': 'Loading Workplaces…',
+          'create': 'New Workplace',
+          'rename': 'Rename Workplace',
+          'delete': 'Delete Workplace',
+          'cannot_delete_last': 'At least one Workplace must remain',
+        },
+        'import': {
+          'options': 'Import options',
+          'folder': 'Import Folder…',
+          'folder_no_subfolders': 'Import Folder (current folder only)…',
+          'linked': 'Linked / Add',
+          'managed': 'Managed / Copy',
+          'cancel': 'Cancel Import',
+          'cancelled': 'Import cancelled',
+          'progress': 'Importing {processed} / {total}  {file}',
+          'summary': 'Imported {imported} · duplicates {duplicates} · failed {failed}',
         },
       };
 }
@@ -222,6 +269,94 @@ class _MemorySettings implements StudioSettingsStore {
   @override
   Future<void> write(String key, Object value) async {
     values[key] = value;
+  }
+}
+
+class _MemoryWorkplaceRepository implements WorkplaceRepository {
+  final Map<String, Workplace> _values = {};
+  String? _currentId;
+
+  @override
+  Future<void> delete(String id) async => _values.remove(id);
+
+  @override
+  Future<List<Workplace>> getAll() async => _values.values.toList();
+
+  @override
+  Future<Workplace?> getById(String id) async => _values[id];
+
+  @override
+  Future<String?> getCurrentWorkplaceId() async => _currentId;
+
+  @override
+  Future<void> save(Workplace workplace) async {
+    _values[workplace.id] = workplace;
+  }
+
+  @override
+  Future<void> setCurrentWorkplaceId(String id) async {
+    _currentId = id;
+  }
+}
+
+class _MemoryAssetRepository implements AssetRepository {
+  final Map<String, AssetRecord> _values = {};
+
+  @override
+  Future<void> delete(String id) async => _values.remove(id);
+
+  @override
+  Future<void> deleteByWorkplace(String workplaceId) async {
+    _values.removeWhere((_, asset) => asset.workplaceId == workplaceId);
+  }
+
+  @override
+  Future<List<AssetRecord>> getByWorkplace(String workplaceId) async =>
+      _values.values.where((asset) => asset.workplaceId == workplaceId).toList();
+
+  @override
+  Future<AssetRecord?> getById(String id) async => _values[id];
+
+  @override
+  Future<void> save(AssetRecord asset) async {
+    _values[asset.id] = asset;
+  }
+}
+
+class _MemoryImportRepository implements ImportRepository {
+  final Map<String, ImportBatch> _values = {};
+
+  @override
+  Future<List<ImportBatch>> getByWorkplace(String workplaceId) async =>
+      _values.values.where((batch) => batch.workplaceId == workplaceId).toList();
+
+  @override
+  Future<ImportBatch?> getById(String id) async => _values[id];
+
+  @override
+  Future<void> save(ImportBatch batch) async {
+    _values[batch.id] = batch;
+  }
+}
+
+class _MemoryImportPreferences implements ImportPreferences {
+  AssetStorageMode mode = AssetStorageMode.linked;
+  String? destination;
+
+  @override
+  String? readManagedDestination() => destination;
+
+  @override
+  AssetStorageMode readStorageMode() => mode;
+
+  @override
+  Future<void> writeManagedDestination(String path) async {
+    destination = path;
+  }
+
+  @override
+  Future<void> writeStorageMode(AssetStorageMode value) async {
+    mode = value;
   }
 }
 

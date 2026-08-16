@@ -1,172 +1,31 @@
 # Dextryx Images — Code Walkthrough
 
-This document describes the current code structure of `dexter-cnx/nixin` after the completed Studio workspace milestones and W1 Workplace Core foundation. It distinguishes implemented code from behavior that is actually reachable through the live application.
+This is the current code orientation for `dexter-cnx/nixin` during **W2 Import System + live Workplace wiring**.
 
-## 1. Application bootstrap
+## Bootstrap
 
-`lib/main.dart` initializes:
-
-```text
-WidgetsFlutterBinding
-EasyLocalization
-Hive
-  ├─ studio_settings
-  ├─ workplaces
-  └─ assets
-ProviderScope
-EasyLocalization
-NixinApp
-```
-
-Opening Hive boxes does not initialize Riverpod providers by itself.
-
-## 2. Current live application root
-
-`lib/app/nixin_app.dart` currently builds:
-
-```text
-MaterialApp
-  → StudioPage
-```
-
-This is important: the live app does **not** currently watch `workplaceControllerProvider`.
-
-Because Riverpod providers are lazy, merely defining `workplaceControllerProvider` does not instantiate `WorkplaceController`, and therefore does not run `WorkplaceController.initialize()` during a normal app launch.
-
-That wiring gap is the first implementation item in W2.
-
-## 3. Top-level structure
-
-```text
-lib/
-  main.dart
-  app/
-  engine/
-  studio/
-  workplaces/
-```
-
-Responsibilities:
-
-```text
-app/         application shell, theme, localization root
-engine/      native image-processing boundary and FFI implementation
-studio/      current live workspace and existing processing interactions
-workplaces/  catalog domain, repositories, persistence, controller foundation
-```
-
-## 4. Native processing path
-
-The existing processing dependency direction is:
-
-```text
-Studio UI
-  → StudioController
-    → StudioEngine
-      → RawEngine
-        → Rust C ABI
-```
-
-Widgets must not call native functions directly.
-
-The current Rust/Studio path supports the already-existing embedded RAW preview/raster decode, adjustments, masks, LUT, and JPEG export behavior. Real sensor RAW development remains deferred.
-
-## 5. FFI ownership
-
-```text
-Dart UTF-8 input
-  → calloc
-  → Rust call
-  → Dart frees with calloc.free()
-
-Rust string output
-  → CString::into_raw()
-  → Dart converts
-  → free_string_rust()
-
-Rust ImageBuffer
-  → Dart reads metadata/data
-  → Dart copies RGBA bytes
-  → free_image_buffer()
-```
-
-Dart validates:
-
-```text
-len == width * height * 4
-```
-
-before accepting returned RGBA data.
-
-## 6. Studio layer
-
-`lib/studio/` is still the live UI root today.
-
-It owns existing:
-
-- Studio state/controller
-- preview surface
-- responsive workspace composition
-- Develop actions
-- Subject/Sky mask actions
-- LUT flow
-- JPEG export
-- existing Filmstrip behavior
-
-W2–W4 should preserve this path as a regression boundary while progressively making catalog state authoritative.
-
-## 7. Workplaces domain
-
-Current domain files:
-
-```text
-lib/workplaces/domain/
-  workplace.dart
-  asset_record.dart
-  repositories/
-    workplace_repository.dart
-    asset_repository.dart
-```
-
-### `Workplace`
-
-Logical catalog/container identity. It is not a physical-folder alias.
-
-### `AssetRecord`
-
-Catalog identity and storage metadata for an image/RAW asset. It is distinct from runtime Studio preview/editor state.
-
-## 8. Repository boundary
-
-The dependency direction is:
-
-```text
-application/controller
-  → repository interface
-    → Hive implementation
-```
-
-Concrete implementations:
-
-```text
-lib/workplaces/data/hive/
-  hive_workplace_repository.dart
-  hive_asset_repository.dart
-```
-
-Widgets should not read/write Hive directly.
-
-Current Hive boxes:
+`lib/main.dart` initializes localization, Riverpod and Hive boxes:
 
 ```text
 studio_settings
 workplaces
 assets
+import_batches
 ```
 
-## 9. WorkplaceController
+## Top-level ownership
 
-`lib/workplaces/application/workplace_controller.dart` defines:
+```text
+lib/
+  app/          app shell/theme/localization
+  engine/       Rust FFI processing boundary
+  studio/       preview/Develop/Mask/LUT/Export compatibility UI
+  workplaces/   catalog, Workplace state and import orchestration
+```
+
+## Workplace core
+
+`lib/workplaces/application/workplace_controller.dart` owns:
 
 ```text
 WorkplaceState
@@ -176,234 +35,162 @@ workplaceRepositoryProvider
 assetRepositoryProvider
 ```
 
-`WorkplaceState` owns:
+The live Studio UI now consumes `workplaceControllerProvider` through `StudioImportControls`, so Riverpod creates the controller and `initialize()` performs real launch-time Workplace initialization.
+
+`initialize()` loads Workplaces, creates `My workplace` when empty, restores/repairs current Workplace ID, and publishes ready state.
+
+The visible W2 controls allow switching, creating, renaming and deleting Workplaces while preserving the last-Workplace invariant.
+
+## Import domain
+
+New W2 domain pieces:
 
 ```text
-workplaces
-currentWorkplaceId
-loading
+lib/workplaces/domain/import_batch.dart
+lib/workplaces/domain/repositories/import_repository.dart
+```
+
+`ImportBatch` records one import operation including source type, requested/imported/duplicate/failed counts, timestamps and terminal status.
+
+## Import persistence
+
+```text
+lib/workplaces/data/hive/hive_import_repository.dart
+```
+
+`HiveImportRepository` persists batches in `import_batches` and supports lookup by ID and Workplace.
+
+## Import application state
+
+```text
+lib/workplaces/application/import_state.dart
+lib/workplaces/application/import_controller.dart
+```
+
+`ImportState` exposes:
+
+```text
+phase
+storageMode
+total / processed
+imported
+skippedDuplicates
+failed
+currentFile
+lastImportedPath
+batch
 errorMessage
 ```
 
-The controller implements:
+Import phases:
 
 ```text
-initialize()
-createWorkplace(name)
-switchWorkplace(id)
-renameWorkplace(id, name)
-deleteWorkplace(id)
+idle
+selecting
+scanning
+checkingDuplicates
+copying
+cataloging
+completed
+cancelled
+failed
 ```
 
-`initialize()` implements this logic:
+`ImportController` owns source selection and catalog orchestration. The Studio UI does not own file discovery or Hive writes.
+
+## Import flow
+
+Multi-file path:
 
 ```text
-load Workplaces
-  → if empty, create "My workplace"
-  → restore current Workplace ID
-  → repair invalid/missing current ID
-  → persist current ID
-  → publish state
-```
-
-Important invariant:
-
-```text
-At least one Workplace must remain.
-```
-
-Deleting a Workplace removes its catalog records through `AssetRepository`; it does not imply deleting original files.
-
-## 10. Implemented foundation vs live behavior
-
-The following are implemented/testable through `WorkplaceController` and repositories:
-
-- default Workplace creation logic
-- persistence/restoration logic
-- Workplace CRUD commands
-- last-Workplace invariant
-- Asset persistence boundary
-
-They are **not yet live end-user behavior**, because the current `NixinApp → StudioPage` tree does not consume `workplaceControllerProvider`.
-
-Current reality:
-
-```text
-Live app
-  → StudioPage
-  → studioControllerProvider
-
-Workplace foundation
-  → workplaceControllerProvider
-  → not yet mounted/consumed by live app
-```
-
-Any documentation or test plan must preserve this distinction until W2 wires the provider into the real application.
-
-## 11. W2.0 target — live Workplace wiring
-
-First W2 step:
-
-```text
-Live application/workspace
-  → watch workplaceControllerProvider
-  → initialize WorkplaceController
-  → expose current Workplace context
-```
-
-Required outcomes:
-
-- real fresh launch creates `My workplace`
-- restart restores the active Workplace
-- current Workplace is observable by the live UI
-- Workplace CRUD/switching is reachable through the application
-- current Studio behavior does not regress
-
-Add widget/integration tests that mount the real provider path; controller-only tests are not sufficient for this acceptance gate.
-
-## 12. W2.1 target — Import System
-
-Once Workplace state is live, add import orchestration above repository boundaries:
-
-```text
-Import UI
-  → ImportController / ImportService
-    → source discovery
-    → supported-format filtering
-    → duplicate checks
-    → optional managed copy
-    → metadata/catalog creation
-    → AssetRepository
-```
-
-Durable flow:
-
-```text
-Select source
-  → discover candidates
-  → filter supported types
-  → normalize paths
-  → check duplicates
-  → copy when managed mode is selected
-  → read basic metadata
+FilePicker multi-select
+  → supported extension filter
+  → normalize absolute paths
+  → load active Workplace assets
+  → duplicate check by normalized source path
+  → optional managed copy
   → create AssetRecord
-  → generate/cache preview when appropriate
-  → publish into current Workplace
+  → AssetRepository.save
+  → persist ImportBatch
+  → publish terminal ImportState
+  → hand latest imported effectivePath to StudioController
+  → existing Develop preview path
 ```
 
-Expected W2 concepts:
+Folder path:
 
 ```text
-ImportBatch
-ImportState
-ImportController / ImportService
-linked/add mode
-managed/copy mode
-progress
-cancellation
-partial-failure handling
+FilePicker directory
+  → Directory.list(recursive: true by default)
+  → supported file filter
+  → same catalog pipeline
 ```
 
-File picker and filesystem work belong in application/service boundaries, not leaf widgets.
+A current-folder-only option passes `recursive: false`.
 
-## 13. W3 target — shared Browser/Filmstrip state
+## Storage modes
 
-The target relationship is:
+`AssetStorageMode.linked` keeps the original in place and catalogs `sourcePath`.
+
+`AssetStorageMode.managed` asks for a managed root when one is not already stored, remembers it in `studio_settings`, and copies originals under:
 
 ```text
-Current Workplace
-       ↓
-Ordered Asset Query
-       ├─ Workplace Grid
-       └─ Filmstrip
-
-selectedAssetId
-       ├─ Grid highlight
-       ├─ Filmstrip highlight
-       └─ Develop current asset
+<managed-root>/originals/YYYY/MM/DD/<asset-id>-<filename>
 ```
 
-Do not create separate asset collections or independent selection truth for Grid and Filmstrip.
+`sourcePath` and `managedPath` remain separate; Workplace display names do not drive filesystem layout.
 
-The existing Filmstrip should be evolved rather than duplicated.
+## Cancellation and partial failure
 
-## 14. Preview boundary
+`ImportController.cancel()` sets a cancellation request. The per-file loop stops before starting the next asset, preserving already cataloged assets and writing a cancelled `ImportBatch`.
 
-Workplaces should not depend directly on future RAW processing internals.
+Per-file filesystem/catalog errors increment `failed` and do not abort later candidates.
 
-Conceptual boundary:
+The loop yields with `Future.delayed(Duration.zero)` between candidates so large batches do not monopolize the UI isolate continuously.
 
-```dart
-abstract interface class AssetPreviewProvider {
-  Future<Uint8List?> thumbnail(AssetRecord asset);
-}
-```
+## Studio integration
 
-During W2–W4:
+`lib/studio/studio_import_controls.dart` is the presentation adapter between live Workplace/import state and the existing Studio preview.
 
-- RAW previews may continue using embedded JPEGs
-- raster images may use existing raster decode
-- caching may evolve independently
-- real RAW demosaic/debayer remains out of scope
+It provides:
 
-## 15. Removal semantics
+- current Workplace dropdown
+- create/rename/delete Workplace menu
+- primary multi-select Import
+- folder import menu
+- linked/managed storage selection
+- progress/cancel/summary UI
+- latest imported asset handoff to `StudioController.selectRawPath()` then `develop()`
 
-Keep catalog removal and filesystem deletion separate:
+`lib/studio/studio_page.dart` now uses these controls in wide, medium and compact compositions instead of the legacy direct Open Image action.
+
+The existing `StudioController.pickRaw()` remains as legacy compatibility code but is no longer the primary Studio entry UI.
+
+## Processing boundary
+
+Processing remains unchanged:
 
 ```text
-Remove from Workplace
+StudioController
+  → StudioEngine
+    → RawEngine
+      → Rust C ABI
 ```
 
-is not equivalent to:
+W2 does not add RAW demosaic/debayer, new adjustment semantics, GPU processing, or PixelCraft processing code.
 
-```text
-Move Original to Trash
-```
+## Tests
 
-No Workplace/catalog operation should silently delete source originals.
+`test/workplaces/import_controller_test.dart` covers:
 
-## 16. Localization
+- supported file import and batch persistence
+- duplicate source-path prevention
+- managed-copy behavior while preserving original
+- unsupported-file filtering
 
-Visible UI strings use `easy_localization` with:
+Existing Workplace and Studio tests remain regression coverage.
 
-```text
-assets/translations/en.json
-assets/translations/th.json
-```
-
-New Workplace/import UI strings should be translation keys.
-
-## 17. Test strategy
-
-Current seams:
-
-```text
-Widget tests
-  → application/UI wiring
-
-Controller/service tests
-  → repository fakes
-
-Repository tests
-  → Hive persistence
-
-Rust tests
-  → native processing/core behavior
-```
-
-W2.0 specifically requires tests proving the real live app/provider path initializes Workplace state.
-
-W2.1 should add tests for:
-
-- import state transitions
-- duplicate rules
-- path normalization
-- linked/managed decisions
-- cancellation
-- partial failures
-- restart persistence
-
-## 18. Validation gate
+## Validation
 
 ```bash
 flutter pub get
@@ -415,29 +202,8 @@ cargo check
 cargo test
 ```
 
-Manual regression coverage during W2–W4:
+Manual W2 gate should include multi-select import, nested folder import, linked mode, managed mode, cancellation, restart persistence, Workplace CRUD, and existing RAW/raster preview + Develop/Mask/LUT/JPEG export.
 
-- launch/localization
-- real fresh-launch Workplace initialization once W2.0 lands
-- Workplace create/switch/rename/delete once wired
-- embedded RAW preview
-- raster preview
-- Develop
-- Subject Mask
-- Sky Mask
-- LUT
-- JPEG export
-- responsive workspace behavior
+## Next
 
-## 19. Current execution order
-
-```text
-DONE     W1 Workplace Core foundation
-CURRENT  W2.0 Live Workplace wiring
-THEN     W2.1 Import System
-NEXT     W3 Workplace Browser + Filmstrip
-THEN     W4 Desktop Catalog Hardening
-FUTURE   PixelCraft external-editor contract
-```
-
-See `docs/PROJECT_HANDOFF.md` for canonical status and `docs/WORKPLACES_HANDOFF.md` for the detailed Workplaces/import specification.
+After W2 merges, W3 makes the catalog visible as the primary Workplace Grid and evolves Filmstrip to share the same ordered assets and selected-asset truth.
