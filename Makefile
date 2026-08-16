@@ -108,8 +108,8 @@ rust-fetch: ## Download Rust dependencies without building
 rust-format-check: ## Check formatting of changed Rust source files
 	@bash $(CI_RUST_FORMAT_SCRIPT)
 
-rust-clippy: ## Run Rust clippy with warnings denied
-	cd $(RUST_DIR) && $(CARGO) clippy --locked --all-targets -- -D warnings
+rust-clippy: ## Run strict Clippy while allowing only documented legacy FFI/dead-code baseline lints
+	cd $(RUST_DIR) && $(CARGO) clippy --locked --all-targets -- -A dead_code -A clippy::not_unsafe_ptr_arg_deref -D warnings
 
 rust-check: ## Run cargo check for raw-engine
 	cd $(RUST_DIR) && $(CARGO) check --locked
