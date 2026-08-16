@@ -1,3 +1,5 @@
+import 'asset_record.dart';
+
 enum ImportSourceType { files, folder }
 
 enum ImportBatchStatus { running, completed, cancelled, failed }
@@ -13,6 +15,7 @@ class ImportBatch {
     required this.skippedDuplicateCount,
     required this.failedCount,
     required this.status,
+    this.storageMode = AssetStorageMode.linked,
     this.sourceRoot,
     this.completedAt,
     this.sourcePaths = const [],
@@ -24,6 +27,7 @@ class ImportBatch {
   final DateTime startedAt;
   final DateTime? completedAt;
   final ImportSourceType sourceType;
+  final AssetStorageMode storageMode;
   final String? sourceRoot;
   final int requestedCount;
   final int importedCount;
@@ -41,6 +45,7 @@ class ImportBatch {
         'startedAt': startedAt.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
         'sourceType': sourceType.name,
+        'storageMode': storageMode.name,
         'sourceRoot': sourceRoot,
         'requestedCount': requestedCount,
         'importedCount': importedCount,
@@ -59,6 +64,10 @@ class ImportBatch {
             ? null
             : DateTime.parse(map['completedAt'] as String),
         sourceType: ImportSourceType.values.byName(map['sourceType'] as String),
+        storageMode: AssetStorageMode.values.firstWhere(
+          (mode) => mode.name == (map['storageMode'] as String? ?? 'linked'),
+          orElse: () => AssetStorageMode.linked,
+        ),
         sourceRoot: map['sourceRoot'] as String?,
         requestedCount: map['requestedCount'] as int,
         importedCount: map['importedCount'] as int,
