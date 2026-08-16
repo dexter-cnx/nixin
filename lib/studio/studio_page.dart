@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/theme/studio_theme.dart';
+import '../workplaces/domain/asset_record.dart';
+import '../workplaces/ui/workplace_browser.dart';
 import 'editor_controls.dart';
 import 'filmstrip.dart';
 import 'preview_surface.dart';
@@ -19,6 +21,12 @@ class StudioPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(studioControllerProvider);
     final controller = ref.read(studioControllerProvider.notifier);
+
+    Future<void> selectAsset(AssetRecord asset) async {
+      if (asset.missing) return;
+      controller.selectRawPath(asset.effectivePath);
+      await controller.develop();
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -52,14 +60,17 @@ class StudioPage extends ConsumerWidget {
                         StudioLayoutMode.wide => _WideWorkspace(
                             state: state,
                             controller: controller,
+                            onAssetSelected: selectAsset,
                           ),
                         StudioLayoutMode.medium => _MediumWorkspace(
                             state: state,
                             controller: controller,
+                            onAssetSelected: selectAsset,
                           ),
                         StudioLayoutMode.compact => _CompactWorkspace(
                             state: state,
                             controller: controller,
+                            onAssetSelected: selectAsset,
                           ),
                       },
                     ),
@@ -67,7 +78,7 @@ class StudioPage extends ConsumerWidget {
                       StudioFilmstrip(
                         state: state,
                         onToggleVisibility: controller.toggleFilmstrip,
-                        onSelectCurrent: controller.develop,
+                        onAssetSelected: selectAsset,
                       ),
                     if (state.chromeVisible && mode != StudioLayoutMode.compact)
                       StudioStatusBar(state: state),
@@ -82,11 +93,39 @@ class StudioPage extends ConsumerWidget {
   }
 }
 
-class _WideWorkspace extends StatelessWidget {
-  const _WideWorkspace({required this.state, required this.controller});
+class _WorkspaceSurface extends StatelessWidget {
+  const _WorkspaceSurface({
+    required this.state,
+    required this.controller,
+    required this.onAssetSelected,
+  });
 
   final StudioState state;
   final StudioController controller;
+  final ValueChanged<AssetRecord> onAssetSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.activeModule == StudioModule.library) {
+      return WorkplaceBrowser(onAssetSelected: onAssetSelected);
+    }
+    return StudioPreviewSurface(
+      state: state,
+      onZoomModeChanged: controller.setPreviewZoomMode,
+    );
+  }
+}
+
+class _WideWorkspace extends StatelessWidget {
+  const _WideWorkspace({
+    required this.state,
+    required this.controller,
+    required this.onAssetSelected,
+  });
+
+  final StudioState state;
+  final StudioController controller;
+  final ValueChanged<AssetRecord> onAssetSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -99,9 +138,10 @@ class _WideWorkspace extends StatelessWidget {
           ),
         Expanded(
           flex: StudioLayoutRatios.wideCenter,
-          child: StudioPreviewSurface(
+          child: _WorkspaceSurface(
             state: state,
-            onZoomModeChanged: controller.setPreviewZoomMode,
+            controller: controller,
+            onAssetSelected: onAssetSelected,
           ),
         ),
         if (state.rightPanelVisible)
@@ -115,10 +155,15 @@ class _WideWorkspace extends StatelessWidget {
 }
 
 class _MediumWorkspace extends StatelessWidget {
-  const _MediumWorkspace({required this.state, required this.controller});
+  const _MediumWorkspace({
+    required this.state,
+    required this.controller,
+    required this.onAssetSelected,
+  });
 
   final StudioState state;
   final StudioController controller;
+  final ValueChanged<AssetRecord> onAssetSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -128,9 +173,10 @@ class _MediumWorkspace extends StatelessWidget {
           children: [
             Expanded(
               flex: StudioLayoutRatios.mediumCenter,
-              child: StudioPreviewSurface(
+              child: _WorkspaceSurface(
                 state: state,
-                onZoomModeChanged: controller.setPreviewZoomMode,
+                controller: controller,
+                onAssetSelected: onAssetSelected,
               ),
             ),
             if (state.rightPanelVisible)
@@ -167,19 +213,25 @@ class _MediumWorkspace extends StatelessWidget {
 }
 
 class _CompactWorkspace extends StatelessWidget {
-  const _CompactWorkspace({required this.state, required this.controller});
+  const _CompactWorkspace({
+    required this.state,
+    required this.controller,
+    required this.onAssetSelected,
+  });
 
   final StudioState state;
   final StudioController controller;
+  final ValueChanged<AssetRecord> onAssetSelected;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         Expanded(
-          child: StudioPreviewSurface(
+          child: _WorkspaceSurface(
             state: state,
-            onZoomModeChanged: controller.setPreviewZoomMode,
+            controller: controller,
+            onAssetSelected: onAssetSelected,
           ),
         ),
         Container(
