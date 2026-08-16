@@ -202,21 +202,13 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
     final index = state.assets.indexWhere((asset) => asset.id == assetId);
     if (index < 0) return false;
     final current = state.assets[index];
-    final exists = (await _availabilityService.missingById([
-      current.copyWith(
-        sourcePath: current.storageMode == AssetStorageMode.linked
-            ? replacementPath
-            : current.sourcePath,
-        managedPath: current.storageMode == AssetStorageMode.managed
-            ? replacementPath
-            : current.managedPath,
-      ),
-    ]))[current.id] == false;
+    final candidate = current.storageMode == AssetStorageMode.managed
+        ? current.copyWith(managedPath: replacementPath)
+        : current.copyWith(sourcePath: replacementPath);
+    final exists = (await _availabilityService.missingById([candidate]))[current.id] == false;
     if (!exists) return false;
 
-    final updated = current.storageMode == AssetStorageMode.managed
-        ? current.copyWith(managedPath: replacementPath, missing: false)
-        : current.copyWith(sourcePath: replacementPath, missing: false);
+    final updated = candidate.copyWith(missing: false);
     await _assetRepository.save(updated);
     final assets = [...state.assets]..[index] = updated;
     state = state.copyWith(assets: assets, clearError: true);
@@ -224,12 +216,10 @@ class AssetBrowserController extends StateNotifier<AssetBrowserState> {
   }
 
   Future<int> relinkMissingFromFolder(String root) async {
+    final index = await _availabilityService.filesByLowercaseFilename(root);
     var relinked = 0;
     for (final asset in state.assets.where((asset) => asset.missing).toList()) {
-      final match = await _availabilityService.findByFilename(
-        root,
-        asset.originalFilename,
-      );
+      final match = index[asset.originalFilename.toLowerCase()];
       if (match != null && await relinkAsset(asset.id, match)) relinked++;
       await Future<void>.delayed(Duration.zero);
     }
