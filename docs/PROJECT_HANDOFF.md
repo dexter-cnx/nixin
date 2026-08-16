@@ -16,8 +16,8 @@
 - **W4-B1 managed/import recovery: merged in PR #13**
 - **W4-B2 thumbnail/cache + large-catalog hardening: merged in PR #14**
 - W4-B2 merge commit on `main`: `f05a11590ad21320ebe02d2d7be55c990cea9fe0`
-- Current focused engineering branch: `agent/ci-feedback-optimization`
-- Current engineering task: **CI feedback-time optimization without runtime/product changes**
+- Current focused engineering branch: `agent/full-validation-pr-trigger`
+- Current engineering task: **CI feedback-time optimization with PR-based full validation; no runtime/product changes**
 - W4 desktop physical validation remains a separate product-validation blocker.
 - Detailed W4 guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
 - Desktop validation checklist: `docs/W4_DESKTOP_VALIDATION.md`
@@ -58,7 +58,7 @@ W4-B2 added catalog-level raster thumbnail caching and representative large-cata
 
 ## Current — CI feedback optimization
 
-CI work is isolated from product/runtime behavior. The target architecture is:
+CI work is isolated from product/runtime behavior. The current personal-account-compatible architecture is:
 
 ```text
 Detect changes
@@ -66,13 +66,15 @@ Detect changes
         -> affected Flutter/Rust/platform jobs
             -> PR CI required
 
-merge queue candidate
+ready pull request targeting main
     -> Full validation preflight
         -> all Flutter/Rust/platform gates
             -> Merge gate
 ```
 
 `tool/ci-detect-changes.sh` is the single change-domain classifier. PR CI uses job-level conditions rather than whole-workflow path filtering, so intentionally skipped heavy jobs do not leave the stable required aggregate check pending.
+
+`Full validation` runs on non-draft pull requests targeting `main` and can also be run manually. Draft pull requests intentionally defer the expensive full matrix; marking a PR ready triggers validation. New commits cancel obsolete in-progress full-validation runs for the same PR.
 
 Local developer pre-push command:
 
@@ -82,7 +84,7 @@ make preflight
 
 Full details and domain-to-job behavior are documented in `docs/CI_ARCHITECTURE.md`.
 
-Important branch-protection follow-up: protected `main` should require `CI / PR CI required`, require merge queue, and require `Full validation / Merge gate`. The connected GitHub App cannot inspect or modify `main` branch protection, so this setting must be verified separately by a repository administrator.
+Important branch-protection follow-up: this repository is currently under a personal GitHub account, so Merge Queue is not available. Protected `main` should require `PR CI required` and `Merge gate`, and **Require branches to be up to date before merging** should be enabled. `Merge gate` must report on normal ready pull requests rather than depending on merge-group events. The connected GitHub App cannot inspect or modify `main` branch protection, so these repository settings must be verified separately by a repository administrator.
 
 ## W4 desktop physical validation
 
@@ -182,7 +184,7 @@ Only after catalog workflows stabilize. Dextryx Images remains catalog authority
 DONE      W4-A  PR #12 missing/relink/catalog-removal hardening
 DONE      W4-B1 PR #13 managed destination/copy + import-batch recovery
 DONE      W4-B2 PR #14 thumbnail/cache + large-catalog profile gates
-CURRENT   focused CI feedback-time optimization PR
+CURRENT   PR #17 PR-based full-validation / merge-gate alignment
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 FUTURE    PixelCraft external-editor contract
 ```

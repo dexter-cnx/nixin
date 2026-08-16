@@ -251,9 +251,9 @@ All expensive jobs depend on `Fast CI`, so Dart/Rust formatting, static-analysis
 
 `PR CI required` uses `if: always()` and treats only `success` or intentional `skipped` results as acceptable. The workflow itself is never path-filtered.
 
-### Full merge workflow
+### Full validation workflow
 
-`.github/workflows/full-validation.yml` runs without path filtering for merge-queue candidate SHAs or explicit manual full runs:
+`.github/workflows/full-validation.yml` runs without path filtering for non-draft pull requests targeting `main`, and it also supports explicit manual full runs. Draft pull requests defer the expensive full matrix; marking a draft ready triggers the workflow. A newer commit pushed to the same pull request cancels obsolete in-progress full-validation work.
 
 ```text
 Full preflight
@@ -269,7 +269,9 @@ Full preflight
       Merge gate
 ```
 
-`Merge gate` accepts no skipped platform jobs.
+On a ready pull request, the full matrix is expected to execute and `Merge gate` requires every required full-validation dependency to succeed. Draft-PR deferral is handled by not running the expensive matrix until the PR is ready, rather than treating a skipped full matrix as merge-ready validation.
+
+The workflow retains `merge_group` compatibility for a future repository configuration where Merge Queue is available, but the current personal-account branch-protection contract does not depend on Merge Queue.
 
 ### Local equivalent
 
@@ -291,7 +293,7 @@ make validate
 
 ## Branch-protection boundary
 
-Repository settings are part of the CI contract but are not stored in source. Protected `main` should require the stable PR aggregate check, require merge queue, and require the full `Merge gate` on merge-group candidates. See `docs/CI_ARCHITECTURE.md` for exact check names and the current GitHub App limitation.
+Repository settings are part of the CI contract but are not stored in source. This repository is currently under a personal GitHub account, where Merge Queue is unavailable. Protected `main` should require the stable checks `PR CI required` and `Merge gate`, and **Require branches to be up to date before merging** should be enabled so the ready PR is validated against the latest `main` before merge. `Merge gate` therefore reports on normal ready pull requests in the current configuration. See `docs/CI_ARCHITECTURE.md` for the exact current contract and the GitHub App limitation around inspecting or modifying branch protection.
 
 ## W4 execution split
 
