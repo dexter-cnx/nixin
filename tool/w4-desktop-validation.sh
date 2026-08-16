@@ -3,6 +3,8 @@ set -euo pipefail
 
 MODE="${1:-preflight}"
 EVIDENCE_ROOT="${W4_EVIDENCE_DIR:-build/w4-validation}"
+FLUTTER_CMD="${FLUTTER_CMD:-flutter}"
+CARGO_CMD="${CARGO_CMD:-cargo}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 EVIDENCE_DIR="${EVIDENCE_ROOT}/${STAMP}"
 REPORT="${EVIDENCE_DIR}/environment.txt"
@@ -16,6 +18,8 @@ automated   Record the same information, then run W4-focused automated gates.
 
 Environment:
   W4_EVIDENCE_DIR=<path>   Override evidence root (default: build/w4-validation).
+  FLUTTER_CMD=<command>    Flutter command/path (default: flutter).
+  CARGO_CMD=<command>      Cargo command/path (default: cargo).
 EOF
 }
 
@@ -55,6 +59,8 @@ record_command() {
   echo "working_directory=$(pwd)"
   echo "git_commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "flutter_command=${FLUTTER_CMD}"
+  echo "cargo_command=${CARGO_CMD}"
   echo "git_status_begin"
   git status --short 2>/dev/null || true
   echo "git_status_end"
@@ -65,11 +71,11 @@ record_command() {
   fi
 } >"$REPORT"
 
-record_command "Flutter" flutter --version
+record_command "Flutter" "$FLUTTER_CMD" --version
 record_command "Dart" dart --version
 record_command "Rust" rustc --version
-record_command "Cargo" cargo --version
-record_command "Flutter devices" flutter devices
+record_command "Cargo" "$CARGO_CMD" --version
+record_command "Flutter devices" "$FLUTTER_CMD" devices
 record_command "Disk usage" df -h
 
 if [[ "$MODE" == "automated" ]]; then
@@ -77,11 +83,11 @@ if [[ "$MODE" == "automated" ]]; then
   echo "Running W4 automated gates; output -> ${LOG}"
   {
     echo "== flutter analyze =="
-    flutter analyze --fatal-infos
+    "$FLUTTER_CMD" analyze --fatal-infos
 
     echo
     echo "== focused Workplaces tests =="
-    flutter test \
+    "$FLUTTER_CMD" test \
       test/workplaces/asset_browser_controller_test.dart \
       test/workplaces/import_controller_test.dart \
       test/workplaces/asset_thumbnail_cache_test.dart \
@@ -89,7 +95,7 @@ if [[ "$MODE" == "automated" ]]; then
 
     echo
     echo "== Rust check/test =="
-    (cd rust && cargo check && cargo test)
+    (cd rust && "$CARGO_CMD" check && "$CARGO_CMD" test)
   } 2>&1 | tee "$LOG"
 
   {
