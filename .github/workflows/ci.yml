@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/**
   pull_request:
     branches:
       - main
@@ -13,62 +12,279 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  flutter:
-    name: Flutter analyze & test
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.detect.outputs.docs }}
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+      flutter: ${{ steps.detect.outputs.flutter }}
+      rust: ${{ steps.detect.outputs.rust }}
+      ffi: ${{ steps.detect.outputs.ffi }}
+      platform_android: ${{ steps.detect.outputs.platform_android }}
+      platform_ios: ${{ steps.detect.outputs.platform_ios }}
+      platform_macos: ${{ steps.detect.outputs.platform_macos }}
+      platform_windows: ${{ steps.detect.outputs.platform_windows }}
+      platform_linux: ${{ steps.detect.outputs.platform_linux }}
+      import_filesystem: ${{ steps.detect.outputs.import_filesystem }}
+      export_engine: ${{ steps.detect.outputs.export_engine }}
+      ci: ${{ steps.detect.outputs.ci }}
+      broad: ${{ steps.detect.outputs.broad }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        name: Classify changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash tool/ci-detect-changes.sh "$BASE_SHA" "$HEAD_SHA"
+
+  fast-ci:
+    name: Fast CI
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Validate W4 shell tooling
-        run: bash -n tool/w4-desktop-validation.sh
+      - name: Validate repository scripts
+        run: |
+          bash -n tool/*.sh
+          ruby -e 'require "yaml"; Dir[".github/workflows/*.{yml,yaml}"].each { |f| YAML.load_file(f) }'
 
       - name: Set up Flutter
+        if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Resolve dependencies
+      - name: Resolve Flutter dependencies
+        if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
         run: flutter pub get
 
-      - name: Analyze
+      - name: Dart format
+        if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+        run: dart format --output=none --set-exit-if-changed lib test integration_test
+
+      - name: Flutter analyze
+        if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
         run: flutter analyze --fatal-infos
 
-      - name: Test
-        run: flutter test
-
-  rust:
-    name: Rust check & test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: rust
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Fast Flutter tests
+        if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+        run: flutter test test
 
       - name: Set up Rust
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache Rust build
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust -> target
 
-      - name: Cargo check
+      - name: Rust format
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
+        working-directory: rust
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Rust compile check
+        if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
+        working-directory: rust
         run: cargo check --locked
 
-      - name: Cargo test
-        run: cargo test --locked
+      - name: FFI contract smoke
+        if: needs.changes.outputs.ffi == 'true' || needs.changes.outputs.ci == 'true'
+        run: flutter test test/ffi_smoke_test.dart
+
+  flutter-tests:
+    name: Flutter full tests
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.flutter == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+
+  rust-tests:
+    name: Rust full tests
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: cargo test --locked
+
+  android-build:
+    name: Android build
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.platform_android == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Install Android Rust target
+        run: rustup target add aarch64-linux-android
+      - run: flutter pub get
+      - name: Build native library
+        run: make android-arm64
+      - name: Build Android APK
+        run: flutter build apk --debug
+
+  ios-build:
+    name: iOS build (no signing)
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.platform_ios == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - run: make ios-native
+      - run: flutter build ios --debug --no-codesign
+
+  macos-build:
+    name: macOS build
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.platform_macos == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - run: make macos-native
+      - run: flutter build macos --debug
+
+  windows-build:
+    name: Windows build
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.platform_windows == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - name: Compile native library
+        working-directory: rust
+        run: cargo build --locked
+      - run: flutter build windows --debug
+
+  linux-build:
+    name: Linux build
+    needs: [changes, fast-ci]
+    if: needs.changes.outputs.platform_linux == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.ffi == 'true' || needs.changes.outputs.export_engine == 'true' || needs.changes.outputs.import_filesystem == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - name: Install Linux desktop dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - run: flutter pub get
+      - name: Compile native library
+        working-directory: rust
+        run: cargo build --locked
+      - run: flutter build linux --debug
+
+  ci-required:
+    name: PR CI required
+    if: always()
+    needs:
+      - changes
+      - fast-ci
+      - flutter-tests
+      - rust-tests
+      - android-build
+      - ios-build
+      - macos-build
+      - windows-build
+      - linux-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify required CI outcomes
+        env:
+          FAST: ${{ needs.fast-ci.result }}
+          FLUTTER: ${{ needs.flutter-tests.result }}
+          RUST: ${{ needs.rust-tests.result }}
+          ANDROID: ${{ needs.android-build.result }}
+          IOS: ${{ needs.ios-build.result }}
+          MACOS: ${{ needs.macos-build.result }}
+          WINDOWS: ${{ needs.windows-build.result }}
+          LINUX: ${{ needs.linux-build.result }}
+        run: |
+          test "$FAST" = success
+          for result in "$FLUTTER" "$RUST" "$ANDROID" "$IOS" "$MACOS" "$WINDOWS" "$LINUX"; do
+            test "$result" = success || test "$result" = skipped
+          done
