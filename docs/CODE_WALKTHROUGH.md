@@ -2,6 +2,8 @@
 
 Current code orientation for `dexter-cnx/nixin` during **W4 Desktop Catalog Hardening**.
 
+Detailed W4 recovery/acceptance rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`.
+
 ## Bootstrap and ownership
 
 `lib/main.dart` initializes localization, Riverpod and Hive boxes for settings, Workplaces, assets and import batches.
@@ -24,6 +26,25 @@ Widgets do not access Hive directly.
 `ImportController` owns file/folder selection, duplicate prevention, linked/managed import, progress/cancellation and `ImportBatch` persistence.
 
 These remain catalog concerns; image-processing behavior is unchanged.
+
+## Asset model recovery semantics
+
+`AssetRecord` remains the stable catalog identity. W4 recovery updates file-location metadata without replacing the record identity.
+
+Relevant path rule:
+
+```text
+effectivePath = managedPath ?? sourcePath
+```
+
+Storage-specific relink behavior:
+
+```text
+linked  -> update sourcePath
+managed -> update managedPath
+```
+
+`missing` is persisted as catalog state so disconnected originals remain represented across browser sessions.
 
 ## Asset browser state
 
@@ -67,61 +88,54 @@ Availability checks run asynchronously in bounded batches of 32 and yield betwee
 
 An availability-scan failure does not convert a successfully loaded catalog into a browser error state; the catalog remains usable even when an external volume is unavailable or filesystem probing fails.
 
-## Missing assets
+## Missing assets and disconnected volumes
 
-The effective file path remains:
-
-```text
-managedPath ?? sourcePath
-```
-
-If that path is unavailable:
+If `effectivePath` is unavailable:
 
 ```text
 AssetRecord remains in catalog
 missing = true
-Grid/Filmstrip can still show cached catalog/preview state
-Develop handoff is blocked for the missing asset
+Grid/Filmstrip can retain catalog/preview representation
+Develop handoff is blocked for that asset
 ```
 
-When the path becomes available again, the next scan persists `missing = false`.
+When the path becomes available again, a later scan persists `missing = false`.
+
+This means a disconnected external drive is a recoverable asset-availability condition, not a catalog corruption condition.
 
 ## Relink behavior
 
 ### Locate Missing File
 
-`AssetBrowserController.relinkAsset()` preserves asset identity and updates only the path appropriate to storage mode:
+`AssetBrowserController.relinkAsset()` preserves asset identity and updates only the path appropriate to storage mode.
 
-```text
-linked  → sourcePath
-managed → managedPath
-```
-
-The replacement must exist before the catalog record is updated.
+The replacement path must exist before the catalog record is updated.
 
 ### Locate Missing Folder
 
 The selected folder is recursively enumerated once and indexed by lowercase filename.
 
-For each missing asset:
+Automatic matching rule:
 
-- exactly one filename match → relink automatically
-- zero matches → remain missing
-- multiple matches → remain missing; do not guess
+```text
+0 matches  -> unresolved
+1 match    -> relink
+2+ matches -> unresolved; do not guess
+```
 
-This avoids both repeated O(asset × folder-scan) traversal and unsafe first-match relinking.
+This avoids both repeated O(asset × folder-scan) traversal and unsafe first-match relinking when two folders contain the same filename.
 
 ## Catalog-only removal
 
 `removeFromWorkplace(assetId)` calls only `AssetRepository.delete(assetId)` and updates browser selection/list state.
 
-It performs no filesystem delete, move or Trash operation.
+It performs no filesystem delete, move or Trash operation. The original file remains untouched for both linked and managed catalog records.
 
-The UI confirmation explicitly states that the original file remains untouched.
+Any future physical-delete feature must be a separate explicit operation and is outside W4-A.
 
 ## Workplace browser UI
 
-`lib/workplaces/ui/workplace_browser.dart` now exposes:
+`lib/workplaces/ui/workplace_browser.dart` exposes W4-A actions:
 
 - missing count
 - availability rescan
@@ -142,22 +156,24 @@ Processing remains:
 
 ```text
 StudioController
-  → StudioEngine
-    → RawEngine
-      → Rust C ABI
+  -> StudioEngine
+    -> RawEngine
+      -> Rust C ABI
 ```
 
-W4 does not add RAW demosaic/debayer or PixelCraft processing code.
+W4 adds no RAW demosaic/debayer or PixelCraft processing code.
 
 ## Tests
 
-`test/workplaces/asset_browser_controller_test.dart` covers W3 state behavior plus W4 cases:
+`test/workplaces/asset_browser_controller_test.dart` covers W3 state behavior plus W4-A cases:
 
 - missing detection persistence
 - availability recovery
 - single-asset relink with stable asset ID
 - batch folder relink with one folder scan
+- ambiguous duplicate-filename safety
 - catalog-only removal while source-file abstraction remains untouched
+- existing Workplace switching/selection/sorting regression behavior
 
 ## Validation
 
@@ -171,6 +187,21 @@ cargo check
 cargo test
 ```
 
-## Remaining W4 work
+## W4 execution split
 
-After this missing/relink/removal slice, continue with managed-copy recovery, import-batch recovery, thumbnail-cache hardening and representative large-catalog profiling before declaring W4 complete.
+```text
+W4-A / PR #12
+  missing detection
+  disconnected-volume behavior
+  Locate Missing File
+  Locate Missing Folder
+  catalog-only removal
+
+W4-B / next
+  managed destination/copy recovery
+  import-batch recovery/retry
+  thumbnail/cache hardening
+  representative large-catalog profiling
+```
+
+Do not declare W4 complete at the W4-A merge boundary. W4-B remains required unless explicitly moved to a later documented milestone.
