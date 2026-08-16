@@ -25,7 +25,8 @@ W4_VALIDATION_SCRIPT := tool/w4-desktop-validation.sh
 DEVICE ?=
 
 .PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
-	pub-get rust-fetch rust-check rust-test rust-build analyze flutter-test test check validate \
+	pub-get format-check analyze test-fast flutter-test rust-fetch rust-format-check rust-clippy rust-check rust-test rust-build \
+	scripts-check ci-fast preflight test check validate \
 	w4-validation-preflight w4-validation-automated \
 	android-arm64 android-native macos-native ios-native apple-native \
 	run run-android run-macos run-ios ios-build-nosign \
@@ -87,29 +88,51 @@ setup-apple: ## Configure signing and install/check macOS+iOS Rust/Xcode tools
 pub-get: ## Run flutter pub get
 	$(FLUTTER) pub get
 
+format-check: ## Check Dart formatting without modifying files
+	@paths="lib test"; if [ -d integration_test ]; then paths="$$paths integration_test"; fi; dart format --output=none --set-exit-if-changed $$paths
+
+analyze: ## Run Flutter static analysis
+	$(FLUTTER) analyze --fatal-infos
+
+test-fast: ## Run fast Flutter unit/widget tests
+	$(FLUTTER) test test
+
+flutter-test: ## Run all standard Flutter tests
+	$(FLUTTER) test
+
 rust-fetch: ## Download Rust dependencies without building
 	cd $(RUST_DIR) && $(CARGO) fetch
 
+rust-format-check: ## Check Rust formatting without modifying files
+	cd $(RUST_DIR) && $(CARGO) fmt --all -- --check
+
+rust-clippy: ## Run Rust clippy with warnings denied
+	cd $(RUST_DIR) && $(CARGO) clippy --locked --all-targets -- -D warnings
+
 rust-check: ## Run cargo check for raw-engine
-	cd $(RUST_DIR) && $(CARGO) check
+	cd $(RUST_DIR) && $(CARGO) check --locked
 
 rust-test: ## Run Rust unit tests
-	cd $(RUST_DIR) && $(CARGO) test
+	cd $(RUST_DIR) && $(CARGO) test --locked
 
 rust-build: ## Build native Rust library in release mode for the host
-	cd $(RUST_DIR) && $(CARGO) build --release
+	cd $(RUST_DIR) && $(CARGO) build --release --locked
 
-analyze: ## Run Flutter static analysis
-	$(FLUTTER) analyze
+scripts-check: ## Syntax-check repository shell scripts
+	@bash -n tool/*.sh
 
-flutter-test: ## Run Flutter tests
-	$(FLUTTER) test
+ci-fast: pub-get scripts-check format-check analyze test-fast rust-format-check rust-clippy rust-check ## Match the cheap PR gate locally
+	@echo
+	@echo "Fast CI preflight PASS"
+
+preflight: ci-fast ## Recommended command before pushing
+
 
 test: rust-test flutter-test ## Run all Rust and Flutter tests
 
-check: rust-check analyze ## Run fast Rust + Flutter checks
+check: rust-format-check rust-clippy rust-check analyze ## Run Rust + Flutter static checks
 
-validate: pub-get rust-check rust-test analyze flutter-test ## Full local validation gate
+validate: pub-get scripts-check format-check rust-format-check rust-clippy rust-check rust-test analyze flutter-test ## Full local validation gate
 	@echo
 	@echo "Nixin validation PASS"
 
