@@ -26,6 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate W4 shell tooling
+        run: bash -n tool/w4-desktop-validation.sh
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

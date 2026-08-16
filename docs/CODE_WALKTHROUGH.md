@@ -1,8 +1,8 @@
 # Dextryx Images — Code Walkthrough
 
-Current code orientation for `dexter-cnx/nixin` during **W4 Desktop Catalog Hardening**.
+Current code orientation for `dexter-cnx/nixin` after **W4-B2 Desktop Catalog Hardening**.
 
-Detailed W4 rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`. Physical desktop gates live in `docs/W4_DESKTOP_VALIDATION.md`.
+Detailed W4 rules live in `docs/W4_DESKTOP_CATALOG_HARDENING.md`. Physical desktop gates live in `docs/W4_DESKTOP_VALIDATION.md`; execution/evidence steps live in `docs/W4_VALIDATION_RUNBOOK.md`.
 
 ## Bootstrap and ownership
 
@@ -84,6 +84,8 @@ The cache accepts only `AssetMediaType.raster` for source generation. RAW assets
 
 ```text
 raster effectivePath
+  -> stat source
+  -> bounded generation queue
   -> async read
   -> compute(_encodeThumbnail)
   -> image decode/resize off synchronous widget build
@@ -91,26 +93,31 @@ raster effectivePath
   -> JPEG quality 82
   -> <cache-key>.jpg.partial
   -> rename to <cache-key>.jpg
+  -> awaited prune
 ```
 
-`compute(...)` keeps the decode/resize work away from the synchronous Grid build path.
+`compute(...)` keeps decode/resize work away from the synchronous Grid build path. Distinct raster generations are bounded (default two at a time), while duplicate requests for the same cache path share one in-flight Future.
 
 ### Cache identity / invalidation
 
-Generated cache name:
+Generated cache identity combines:
 
 ```text
-<safe-asset-id>-<modifiedAt.microsecondsSinceEpoch>.jpg
+stable AssetRecord.id
+persisted AssetRecord.modifiedAt
+current source file modified time
+current source file size
 ```
 
-A changed persisted `modifiedAt` creates a new version key. When that version is generated, older generated versions for the same asset ID are removed.
+The source is stat-checked again around the read. If the file changes while generation is in progress, that generation is discarded instead of committing a stale cache entry. When a new version is generated, older generated versions for the same asset ID are removed.
 
-### Concurrency and failure behavior
+### Cache validation and failure behavior
 
-- one in-flight Future per cache path prevents duplicate concurrent generation;
-- empty/truncated generated JPEG cache entries are discarded and regenerated;
+- generated JPEG entries are decode-validated before reuse, not accepted from marker bytes alone;
+- invalid/corrupt entries are deleted and regenerated;
 - missing source assets are not decoded;
 - read/write/delete/prune failures are soft failures;
+- prune is awaited so no maintenance Future escapes thumbnail/test lifecycle;
 - cache failures never make the catalog unavailable;
 - source originals are never modified.
 
@@ -164,9 +171,10 @@ Cover managed-root validation, copy collision/cleanup, restart-safe batch restor
 
 `test/workplaces/asset_thumbnail_cache_test.dart` covers:
 
-- concurrent generation deduplication;
-- version invalidation through `modifiedAt`;
-- corrupt/truncated cache regeneration;
+- same-version concurrent request deduplication;
+- distinct generation concurrency cap;
+- source metadata invalidation;
+- corrupt cache regeneration;
 - RAW decoder exclusion;
 - missing-original exclusion;
 - oldest-first pruning to configured entry bounds.
@@ -183,19 +191,27 @@ Cover managed-root validation, copy collision/cleanup, restart-safe batch restor
 
 Stopwatch metrics are captured for diagnostics, but CI does not use machine-specific millisecond thresholds that would be flaky across runners.
 
-## Validation
+## Validation tooling
+
+`tool/w4-desktop-validation.sh` standardizes physical validation evidence.
 
 ```bash
-flutter pub get
-flutter analyze
-flutter test
+make w4-validation-preflight
+make w4-validation-automated
+```
 
-cd rust
+`preflight` records commit/branch, dirty state, OS/toolchain, devices and disk/mount snapshot under `build/w4-validation/<timestamp>/`.
+
+`automated` records the same evidence and runs:
+
+```text
+flutter analyze --fatal-infos
+focused Workplaces browser/import/thumbnail/profile tests
 cargo check
 cargo test
 ```
 
-Physical external-volume/manual gates are separate from automated CI and must be recorded in `docs/W4_DESKTOP_VALIDATION.md`.
+CI syntax-checks the shell runner with `bash -n`. The tooling deliberately does not mark D1-D8 physical gates PASS.
 
 ## W4 execution split
 
@@ -206,10 +222,13 @@ W4-A  / PR #12 / merged
 W4-B1 / PR #13 / merged
   managed destination/copy recovery + import-batch recovery
 
-W4-B2 / current
+W4-B2 / PR #14 / merged
   raster thumbnail cache hardening
   large-catalog structural/profile gates
-  desktop external-volume validation checklist
+
+CURRENT
+  validation tooling
+  physical D1-D8 removable-volume/UI evidence
 ```
 
-W4 should not be declared fully validated until CI/review is clean and real desktop evidence exists for the manual external-volume gates.
+W4 code/review/CI is complete through PR #14. The milestone remains physically **NOT VALIDATED** until D1-D8 are run on a real desktop filesystem or an explicit documented deferral is approved.

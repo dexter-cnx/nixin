@@ -14,9 +14,10 @@
 - **W3 Workplace Browser + Filmstrip: merged in PR #11**
 - **W4-A missing/relink/catalog-removal hardening: merged in PR #12**
 - **W4-B1 managed/import recovery: merged in PR #13**
-- W4-B1 merge commit on `main`: `070aa61c069238969aae99da6bd5dd0bb97730e4`
-- Current branch: `feature/w4b-thumbnail-catalog-profiling`
-- Current milestone: **W4-B2 — Thumbnail/cache + large-catalog hardening**
+- **W4-B2 thumbnail/cache + large-catalog hardening: merged in PR #14**
+- W4-B2 merge commit on `main`: `f05a11590ad21320ebe02d2d7be55c990cea9fe0`
+- Current branch: `feature/w4-desktop-validation-tooling`
+- Current milestone: **W4 desktop physical validation**
 - Detailed W4 guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
 - Desktop validation checklist: `docs/W4_DESKTOP_VALIDATION.md`
 - Real RAW demosaic/debayer and other new image-processing work remain deferred.
@@ -27,7 +28,7 @@ Dextryx Images owns Workplaces, catalog identity, import/storage organization, t
 
 PixelCraft / Dextryx Pixels remains processing authority. Do not duplicate its processing roadmap here.
 
-## Completed — W1 through W4-B1
+## Completed — W1 through W4-B2 code
 
 W1 established Workplace/AssetRecord persistence and lifecycle.
 
@@ -39,52 +40,49 @@ W4-A added asynchronous missing-file detection, disconnected-volume behavior, si
 
 W4-B1 added validated managed destinations, collision-safe/atomic managed copies, cleanup after copy/catalog failures, restart-safe ImportBatch restoration/retry, original-Workplace retry gating and preservation of user-selected storage preferences.
 
-## Current — W4-B2 Thumbnail/cache + large-catalog hardening
+W4-B2 added catalog-level raster thumbnail caching and representative large-catalog profile gates:
 
-Current branch implements:
+- existing persisted `thumbnailPath` / `previewPath` take precedence;
+- raster thumbnail generation is lazy and isolated from RAW processing ownership;
+- RAW assets do not enter the raster source decoder path;
+- raster decode/resize runs through `compute(...)`;
+- distinct thumbnail generation is concurrency-bounded, while duplicate requests share one in-flight Future;
+- generated cache keys include stable asset identity plus persisted version and current source file metadata (`mtime` + size), so externally changed/replaced sources invalidate stale cache entries;
+- generated JPEG cache entries are decode-validated before reuse; corrupt entries are removed/regenerated;
+- writes use `.partial` -> rename and cache maintenance is best-effort/non-fatal;
+- pruning defaults to 2,048 files / 512 MiB;
+- 5,000-asset fixtures cover Workplace load/sort and availability scans;
+- availability concurrency is bounded at 32 and persistence write amplification is regression-tested.
 
-### Thumbnail/cache
+## Current — W4 desktop physical validation
 
-- `AssetThumbnailCache` is a catalog/browser service separate from RAW processing;
-- existing persisted `thumbnailPath` / `previewPath` still take precedence;
-- raster assets without an existing preview can lazily generate a browser thumbnail;
-- RAW assets do **not** enter the raster decoder path and continue to rely on existing embedded/persisted preview boundaries;
-- raster decode/resize runs through `compute(...)`, outside the UI-critical synchronous build path;
-- generated thumbnails are capped to 512 px on the longest edge and encoded as JPEG;
-- cache writes use `<final>.partial` followed by rename;
-- concurrent requests for the same asset/version share one in-flight generation Future;
-- cache keys include stable asset ID plus persisted `modifiedAt`, so a new asset version gets a new cache key;
-- stale versions for the same asset are removed when a new version is generated;
-- invalid/truncated generated JPEG cache files are discarded and regenerated;
-- cache failures are soft failures and never make the Workplace catalog unavailable;
-- cache pruning defaults to 2,048 files / 512 MiB and removes oldest entries first;
-- missing assets are not decoded from unavailable originals.
+The remaining W4 blocker is real desktop evidence, not additional image-processing work.
 
-### Large-catalog profile gates
-
-Representative automated fixtures now exercise:
-
-- 5,000-asset Workplace load;
-- 5,000-asset in-memory sort;
-- 5,000-asset availability scan;
-- availability concurrency bound of 32;
-- zero persistence writes when availability state is unchanged;
-- exact write amplification when only a subset changes missing state;
-- elapsed load/sort/scan metrics are captured by the profile tests for diagnosis.
-
-These are structural regression/profile gates rather than fragile machine-specific latency thresholds.
-
-### Desktop external-volume validation
-
-`docs/W4_DESKTOP_VALIDATION.md` defines the physical/manual gates for:
+`docs/W4_DESKTOP_VALIDATION.md` defines D1–D8 physical/manual gates for:
 
 - linked external-volume disconnect/reconnect;
-- managed destination disconnect before import;
-- managed destination disconnect during import;
+- managed destination missing before import;
+- managed destination disappearing during import;
 - replacement managed destination;
 - restart recovery of persisted running/failed batches;
-- cache corruption/recovery;
-- representative large-catalog interaction while background availability/cache work occurs.
+- thumbnail cache corruption/recovery and RAW boundary;
+- representative large-catalog interaction;
+- catalog-only removal safety.
+
+Current validation status remains **NOT VALIDATED** until those gates are run on a real desktop filesystem.
+
+### Validation tooling
+
+`tool/w4-desktop-validation.sh` and Make targets provide reproducible evidence capture:
+
+```text
+make w4-validation-preflight
+make w4-validation-automated
+```
+
+They record the current commit/branch, dirty-state, OS/toolchain/device information and disk state. The automated mode additionally runs Flutter analysis, focused W4 Workplaces tests, Rust check/test and writes logs beneath `build/w4-validation/<timestamp>/`.
+
+The tooling does not mark D1–D8 PASS by itself; removable-volume/UI gates still require observed physical evidence.
 
 ## W4 guardrails
 
@@ -121,7 +119,7 @@ cargo check
 cargo test
 ```
 
-W4-B2 additionally includes the large-catalog profile tests under `test/workplaces/catalog_profile_test.dart`.
+W4-B2 additionally includes `test/workplaces/catalog_profile_test.dart` and thumbnail-cache regression tests.
 
 ## Documentation map
 
@@ -130,15 +128,12 @@ docs/PROJECT_HANDOFF.md                    canonical project status / execution 
 docs/CODE_WALKTHROUGH.md                   current code ownership and data flow
 docs/W4_DESKTOP_CATALOG_HARDENING.md       W4 implementation/recovery/acceptance guide
 docs/W4_DESKTOP_VALIDATION.md              W4 physical desktop validation checklist
+tool/w4-desktop-validation.sh               environment/evidence + focused automated runner
 ```
 
 ## W4 completion boundary
 
-W4-B2 code is complete only after:
-
-1. thumbnail/cache and profile tests are green in CI;
-2. review findings are resolved;
-3. desktop/manual gates in `docs/W4_DESKTOP_VALIDATION.md` are either recorded PASS or explicitly documented as deferred/manual follow-up.
+Code/review/CI for W4-B2 are complete. W4 as a milestone is complete only after desktop/manual D1–D8 gates are recorded PASS, or a gate is explicitly approved/documented as deferred with rationale.
 
 Do not claim physical external-volume gates passed without real desktop evidence.
 
@@ -151,7 +146,8 @@ Only after catalog workflows stabilize. Dextryx Images remains catalog authority
 ```text
 DONE      W4-A  PR #12 missing/relink/catalog-removal hardening
 DONE      W4-B1 PR #13 managed destination/copy + import-batch recovery
-CURRENT   W4-B2 thumbnail/cache + large-catalog profile gates
-GATE      desktop/manual external-volume validation
+DONE      W4-B2 PR #14 thumbnail/cache + large-catalog profile gates
+CURRENT   validation tooling + physical D1-D8 desktop gates
+BLOCKER   real desktop/removable-volume evidence for W4 completion
 FUTURE    PixelCraft external-editor contract
 ```

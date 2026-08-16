@@ -21,10 +21,12 @@ RUST_RELEASE_DIR := $(RUST_DIR)/target/release
 SETUP_SCRIPT := tool/setup-project.sh
 APPLE_BUILD_SCRIPT := tool/build-apple-native.sh
 CONFIGURE_IDS_SCRIPT := tool/configure-identifiers.sh
+W4_VALIDATION_SCRIPT := tool/w4-desktop-validation.sh
 DEVICE ?=
 
 .PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
 	pub-get rust-fetch rust-check rust-test rust-build analyze flutter-test test check validate \
+	w4-validation-preflight w4-validation-automated \
 	android-arm64 android-native macos-native ios-native apple-native \
 	run run-android run-macos run-ios ios-build-nosign \
 	clean clean-rust clean-flutter distclean
@@ -110,6 +112,12 @@ check: rust-check analyze ## Run fast Rust + Flutter checks
 validate: pub-get rust-check rust-test analyze flutter-test ## Full local validation gate
 	@echo
 	@echo "Nixin validation PASS"
+
+w4-validation-preflight: ## Record host/toolchain evidence before W4 physical desktop validation
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(W4_VALIDATION_SCRIPT) preflight
+
+w4-validation-automated: ## Run focused W4 automated gates and capture evidence
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(W4_VALIDATION_SCRIPT) automated
 
 android-arm64: configure-identifiers ## Build raw-engine .so for Android arm64-v8a
 	@command -v cargo-ndk >/dev/null 2>&1 || { echo "ERROR: cargo-ndk is required. Run: make setup-android"; exit 1; }
