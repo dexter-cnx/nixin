@@ -1,463 +1,409 @@
-# Nixin Studio V8 — Code Walkthrough
+# Dextryx Images — Code Walkthrough
 
-This walkthrough documents the Flutter-side workspace foundation implemented in `feature/studio-workspace-redesign` for UI-01 through UI-08.
+This document describes the current code structure of `dexter-cnx/nixin` after the completed Studio workspace milestones and W1 Workplace Core foundation. It distinguishes implemented code from behavior that is actually reachable through the live application.
 
-## 1. Startup flow
+## 1. Application bootstrap
 
-`lib/main.dart` is now bootstrap-only.
-
-Startup sequence:
+`lib/main.dart` initializes:
 
 ```text
-WidgetsFlutterBinding.ensureInitialized()
-  → EasyLocalization.ensureInitialized()
-  → Hive.initFlutter()
-  → Hive.openBox("studio_settings")
-  → ProviderScope
-  → EasyLocalization
-  → NixinApp
+WidgetsFlutterBinding
+EasyLocalization
+Hive
+  ├─ studio_settings
+  ├─ workplaces
+  └─ assets
+ProviderScope
+EasyLocalization
+NixinApp
 ```
 
-This keeps initialization concerns out of the editor page and ensures Riverpod/Hive/localization are ready before studio providers are created.
+Opening Hive boxes does not initialize Riverpod providers by itself.
 
-## 2. App root
+## 2. Current live application root
 
-`lib/app/nixin_app.dart` owns the application shell:
-
-- `MaterialApp`
-- dark studio theme
-- localization delegates
-- supported locales
-- current locale
-- `StudioPage` as the workspace root
-
-The app root does not know how RAW development or FFI works.
-
-## 3. Theme and responsive tokens
-
-`lib/app/theme/studio_theme.dart` centralizes:
-
-- neutral workspace palette
-- panel/surface/divider colors
-- typography density
-- spacing and radius scales
-- module/status bar dimensions
-- global compact Material density
-
-Responsive composition thresholds and Flex ratios live with the studio state/layout model rather than being scattered through widgets.
-
-## 4. Native engine boundary
-
-### `lib/engine/engine_image.dart`
-
-`EngineImage` is a simple result model:
+`lib/app/nixin_app.dart` currently builds:
 
 ```text
-RGBA bytes
-width
-height
+MaterialApp
+  → StudioPage
 ```
 
-It has no Flutter widget responsibility.
+This is important: the live app does **not** currently watch `workplaceControllerProvider`.
 
-### `lib/engine/raw_engine.dart`
+Because Riverpod providers are lazy, merely defining `workplaceControllerProvider` does not instantiate `WorkplaceController`, and therefore does not run `WorkplaceController.initialize()` during a normal app launch.
 
-`StudioEngine` defines the operations the Flutter studio is allowed to call:
+That wiring gap is the first implementation item in W2.
+
+## 3. Top-level structure
 
 ```text
-checkEngine
-version
-lastError
-develop
-subjectMask
-skyMask
-applyLut
-exportJpeg
+lib/
+  main.dart
+  app/
+  engine/
+  studio/
+  workplaces/
 ```
 
-`RawEngine` is the concrete FFI implementation.
-
-The important boundary is:
+Responsibilities:
 
 ```text
-StudioController → StudioEngine
+app/         application shell, theme, localization root
+engine/      native image-processing boundary and FFI implementation
+studio/      current live workspace and existing processing interactions
+workplaces/  catalog domain, repositories, persistence, controller foundation
 ```
 
-rather than:
+## 4. Native processing path
+
+The existing processing dependency direction is:
 
 ```text
-Widget → DynamicLibrary / C functions
+Studio UI
+  → StudioController
+    → StudioEngine
+      → RawEngine
+        → Rust C ABI
 ```
 
-This makes UI tests independent of the native library.
+Widgets must not call native functions directly.
 
-## 5. FFI memory ownership
+The current Rust/Studio path supports the already-existing embedded RAW preview/raster decode, adjustments, masks, LUT, and JPEG export behavior. Real sensor RAW development remains deferred.
 
-`RawEngine` preserves the original memory ownership rules:
+## 5. FFI ownership
 
 ```text
 Dart UTF-8 input
-  → allocated with calloc
-  → passed to Rust
-  → freed by Dart
+  → calloc
+  → Rust call
+  → Dart frees with calloc.free()
 
 Rust string output
-  → CString::into_raw
-  → converted to Dart String
-  → freed with free_string_rust
+  → CString::into_raw()
+  → Dart converts
+  → free_string_rust()
 
 Rust ImageBuffer
-  → read width/height/len/data
-  → copy RGBA bytes into Dart-owned Uint8List
-  → free_image_buffer
+  → Dart reads metadata/data
+  → Dart copies RGBA bytes
+  → free_image_buffer()
 ```
 
-The Dart side validates:
+Dart validates:
 
 ```text
 len == width * height * 4
 ```
 
-before accepting a returned RGBA buffer.
+before accepting returned RGBA data.
 
-## 6. Studio state
+## 6. Studio layer
 
-`lib/studio/studio_state.dart` defines immutable `StudioState`.
+`lib/studio/` is still the live UI root today.
 
-Important fields:
+It owns existing:
+
+- Studio state/controller
+- preview surface
+- responsive workspace composition
+- Develop actions
+- Subject/Sky mask actions
+- LUT flow
+- JPEG export
+- existing Filmstrip behavior
+
+W2–W4 should preserve this path as a regression boundary while progressively making catalog state authoritative.
+
+## 7. Workplaces domain
+
+Current domain files:
 
 ```text
-engineReady
-engineVersion
-rawPath
-previewPng
-imageWidth
-imageHeight
-previewStatus
+lib/workplaces/domain/
+  workplace.dart
+  asset_record.dart
+  repositories/
+    workplace_repository.dart
+    asset_repository.dart
+```
+
+### `Workplace`
+
+Logical catalog/container identity. It is not a physical-folder alias.
+
+### `AssetRecord`
+
+Catalog identity and storage metadata for an image/RAW asset. It is distinct from runtime Studio preview/editor state.
+
+## 8. Repository boundary
+
+The dependency direction is:
+
+```text
+application/controller
+  → repository interface
+    → Hive implementation
+```
+
+Concrete implementations:
+
+```text
+lib/workplaces/data/hive/
+  hive_workplace_repository.dart
+  hive_asset_repository.dart
+```
+
+Widgets should not read/write Hive directly.
+
+Current Hive boxes:
+
+```text
+studio_settings
+workplaces
+assets
+```
+
+## 9. WorkplaceController
+
+`lib/workplaces/application/workplace_controller.dart` defines:
+
+```text
+WorkplaceState
+WorkplaceController
+workplaceControllerProvider
+workplaceRepositoryProvider
+assetRepositoryProvider
+```
+
+`WorkplaceState` owns:
+
+```text
+workplaces
+currentWorkplaceId
+loading
 errorMessage
-statusMessage
-exportQuality
-activeModule
-leftPanelVisible
-rightPanelVisible
 ```
 
-`PreviewStatus` has four explicit states:
+The controller implements:
 
 ```text
-empty
-processing
-ready
-error
+initialize()
+createWorkplace(name)
+switchWorkplace(id)
+renameWorkplace(id, name)
+deleteWorkplace(id)
 ```
 
-This prevents widgets from inferring processing state from unrelated fields.
+`initialize()` implements this logic:
 
-`copyWith(clearPreview: true)` clears preview bytes and dimensions when another RAW file becomes active.
+```text
+load Workplaces
+  → if empty, create "My workplace"
+  → restore current Workplace ID
+  → repair invalid/missing current ID
+  → persist current ID
+  → publish state
+```
 
-## 7. Ratio-based layout model
+Important invariant:
 
-The editor chooses its composition using:
+```text
+At least one Workplace must remain.
+```
+
+Deleting a Workplace removes its catalog records through `AssetRepository`; it does not imply deleting original files.
+
+## 10. Implemented foundation vs live behavior
+
+The following are implemented/testable through `WorkplaceController` and repositories:
+
+- default Workplace creation logic
+- persistence/restoration logic
+- Workplace CRUD commands
+- last-Workplace invariant
+- Asset persistence boundary
+
+They are **not yet live end-user behavior**, because the current `NixinApp → StudioPage` tree does not consume `workplaceControllerProvider`.
+
+Current reality:
+
+```text
+Live app
+  → StudioPage
+  → studioControllerProvider
+
+Workplace foundation
+  → workplaceControllerProvider
+  → not yet mounted/consumed by live app
+```
+
+Any documentation or test plan must preserve this distinction until W2 wires the provider into the real application.
+
+## 11. W2.0 target — live Workplace wiring
+
+First W2 step:
+
+```text
+Live application/workspace
+  → watch workplaceControllerProvider
+  → initialize WorkplaceController
+  → expose current Workplace context
+```
+
+Required outcomes:
+
+- real fresh launch creates `My workplace`
+- restart restores the active Workplace
+- current Workplace is observable by the live UI
+- Workplace CRUD/switching is reachable through the application
+- current Studio behavior does not regress
+
+Add widget/integration tests that mount the real provider path; controller-only tests are not sufficient for this acceptance gate.
+
+## 12. W2.1 target — Import System
+
+Once Workplace state is live, add import orchestration above repository boundaries:
+
+```text
+Import UI
+  → ImportController / ImportService
+    → source discovery
+    → supported-format filtering
+    → duplicate checks
+    → optional managed copy
+    → metadata/catalog creation
+    → AssetRepository
+```
+
+Durable flow:
+
+```text
+Select source
+  → discover candidates
+  → filter supported types
+  → normalize paths
+  → check duplicates
+  → copy when managed mode is selected
+  → read basic metadata
+  → create AssetRecord
+  → generate/cache preview when appropriate
+  → publish into current Workplace
+```
+
+Expected W2 concepts:
+
+```text
+ImportBatch
+ImportState
+ImportController / ImportService
+linked/add mode
+managed/copy mode
+progress
+cancellation
+partial-failure handling
+```
+
+File picker and filesystem work belong in application/service boundaries, not leaf widgets.
+
+## 13. W3 target — shared Browser/Filmstrip state
+
+The target relationship is:
+
+```text
+Current Workplace
+       ↓
+Ordered Asset Query
+       ├─ Workplace Grid
+       └─ Filmstrip
+
+selectedAssetId
+       ├─ Grid highlight
+       ├─ Filmstrip highlight
+       └─ Develop current asset
+```
+
+Do not create separate asset collections or independent selection truth for Grid and Filmstrip.
+
+The existing Filmstrip should be evolved rather than duplicated.
+
+## 14. Preview boundary
+
+Workplaces should not depend directly on future RAW processing internals.
+
+Conceptual boundary:
 
 ```dart
-viewportRatio = width / height;
+abstract interface class AssetPreviewProvider {
+  Future<Uint8List?> thumbnail(AssetRecord asset);
+}
 ```
 
-`layoutModeForRatio()` returns:
+During W2–W4:
+
+- RAW previews may continue using embedded JPEGs
+- raster images may use existing raster decode
+- caching may evolve independently
+- real RAW demosaic/debayer remains out of scope
+
+## 15. Removal semantics
+
+Keep catalog removal and filesystem deletion separate:
 
 ```text
-wide
-medium
-compact
+Remove from Workplace
 ```
 
-Current ratio tokens:
+is not equivalent to:
 
 ```text
-wideMinAspect   = 1.65
-mediumMinAspect = 1.15
+Move Original to Trash
 ```
 
-### Wide
+No Workplace/catalog operation should silently delete source originals.
 
-```text
-left : center : right
-18   : 60     : 22
-```
+## 16. Localization
 
-All three workspace regions can be present.
-
-### Medium
-
-```text
-center : right
-70     : 30
-```
-
-The permanent left context panel is removed so the preview keeps useful visual area. RAW import remains available elsewhere in the chrome.
-
-### Compact
-
-The preview becomes the primary surface and tool controls are presented through an overlay sheet.
-
-This avoids tying device behavior to fixed pixel widths.
-
-## 8. Riverpod controller
-
-`lib/studio/studio_controller.dart` owns editor actions through `StudioController`, exposed by:
-
-```dart
-studioControllerProvider
-```
-
-Widgets watch immutable state:
-
-```dart
-ref.watch(studioControllerProvider)
-```
-
-and invoke behavior through:
-
-```dart
-ref.read(studioControllerProvider.notifier)
-```
-
-The controller performs these responsibilities:
-
-- initialize engine readiness/version
-- select RAW files
-- clear stale preview when RAW selection changes
-- run develop/mask operations
-- select and apply LUT files
-- export JPEG files
-- normalize native errors into `StudioState`
-- switch modules
-- toggle panel visibility
-- clamp and store export quality
-
-## 9. Settings abstraction and Hive
-
-Production persistence uses Hive but the controller does not depend directly on the full Hive `Box` API.
-
-The boundary is:
-
-```text
-StudioSettingsStore
-  ↑
-HiveStudioSettingsStore
-```
-
-Production provider flow:
-
-```text
-studioSettingsBoxProvider
-  → studioSettingsStoreProvider
-  → StudioController
-```
-
-Stored values:
-
-```text
-activeModule
-leftPanelVisible
-rightPanelVisible
-exportQuality
-```
-
-Not persisted:
-
-```text
-RAW file path
-preview PNG
-RGBA buffers
-processing state
-errors
-```
-
-The abstraction also lets unit tests use a small in-memory fake store.
-
-## 10. Studio page composition
-
-`lib/studio/studio_page.dart` is responsible for composing regions, not processing images.
-
-High-level build flow:
-
-```text
-StudioPage
-  → LayoutBuilder
-  → calculate width / height ratio
-  → layoutModeForRatio()
-  → StudioModuleBar
-  → selected workspace composition
-  → StudioStatusBar
-```
-
-Wide, medium, and compact compositions are separate widgets so responsive behavior remains explicit and testable.
-
-## 11. Workspace widgets
-
-`lib/studio/studio_widgets.dart` contains reusable workspace primitives.
-
-### `StudioModuleBar`
-
-Owns:
-
-- application identity
-- Library / Develop / Export module actions
-- primary RAW import access where required
-- panel visibility controls where the composition supports them
-
-### `StudioPanel`
-
-Provides the shared panel surface and divider behavior.
-
-### `StudioPanelSection`
-
-Provides accordion-style collapsible sections with a reusable animation/interaction contract.
-
-### `PreviewWorkspace`
-
-Maps `PreviewStatus` to visible behavior:
-
-```text
-empty       → empty-state message
-processing  → preview/loading overlay
-ready       → Image.memory preview
-error       → explicit error state
-```
-
-### `StudioStatusBar`
-
-Shows contextual information such as:
-
-- current filename
-- image dimensions
-- engine status/version
-- operation status
-
-### `ActionButton`
-
-Normalizes compact full-width editor actions and disabled-state behavior.
-
-## 12. Existing feature mapping
-
-The refactor moved existing capabilities rather than inventing unsupported controls.
-
-```text
-Open RAW
-  → module bar / Navigator context
-
-Develop
-  → Tools panel
-
-Subject Mask
-  → Tools panel
-
-Sky Mask
-  → Tools panel
-
-Apply LUT
-  → Presets context
-
-JPEG Quality
-  → Export settings
-
-Export JPEG
-  → Export action
-```
-
-All native signatures remain unchanged for UI-01 through UI-08.
-
-## 13. Localization flow
-
-Visible workspace strings use translation keys through `easy_localization`.
-
-Resources:
+Visible UI strings use `easy_localization` with:
 
 ```text
 assets/translations/en.json
 assets/translations/th.json
 ```
 
-Typical usage:
+New Workplace/import UI strings should be translation keys.
 
-```dart
-'action.open_raw'.tr()
-'panel.tools'.tr()
-```
+## 17. Test strategy
 
-Do not embed new user-facing strings directly in studio widgets unless the string is intentionally non-localized technical output.
-
-## 14. Test architecture
-
-### `test/studio/studio_state_test.dart`
-
-Covers pure state/layout behavior:
-
-- wide/medium/compact ratio selection
-- threshold boundaries
-- filename derivation
-- clearing preview bytes/dimensions
-- clearing errors
-
-### `test/studio/studio_controller_test.dart`
-
-Uses:
-
-```text
-_MemorySettings
-_FakeEngine
-```
-
-No native library is loaded.
-
-Covers:
-
-- restoring persisted settings
-- persisting module/panel/export quality
-- clamping export quality
-- resetting old preview on new RAW selection
-- develop action routing
-- preview result publication
-- engine error publication
-- engine-unavailable initialization
-
-### `test/studio/studio_widgets_test.dart`
-
-Covers reusable widget behavior:
-
-- panel section collapse/restore
-- disabled action behavior
-
-Run:
-
-```bash
-flutter test
-```
-
-## 15. Why the test seams matter
-
-Before the extraction, editor behavior lived close to FFI and widgets, making tests likely to require a real native library.
-
-The new structure creates deterministic seams:
+Current seams:
 
 ```text
 Widget tests
-  → do not need FFI
+  → application/UI wiring
 
-Controller tests
-  → fake StudioEngine
-  → fake StudioSettingsStore
+Controller/service tests
+  → repository fakes
 
-Native tests
-  → remain in Rust / integration validation
+Repository tests
+  → Hive persistence
+
+Rust tests
+  → native processing/core behavior
 ```
 
-This means visual/state refactors can be tested independently from Rust packaging and platform linking.
+W2.0 specifically requires tests proving the real live app/provider path initializes Workplace state.
 
-## 16. Validation order
+W2.1 should add tests for:
 
-Recommended local validation:
+- import state transitions
+- duplicate rules
+- path normalization
+- linked/managed decisions
+- cancellation
+- partial failures
+- restart persistence
+
+## 18. Validation gate
 
 ```bash
 flutter pub get
@@ -469,34 +415,29 @@ cargo check
 cargo test
 ```
 
-Then manually validate at least:
+Manual regression coverage during W2–W4:
 
-- launch
-- locale initialization
-- Hive preference restore
-- RAW selection
-- develop
-- subject mask
-- sky mask
-- LUT application
+- launch/localization
+- real fresh-launch Workplace initialization once W2.0 lands
+- Workplace create/switch/rename/delete once wired
+- embedded RAW preview
+- raster preview
+- Develop
+- Subject Mask
+- Sky Mask
+- LUT
 - JPEG export
-- wide ratio composition
-- medium ratio composition
-- compact ratio composition
-- panel collapse/restore
+- responsive workspace behavior
 
-## 17. Next UI milestone
-
-The next batch should build on these boundaries instead of bypassing them:
+## 19. Current execution order
 
 ```text
-UI-09  compact editor control primitives
-UI-10  filmstrip foundation
-UI-11  zoom/comparison toolbar
-UI-12  desktop keyboard shortcuts
-UI-13  responsive refinement
-UI-14  expanded widget/golden tests
-UI-15  visual polish
+DONE     W1 Workplace Core foundation
+CURRENT  W2.0 Live Workplace wiring
+THEN     W2.1 Import System
+NEXT     W3 Workplace Browser + Filmstrip
+THEN     W4 Desktop Catalog Hardening
+FUTURE   PixelCraft external-editor contract
 ```
 
-New processing features should first be exposed through `StudioEngine`/controller contracts and only then connected to widgets.
+See `docs/PROJECT_HANDOFF.md` for canonical status and `docs/WORKPLACES_HANDOFF.md` for the detailed Workplaces/import specification.

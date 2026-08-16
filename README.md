@@ -1,260 +1,200 @@
-# Nixin Studio V8
+# Dextryx Images
 
-Nixin Studio V8 is a Flutter + Rust photo-editor foundation with a responsive professional studio workspace. The current image path scans camera RAW container bytes for an **embedded JPEG preview**, returns a real RGBA image buffer over C FFI, and exposes develop, mask, LUT, and JPEG export workflows through a Riverpod-driven Flutter UI.
+**Dextryx Images** (`Dxtr Imgs`) is a Flutter + Rust desktop-first photo catalog and image workflow application.
 
-## Current workspace milestone
+Repository: `dexter-cnx/nixin`
 
-Branch: `feature/studio-workspace-redesign`
+Application/bundle ID:
 
-Implemented scope (`UI-01` → `UI-08`):
+```text
+com.cnxdev.dextryx.images
+```
 
-- extracted Dart FFI/native image handling from `lib/main.dart`
-- introduced `StudioEngine` / `RawEngine` boundary
-- introduced Riverpod `StudioController` + immutable `StudioState`
-- added Hive-backed workspace preferences
-- added `easy_localization` with English and Thai resources
-- added centralized studio colors, spacing, density, metrics, and ratio tokens
-- added module bar, status bar, left context panel, preview workspace, right tool panel
-- added collapsible panel sections
-- moved existing RAW/develop/mask/LUT/export actions into contextual workspace regions
-- added ratio-based responsive composition
-- added unit/widget test suites for state, controller, persistence, fake engine behavior, panel collapse, and ratio selection
+## Current direction
 
-Detailed implementation notes:
+The active product phase is **Workplaces and asset/catalog management**. The goal is to build a durable catalog around the existing Studio/preview pipeline before any new RAW-processing work.
 
-- `docs/STUDIO_WORKSPACE_HANDOFF.md`
-- `docs/CODE_WALKTHROUGH.md`
+The roadmap is:
 
-## What it is
+```text
+DONE     W1 Workplace Core foundation
+CURRENT  W2 Import System + live application wiring
+NEXT     W3 Workplace Browser + Filmstrip
+THEN     W4 Desktop Catalog Hardening
+FUTURE   PixelCraft external-editor contract
+```
 
-- Working Rust embedded-preview processor.
-- Dart FFI bridge with explicit allocator ownership.
-- Real Flutter image display through RGBA → PNG conversion.
-- Riverpod state/controller boundary between widgets and native engine calls.
-- Hive persistence for lightweight workspace preferences.
-- English/Thai localization through `easy_localization`.
-- Responsive studio workspace driven primarily by viewport aspect ratio.
-- Exposure, simple temperature RGB scaling, and contrast in the Rust core.
-- Heuristic subject and sky masks.
-- `.cube` 3D LUT with trilinear interpolation.
-- JPEG export with quality 1–100.
-- Basic XMP sidecar generation through the Rust core API.
+See `docs/PROJECT_HANDOFF.md` for the canonical execution queue and `docs/WORKPLACES_HANDOFF.md` for the detailed catalog/import design.
 
-## What it is not
+## What is implemented today
 
-This is **not** a full RAW developer yet. It does not currently debayer sensor mosaics, perform a complete camera color pipeline, lens correction, highlight recovery, GPU processing, real SAM/ONNX inference, USB/PTP tethered shooting, or production batch processing.
+Existing Studio/Rust capabilities remain available:
 
-The UI intentionally avoids presenting unsupported adjustment controls as functional features.
+- responsive Studio workspace UI-01 through UI-15
+- Flutter ↔ Rust FFI image boundary
+- embedded JPEG preview extraction for supported RAW containers
+- raster preview support
+- exposure / temperature / contrast processing
+- heuristic Subject Mask and Sky Mask
+- `.cube` LUT application
+- JPEG export
+- Riverpod Studio controller/state boundaries
+- Hive-backed Studio preferences
+- English/Thai localization
 
-## Flutter architecture
+W1 added the **Workplace Core foundation** under `lib/workplaces/`:
+
+- `Workplace` domain model
+- `AssetRecord` catalog model
+- `WorkplaceRepository` and `AssetRepository`
+- Hive-backed Workplace/Asset persistence
+- `WorkplaceController` and `WorkplaceState`
+- controller logic for default `My workplace`
+- current Workplace persistence/restoration logic
+- create / switch / rename / delete commands
+- invariant that at least one Workplace remains
+- catalog-only deletion semantics
+
+### Important current wiring state
+
+W1's Workplace foundation is implemented and tested, but it is **not yet wired into the live application UI**.
+
+`NixinApp` still opens `StudioPage`, and the live Studio tree does not yet watch `workplaceControllerProvider`. Because Riverpod providers are lazy, `WorkplaceController.initialize()` is not invoked merely by opening the app today.
+
+Therefore these are currently **controller/domain capabilities**, not yet end-user behavior:
+
+- automatic creation of `My workplace` on a real fresh app launch
+- visible Workplace switching/creation/rename/delete UI
+- active Workplace driving the current Studio selection
+
+Closing this application-wiring gap is the first part of W2.
+
+## Product responsibility
+
+Dextryx Images owns image/catalog management:
+
+```text
+Workplaces
+asset catalog identity
+import and folder discovery
+linked vs managed storage
+asset organization
+thumbnail/preview browsing
+grid / filmstrip selection
+missing / relink workflows
+catalog metadata
+large-library UX
+external-edit orchestration
+```
+
+A **Workplace** is a logical catalog/container, not a physical folder alias.
+
+PixelCraft / Dextryx Pixels owns photo-editing and image-processing semantics. Do not copy PixelCraft UX or processing milestones into this repository. Future Open/Edit in PixelCraft integration is a separate cross-product contract.
+
+## Current architecture
 
 ```text
 main.dart
-  │
-  ├─ EasyLocalization.ensureInitialized()
-  ├─ Hive.initFlutter()
-  ├─ Hive.openBox("studio_settings")
+  ├─ localization
+  ├─ Hive init
+  │    ├─ studio_settings
+  │    ├─ workplaces
+  │    └─ assets
   └─ ProviderScope
-       │
-       ▼
-NixinApp
-  │
-  ├─ StudioTheme
-  ├─ easy_localization delegates / locale
-  └─ StudioPage
-       │
-       ├─ studioControllerProvider
-       │    ├─ StudioState
-       │    ├─ StudioSettingsStore → HiveStudioSettingsStore
-       │    └─ StudioEngine → RawEngine → Dart FFI → Rust
-       │
-       ├─ StudioModuleBar
-       ├─ ratio-based workspace composition
-       │    ├─ left context panel
-       │    ├─ PreviewWorkspace
-       │    └─ right tools/export panel
-       └─ StudioStatusBar
+       └─ NixinApp
+            └─ StudioPage        ← current live root
+
+lib/workplaces/
+  ├─ domain/
+  ├─ data/hive/
+  └─ application/
+       └─ WorkplaceController    ← implemented, not yet consumed by live UI
 ```
 
-Main ownership boundaries:
+The processing path remains:
 
 ```text
-lib/
-  main.dart                         bootstrap only
-  app/
-    nixin_app.dart                  app/localization/theme root
-    theme/studio_theme.dart         design + ratio tokens
-  engine/
-    engine_image.dart               image result model
-    raw_engine.dart                 FFI and StudioEngine implementation
-  studio/
-    studio_state.dart               immutable studio state + ratio layout rules
-    studio_controller.dart          Riverpod actions + settings persistence
-    studio_page.dart                workspace composition
-    studio_widgets.dart             reusable panels/preview/status/actions
-```
-
-Widgets do not call native FFI directly. Processing flows through:
-
-```text
-Widget
+Studio UI
   → StudioController
     → StudioEngine
-      → RawEngine
-        → Rust C ABI
+      → RawEngine / Dart FFI
+        → Rust core
 ```
 
-## State management
+Widgets should not call native FFI or Hive directly.
 
-State management uses `flutter_riverpod`.
+## W2 — Import System + application wiring
 
-`StudioState` currently owns:
+W2 starts by making Workplace state part of the live application, then adds the durable import pipeline defined in `docs/WORKPLACES_HANDOFF.md`.
 
-- engine readiness and version
-- selected RAW path
-- preview PNG bytes and image dimensions
-- preview status: `empty`, `processing`, `ready`, `error`
-- current status/error
-- active workspace module
-- left/right panel visibility
-- JPEG export quality
+Planned scope:
 
-The controller is dependency-injectable, so tests can use a fake engine and an in-memory settings store without loading native libraries.
+- wire `workplaceControllerProvider` into the live app/workspace
+- ensure a real fresh launch initializes `My workplace`
+- expose current Workplace context in application UI/state
+- preserve current Studio behavior while catalog state becomes authoritative
+- Import command replacing the legacy single-file entry path
+- multi-select image/RAW import
+- folder import and recursive discovery
+- supported-format filtering
+- `ImportBatch`
+- asynchronous progress and cancellation
+- duplicate detection
+- linked/add mode
+- desktop managed/copy mode
+- managed destination preference
+- safe partial-failure behavior
+- imported assets persisted to the active Workplace
 
-## Hive persistence
+Acceptance includes proving the Workplace foundation is reachable through the real application, not only through controller tests.
 
-Hive persists only lightweight workspace preferences in the `studio_settings` box:
+## W3 — Workplace Browser + Filmstrip
+
+Planned scope:
+
+- Workplace asset grid
+- thumbnail/preview provider boundary
+- thumbnail cache foundation
+- lazy/virtualized browser
+- one ordered asset source of truth
+- one selected-asset source of truth
+- Grid ↔ Filmstrip synchronization
+- imported assets automatically reflected in Filmstrip
+- basic sorting and missing-asset indicator foundation
+
+## W4 — Desktop Catalog Hardening
+
+Planned scope:
+
+- missing-file detection
+- Locate Missing File / Folder
+- disconnected external-storage behavior
+- managed-storage recovery
+- import/copy failure recovery
+- catalog-only removal semantics
+- large-catalog profiling and performance hardening
+
+Catalog removal and physical deletion must remain separate operations.
+
+## RAW support today
+
+Dextryx Images is **not yet a full sensor RAW developer**.
+
+Supported RAW containers currently rely on embedded JPEG previews when available. Current picker/container coverage includes:
 
 ```text
-activeModule
-leftPanelVisible
-rightPanelVisible
-exportQuality
+ARW
+CR2
+CR3
+NEF
+DNG
+RAF
+ORF
 ```
 
-RAW paths, preview bytes, and image buffers remain runtime state.
+Real sensor decode, demosaic/debayer, linear RAW processing, camera color matrices/profiles, and a complete RAW color pipeline are explicitly deferred during W2–W4.
 
-## Localization
-
-Localization uses `easy_localization`.
-
-Resources:
-
-```text
-assets/translations/en.json
-assets/translations/th.json
-```
-
-Supported locales:
-
-```text
-en
-th
-```
-
-New visible UI strings should be added as translation keys rather than hard-coded in widgets.
-
-## Ratio-based responsive behavior
-
-Responsive mode is selected from the available workspace aspect ratio:
-
-```dart
-viewportRatio = availableWidth / availableHeight;
-```
-
-Current ratio tokens:
-
-```text
-wide      ratio >= 1.65
-medium    ratio >= 1.15 and < 1.65
-compact   ratio < 1.15
-```
-
-The layout does not use fixed pixel widths as its primary mode switch.
-
-Wide composition:
-
-```text
-left : preview : right
-18   : 60      : 22
-```
-
-Medium composition:
-
-```text
-preview : right
-70      : 30
-```
-
-Compact composition keeps the preview dominant and opens tools in an overlay sheet rather than squeezing a desktop three-column workspace into a narrow view.
-
-## Existing action mapping
-
-```text
-Open RAW       → module bar / left Navigator context
-Develop        → right Tools section
-Subject Mask   → right Tools section
-Sky Mask       → right Tools section
-Apply LUT      → left Presets section
-Export JPEG    → right Export section
-JPEG Quality   → right Export settings
-```
-
-All of these continue to use the existing Rust API contract.
-
-## Test suites
-
-Run all Flutter tests:
-
-```bash
-flutter test
-```
-
-Current studio suites:
-
-```text
-test/studio/studio_state_test.dart
-  - ratio mode selection
-  - filename derivation
-  - preview/error clearing semantics
-
-test/studio/studio_controller_test.dart
-  - persisted preference restore
-  - module/panel/export-quality persistence
-  - export quality clamping
-  - RAW selection resets old preview state
-  - fake-engine develop flow
-  - native error propagation
-  - engine-unavailable behavior
-
-test/studio/studio_widgets_test.dart
-  - collapsible panel section behavior
-  - disabled action behavior
-```
-
-The controller tests use `StudioSettingsStore` and a fake `StudioEngine`, so they do not require the Rust dynamic/static library to load.
-
-## Supported picker extensions
-
-ARW, CR2, CR3, NEF, DNG, RAF, ORF.
-
-Support currently depends on the RAW container containing an embedded JPEG preview that the scanner can locate and the Rust `image` crate can decode.
-
-## Limitations
-
-1. Uses an embedded JPEG preview, not RAW sensor debayering.
-2. Some RAW containers may use preview layouts that the JPEG marker scanner does not locate reliably.
-3. Exposure operates on 8-bit preview pixels, so highlight latitude is limited.
-4. Temperature uses simple red/blue scaling rather than chromatic adaptation.
-5. Tint is not implemented.
-6. Shadows/highlights/whites/blacks are not implemented.
-7. Subject mask is heuristic segmentation, not AI.
-8. Sky mask can false-positive on bright or blue non-sky regions.
-9. `.cube` `DOMAIN_MIN`/`DOMAIN_MAX` are parsed but sampling currently assumes normalized 0–1 input.
-10. No GPU path, USB/PTP tethering, real batch queue, color-managed monitor pipeline, or embedded XMP-in-JPEG writer yet.
-11. Filmstrip, advanced zoom/comparison, keyboard workflow, and advanced adjustment panels are follow-up milestones.
-
-## Project setup
+## Setup
 
 Prerequisites:
 
@@ -269,18 +209,7 @@ Bootstrap:
 make setup
 ```
 
-Useful setup targets:
-
-```bash
-make setup-common
-make setup-android
-make setup-apple
-make bootstrap
-```
-
-## Validation
-
-Full local gate:
+Validation:
 
 ```bash
 make validate
@@ -290,87 +219,48 @@ Equivalent core commands:
 
 ```bash
 flutter pub get
+flutter analyze
+flutter test
+
 cd rust
 cargo check
 cargo test
-cd ..
-flutter analyze
-flutter test
 ```
 
-Also manually validate:
+## Platform native builds
 
-- application launch
-- English/Thai initialization
-- Hive preference restore
-- RAW selection
-- develop
-- subject mask
-- sky mask
-- LUT application
-- JPEG export
-- wide / medium / compact ratio compositions
-- side-panel collapse/restore
-
-## Android
+Android:
 
 ```bash
 make android-arm64
 make run-android DEVICE=<flutter-device-id>
 ```
 
-Native output:
-
-```text
-android/app/src/main/jniLibs/arm64-v8a/libraw_engine.so
-```
-
-## macOS
+macOS:
 
 ```bash
 make macos-native
 make run-macos
 ```
 
-Native output:
-
-```text
-macos/Native/libraw_engine.a
-```
-
-Apple platforms link the Rust `staticlib` and resolve C ABI symbols through `DynamicLibrary.process()`.
-
-## iOS
+iOS:
 
 ```bash
 make ios-native
 make ios-build-nosign
-flutter devices
 make run-ios DEVICE=<flutter-device-id>
 ```
 
-Generated native archives:
+The Makefile does not hard-code a personal device identifier.
+
+## Documentation
 
 ```text
-ios/Native/device/libraw_engine.a
-ios/Native/simulator/libraw_engine.a
+docs/PROJECT_HANDOFF.md       canonical current status and execution queue
+docs/WORKPLACES_HANDOFF.md    detailed Workplaces/import/catalog specification
+docs/CODE_WALKTHROUGH.md      current code orientation and wiring state
+docs/DEXTRYX_IDENTITY.md      naming and identifiers
+docs/STUDIO_WORKSPACE_HANDOFF.md  completed Studio milestone history
 ```
 
-The Makefile intentionally does not hard-code a personal device identifier.
-
-## FFI ownership rules
-
-- Dart `toNativeUtf8()` → `calloc.free()` in Dart after the Rust call.
-- Rust `CString::into_raw()` → `free_string_rust()` only.
-- Rust `Box<ImageBuffer>` → Dart copies bytes → `free_image_buffer()`.
-- Buffer getters are null-safe.
-- Dart validates `len == width * height * 4` before copying.
-- Rust image-returning FFI boundaries report failures through `LAST_ERROR`.
-
-## `check_engine()`
-
-`check_engine()` confirms the library is loaded and its basic internal state is usable. It does **not** validate RAW decoding quality, packaging, filesystem permissions, AI, or GPU support.
-
-## Watched folder import
-
-The Rust core includes watched-folder semantics through `TetheredWatcher::check_new_files(known)`, but this is **not** USB/PTP tethered shooting.
+During W2–W4, do not start real RAW demosaic/debayer work and do not mix unrelated PixelCraft milestones into the Dextryx Images roadmap.
