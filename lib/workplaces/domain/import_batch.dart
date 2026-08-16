@@ -15,6 +15,8 @@ class ImportBatch {
     required this.status,
     this.sourceRoot,
     this.completedAt,
+    this.sourcePaths = const [],
+    this.failedPaths = const [],
   });
 
   final String id;
@@ -28,6 +30,10 @@ class ImportBatch {
   final int skippedDuplicateCount;
   final int failedCount;
   final ImportBatchStatus status;
+  final List<String> sourcePaths;
+  final List<String> failedPaths;
+
+  bool get canRetry => failedPaths.isNotEmpty || status == ImportBatchStatus.running;
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -41,6 +47,8 @@ class ImportBatch {
         'skippedDuplicateCount': skippedDuplicateCount,
         'failedCount': failedCount,
         'status': status.name,
+        'sourcePaths': sourcePaths,
+        'failedPaths': failedPaths,
       };
 
   factory ImportBatch.fromMap(Map<dynamic, dynamic> map) => ImportBatch(
@@ -57,5 +65,7 @@ class ImportBatch {
         skippedDuplicateCount: map['skippedDuplicateCount'] as int,
         failedCount: map['failedCount'] as int,
         status: ImportBatchStatus.values.byName(map['status'] as String),
+        sourcePaths: (map['sourcePaths'] as List<dynamic>?)?.cast<String>() ?? const [],
+        failedPaths: (map['failedPaths'] as List<dynamic>?)?.cast<String>() ?? const [],
       );
 }
