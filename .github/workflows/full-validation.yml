@@ -1,0 +1,203 @@
+name: Full validation
+
+on:
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-validation-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Full preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - name: Repository and workflow syntax
+        run: |
+          bash -n tool/*.sh
+          ruby -e 'require "yaml"; Dir[".github/workflows/*.{yml,yaml}"].each { |f| YAML.load_file(f) }'
+      - run: dart format --output=none --set-exit-if-changed lib test integration_test
+      - run: flutter analyze --fatal-infos
+      - name: Rust format
+        working-directory: rust
+        run: cargo fmt --all -- --check
+      - name: Rust clippy
+        working-directory: rust
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Rust compile check
+        working-directory: rust
+        run: cargo check --locked
+      - run: flutter test test/ffi_smoke_test.dart
+
+  flutter-tests:
+    name: All Flutter tests
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+
+  rust-tests:
+    name: All Rust tests
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+
+  android:
+    name: Android full build
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: cargo install cargo-ndk --locked
+      - run: rustup target add aarch64-linux-android
+      - run: flutter pub get
+      - run: make android-arm64
+      - run: flutter build apk --release
+
+  ios:
+    name: iOS full build (no signing)
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - run: make ios-native
+      - run: flutter build ios --release --no-codesign
+
+  macos:
+    name: macOS full build
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - run: make macos-native
+      - run: flutter build macos --release
+
+  windows:
+    name: Windows full build
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: flutter pub get
+      - name: Rust release build
+        working-directory: rust
+        run: cargo build --release --locked
+      - run: flutter build windows --release
+
+  linux:
+    name: Linux full build
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - run: flutter pub get
+      - name: Rust release build
+        working-directory: rust
+        run: cargo build --release --locked
+      - run: flutter build linux --release
+
+  merge-gate:
+    name: Merge gate
+    if: always()
+    needs: [preflight, flutter-tests, rust-tests, android, ios, macos, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every full-validation job
+        env:
+          PREFLIGHT: ${{ needs.preflight.result }}
+          FLUTTER: ${{ needs.flutter-tests.result }}
+          RUST: ${{ needs.rust-tests.result }}
+          ANDROID: ${{ needs.android.result }}
+          IOS: ${{ needs.ios.result }}
+          MACOS: ${{ needs.macos.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          LINUX: ${{ needs.linux.result }}
+        run: |
+          for result in "$PREFLIGHT" "$FLUTTER" "$RUST" "$ANDROID" "$IOS" "$MACOS" "$WINDOWS" "$LINUX"; do
+            test "$result" = success
+          done
