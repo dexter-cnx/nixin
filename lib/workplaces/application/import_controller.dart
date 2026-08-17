@@ -3,9 +3,10 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 import 'package:path/path.dart' as p;
 
+import '../../storage/app_storage.dart';
+import '../../storage/storage_providers.dart';
 import '../data/hive/hive_import_repository.dart';
 import '../domain/asset_record.dart';
 import '../domain/import_batch.dart';
@@ -21,13 +22,17 @@ abstract interface class ImportPreferences {
   Future<void> writeManagedDestination(String path);
 }
 
-class HiveImportPreferences implements ImportPreferences {
-  HiveImportPreferences(this._box);
-  final Box<dynamic> _box;
+class KeyValueImportPreferences implements ImportPreferences {
+  KeyValueImportPreferences(this._store);
+
+  final KeyValueStore _store;
 
   @override
   AssetStorageMode readStorageMode() {
-    final value = _box.get('importStorageMode', defaultValue: 'linked') as String;
+    final value = _store.read(
+      'importStorageMode',
+      defaultValue: 'linked',
+    ) as String;
     return AssetStorageMode.values.firstWhere(
       (mode) => mode.name == value,
       orElse: () => AssetStorageMode.linked,
@@ -36,27 +41,23 @@ class HiveImportPreferences implements ImportPreferences {
 
   @override
   String? readManagedDestination() =>
-      _box.get('managedImportDestination') as String?;
+      _store.read('managedImportDestination') as String?;
 
   @override
   Future<void> writeStorageMode(AssetStorageMode mode) =>
-      _box.put('importStorageMode', mode.name);
+      _store.write('importStorageMode', mode.name);
 
   @override
   Future<void> writeManagedDestination(String path) =>
-      _box.put('managedImportDestination', path);
+      _store.write('managedImportDestination', path);
 }
 
-final importBatchesBoxProvider = Provider<Box<dynamic>>((ref) {
-  return Hive.box<dynamic>('import_batches');
-});
-
 final importRepositoryProvider = Provider<ImportRepository>((ref) {
-  return HiveImportRepository(ref.watch(importBatchesBoxProvider));
+  return HiveImportRepository(ref.watch(importBatchesStoreProvider));
 });
 
 final importPreferencesProvider = Provider<ImportPreferences>((ref) {
-  return HiveImportPreferences(ref.watch(workplaceSettingsBoxProvider));
+  return KeyValueImportPreferences(ref.watch(settingsStoreProvider));
 });
 
 final importControllerProvider =
@@ -99,12 +100,31 @@ class ImportController extends StateNotifier<ImportState> {
         super(ImportState(storageMode: preferences.readStorageMode()));
 
   static const supportedExtensions = <String>{
-    'arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf',
-    'jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'bmp', 'gif',
+    'arw',
+    'cr2',
+    'cr3',
+    'nef',
+    'dng',
+    'raf',
+    'orf',
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'tif',
+    'tiff',
+    'bmp',
+    'gif',
   };
 
   static const rawExtensions = <String>{
-    'arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf',
+    'arw',
+    'cr2',
+    'cr3',
+    'nef',
+    'dng',
+    'raf',
+    'orf',
   };
 
   final AssetRepository _assetRepository;
@@ -253,9 +273,8 @@ class ImportController extends StateNotifier<ImportState> {
       );
       return false;
     }
-    final paths = batch.failedPaths.isNotEmpty
-        ? batch.failedPaths
-        : batch.sourcePaths;
+    final paths =
+        batch.failedPaths.isNotEmpty ? batch.failedPaths : batch.sourcePaths;
     if (paths.isEmpty) return false;
     await importPaths(
       paths,
@@ -308,7 +327,8 @@ class ImportController extends StateNotifier<ImportState> {
       state = state.copyWith(phase: ImportPhase.cancelled);
       return;
     }
-    final known = existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
+    final known =
+        existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
 
     String? managedRoot;
     if (selectedStorageMode == AssetStorageMode.managed) {
@@ -396,7 +416,8 @@ class ImportController extends StateNotifier<ImportState> {
           phase: ImportPhase.cataloging,
           currentFile: p.basename(source),
         );
-        final extension = p.extension(source).replaceFirst('.', '').toLowerCase();
+        final extension =
+            p.extension(source).replaceFirst('.', '').toLowerCase();
         final asset = AssetRecord(
           id: assetId,
           workplaceId: workplaceId,
@@ -510,7 +531,10 @@ class ImportController extends StateNotifier<ImportState> {
   ) async {
     final root = Directory(managedRoot);
     if (!await root.exists()) {
-      throw FileSystemException('Managed originals location is unavailable', managedRoot);
+      throw FileSystemException(
+        'Managed originals location is unavailable',
+        managedRoot,
+      );
     }
 
     var current = root;

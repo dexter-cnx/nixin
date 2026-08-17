@@ -7,3 +7,19 @@ final appStorageProvider = Provider<AppStorage>((ref) {
     'appStorageProvider must be overridden at application bootstrap',
   );
 });
+
+final settingsStoreProvider = Provider<KeyValueStore>((ref) {
+  return ref.watch(appStorageProvider).settings;
+});
+
+final workplacesStoreProvider = Provider<KeyValueStore>((ref) {
+  return ref.watch(appStorageProvider).workplaces;
+});
+
+final assetsStoreProvider = Provider<KeyValueStore>((ref) {
+  return ref.watch(appStorageProvider).assets;
+});
+
+final importBatchesStoreProvider = Provider<KeyValueStore>((ref) {
+  return ref.watch(appStorageProvider).importBatches;
+});

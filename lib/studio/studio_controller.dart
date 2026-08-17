@@ -2,10 +2,11 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 
 import '../engine/engine_image.dart';
 import '../engine/raw_engine.dart';
+import '../storage/app_storage.dart';
+import '../storage/storage_providers.dart';
 import 'develop_preview_renderer.dart';
 import 'studio_state.dart';
 
@@ -14,24 +15,21 @@ abstract interface class StudioSettingsStore {
   Future<void> write(String key, Object value);
 }
 
-class HiveStudioSettingsStore implements StudioSettingsStore {
-  HiveStudioSettingsStore(this.box);
-  final Box<dynamic> box;
+class KeyValueStudioSettingsStore implements StudioSettingsStore {
+  KeyValueStudioSettingsStore(this._store);
+
+  final KeyValueStore _store;
 
   @override
   T read<T>(String key, T defaultValue) =>
-      box.get(key, defaultValue: defaultValue) as T;
+      _store.read(key, defaultValue: defaultValue) as T;
 
   @override
-  Future<void> write(String key, Object value) => box.put(key, value);
+  Future<void> write(String key, Object value) => _store.write(key, value);
 }
 
-final studioSettingsBoxProvider = Provider<Box<dynamic>>((ref) {
-  return Hive.box<dynamic>('studio_settings');
-});
-
 final studioSettingsStoreProvider = Provider<StudioSettingsStore>((ref) {
-  return HiveStudioSettingsStore(ref.watch(studioSettingsBoxProvider));
+  return KeyValueStudioSettingsStore(ref.watch(settingsStoreProvider));
 });
 
 final studioEngineProvider = Provider<StudioEngine?>((ref) {
@@ -63,7 +61,8 @@ class StudioController extends StateNotifier<StudioState> {
     Duration interactivePreviewInterval = const Duration(milliseconds: 75),
   })  : _engine = engine,
         _settings = settings,
-        _previewRenderer = previewRenderer ?? DirectDevelopPreviewRenderer(engine),
+        _previewRenderer =
+            previewRenderer ?? DirectDevelopPreviewRenderer(engine),
         _interactivePreviewInterval = interactivePreviewInterval,
         super(
           StudioState(
