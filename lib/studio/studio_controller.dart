@@ -61,7 +61,8 @@ class StudioController extends StateNotifier<StudioState> {
     Duration interactivePreviewInterval = const Duration(milliseconds: 75),
   })  : _engine = engine,
         _settings = settings,
-        _previewRenderer = previewRenderer ?? DirectDevelopPreviewRenderer(engine),
+        _previewRenderer =
+            previewRenderer ?? DirectDevelopPreviewRenderer(engine),
         _interactivePreviewInterval = interactivePreviewInterval,
         super(
           StudioState(
