@@ -100,12 +100,31 @@ class ImportController extends StateNotifier<ImportState> {
         super(ImportState(storageMode: preferences.readStorageMode()));
 
   static const supportedExtensions = <String>{
-    'arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf',
-    'jpg', 'jpeg', 'png', 'webp', 'tif', 'tiff', 'bmp', 'gif',
+    'arw',
+    'cr2',
+    'cr3',
+    'nef',
+    'dng',
+    'raf',
+    'orf',
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'tif',
+    'tiff',
+    'bmp',
+    'gif',
   };
 
   static const rawExtensions = <String>{
-    'arw', 'cr2', 'cr3', 'nef', 'dng', 'raf', 'orf',
+    'arw',
+    'cr2',
+    'cr3',
+    'nef',
+    'dng',
+    'raf',
+    'orf',
   };
 
   final AssetRepository _assetRepository;
@@ -254,9 +273,8 @@ class ImportController extends StateNotifier<ImportState> {
       );
       return false;
     }
-    final paths = batch.failedPaths.isNotEmpty
-        ? batch.failedPaths
-        : batch.sourcePaths;
+    final paths =
+        batch.failedPaths.isNotEmpty ? batch.failedPaths : batch.sourcePaths;
     if (paths.isEmpty) return false;
     await importPaths(
       paths,
@@ -309,7 +327,8 @@ class ImportController extends StateNotifier<ImportState> {
       state = state.copyWith(phase: ImportPhase.cancelled);
       return;
     }
-    final known = existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
+    final known =
+        existing.map((asset) => canonicalPath(asset.sourcePath)).toSet();
 
     String? managedRoot;
     if (selectedStorageMode == AssetStorageMode.managed) {
@@ -397,7 +416,8 @@ class ImportController extends StateNotifier<ImportState> {
           phase: ImportPhase.cataloging,
           currentFile: p.basename(source),
         );
-        final extension = p.extension(source).replaceFirst('.', '').toLowerCase();
+        final extension =
+            p.extension(source).replaceFirst('.', '').toLowerCase();
         final asset = AssetRecord(
           id: assetId,
           workplaceId: workplaceId,
