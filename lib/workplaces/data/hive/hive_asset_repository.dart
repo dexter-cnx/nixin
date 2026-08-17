@@ -34,8 +34,7 @@ class HiveAssetRepository implements AssetRepository {
   }
 
   @override
-  Future<void> save(AssetRecord asset) =>
-      _store.write(asset.id, asset.toMap());
+  Future<void> save(AssetRecord asset) => _store.write(asset.id, asset.toMap());
 
   @override
   Future<void> delete(String id) => _store.delete(id);
