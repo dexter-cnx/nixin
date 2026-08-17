@@ -1,11 +1,20 @@
+import 'package:hive/hive.dart';
+
 import '../../../storage/app_storage.dart';
+import '../../../storage/hive/hive_app_storage.dart';
 import '../../domain/asset_record.dart';
 import '../../domain/repositories/asset_repository.dart';
 
 class HiveAssetRepository implements AssetRepository {
-  HiveAssetRepository(this._store);
+  HiveAssetRepository(Object store) : _store = _asStore(store);
 
   final KeyValueStore _store;
+
+  static KeyValueStore _asStore(Object store) {
+    if (store is KeyValueStore) return store;
+    if (store is Box<dynamic>) return HiveKeyValueStore(store);
+    throw ArgumentError.value(store, 'store', 'Unsupported storage backend');
+  }
 
   @override
   Future<List<AssetRecord>> getByWorkplace(String workplaceId) async {
@@ -35,6 +44,7 @@ class HiveAssetRepository implements AssetRepository {
   Future<void> deleteByWorkplace(String workplaceId) async {
     final keys = <Object>[];
     for (final key in _store.keys) {
+      if (key == null) continue;
       final value = _store.read(key as Object);
       if (value is Map && value['workplaceId'] == workplaceId) {
         keys.add(key as Object);
