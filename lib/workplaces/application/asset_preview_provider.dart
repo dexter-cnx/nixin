@@ -2,9 +2,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 import 'package:path/path.dart' as p;
 
+import '../../storage/storage_providers.dart';
 import '../domain/asset_record.dart';
 import 'asset_thumbnail_cache.dart';
 
@@ -40,11 +40,10 @@ class LocalAssetPreviewProvider implements AssetPreviewProvider {
 }
 
 final assetThumbnailCacheProvider = Provider<AssetThumbnailCache>((ref) {
-  final assetBox = Hive.box<dynamic>('assets');
-  final boxPath = assetBox.path;
-  final root = boxPath == null
+  final storePath = ref.watch(assetsStoreProvider).path;
+  final root = storePath == null
       ? Directory(p.join(Directory.systemTemp.path, 'dextryx_images_thumbnails'))
-      : Directory(p.join(p.dirname(boxPath), 'thumbnail_cache'));
+      : Directory(p.join(p.dirname(storePath), 'thumbnail_cache'));
   return AssetThumbnailCache(root: root);
 });
 
