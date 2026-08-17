@@ -1,11 +1,20 @@
+import 'package:hive/hive.dart';
+
 import '../../../storage/app_storage.dart';
+import '../../../storage/hive/hive_app_storage.dart';
 import '../../domain/import_batch.dart';
 import '../../domain/repositories/import_repository.dart';
 
 class HiveImportRepository implements ImportRepository {
-  HiveImportRepository(this._store);
+  HiveImportRepository(Object store) : _store = _asStore(store);
 
   final KeyValueStore _store;
+
+  static KeyValueStore _asStore(Object store) {
+    if (store is KeyValueStore) return store;
+    if (store is Box<dynamic>) return HiveKeyValueStore(store);
+    throw ArgumentError.value(store, 'store', 'Unsupported storage backend');
+  }
 
   @override
   Future<List<ImportBatch>> getByWorkplace(String workplaceId) async {
