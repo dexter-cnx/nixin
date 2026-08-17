@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
 
+import '../../storage/storage_providers.dart';
 import '../data/hive/hive_asset_repository.dart';
 import '../data/hive/hive_workplace_repository.dart';
 import '../domain/repositories/asset_repository.dart';
@@ -50,27 +50,15 @@ class WorkplaceState {
   }
 }
 
-final workplacesBoxProvider = Provider<Box<dynamic>>((ref) {
-  return Hive.box<dynamic>('workplaces');
-});
-
-final assetsBoxProvider = Provider<Box<dynamic>>((ref) {
-  return Hive.box<dynamic>('assets');
-});
-
-final workplaceSettingsBoxProvider = Provider<Box<dynamic>>((ref) {
-  return Hive.box<dynamic>('studio_settings');
-});
-
 final workplaceRepositoryProvider = Provider<WorkplaceRepository>((ref) {
   return HiveWorkplaceRepository(
-    workplacesBox: ref.watch(workplacesBoxProvider),
-    settingsBox: ref.watch(workplaceSettingsBoxProvider),
+    workplacesBox: ref.watch(workplacesStoreProvider),
+    settingsBox: ref.watch(settingsStoreProvider),
   );
 });
 
 final assetRepositoryProvider = Provider<AssetRepository>((ref) {
-  return HiveAssetRepository(ref.watch(assetsBoxProvider));
+  return HiveAssetRepository(ref.watch(assetsStoreProvider));
 });
 
 final workplaceControllerProvider =
