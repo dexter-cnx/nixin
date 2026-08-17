@@ -1,7 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
-import '../studio/studio_page.dart';
+import 'router/app_router.dart';
 import 'theme/studio_theme.dart';
 
 class NixinApp extends StatelessWidget {
@@ -9,14 +9,14 @@ class NixinApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Dextryx Images',
       theme: StudioTheme.dark,
       localizationsDelegates: context.localizationDelegates,
       supportedLocales: context.supportedLocales,
       locale: context.locale,
-      home: const StudioPage(),
+      routerConfig: appRouter,
     );
   }
 }
