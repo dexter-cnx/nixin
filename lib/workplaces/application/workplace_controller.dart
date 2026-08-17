@@ -154,7 +154,8 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
 
   Future<void> renameWorkplace(String id, String name) async {
     final normalized = _normalizeName(name);
-    final index = state.workplaces.indexWhere((workplace) => workplace.id == id);
+    final index =
+        state.workplaces.indexWhere((workplace) => workplace.id == id);
     if (index < 0) throw ArgumentError.value(id, 'id', 'Unknown workplace');
 
     final updated = state.workplaces[index].copyWith(
