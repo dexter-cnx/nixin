@@ -42,7 +42,8 @@ class LocalAssetPreviewProvider implements AssetPreviewProvider {
 final assetThumbnailCacheProvider = Provider<AssetThumbnailCache>((ref) {
   final storePath = ref.watch(assetsStoreProvider).path;
   final root = storePath == null
-      ? Directory(p.join(Directory.systemTemp.path, 'dextryx_images_thumbnails'))
+      ? Directory(
+          p.join(Directory.systemTemp.path, 'dextryx_images_thumbnails'))
       : Directory(p.join(p.dirname(storePath), 'thumbnail_cache'));
   return AssetThumbnailCache(root: root);
 });
