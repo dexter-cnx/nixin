@@ -34,9 +34,4 @@ fi
 
 printf 'Dart format-check files:\n'
 printf '  %s\n' "${files[@]}"
-
-if ! dart format --output=none --set-exit-if-changed "${files[@]}"; then
-  dart format "${files[@]}"
-  git diff -- "${files[@]}"
-  exit 1
-fi
+dart format --output=none --set-exit-if-changed "${files[@]}"
