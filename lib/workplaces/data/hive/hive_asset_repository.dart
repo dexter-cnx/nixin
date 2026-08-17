@@ -46,7 +46,7 @@ class HiveAssetRepository implements AssetRepository {
       if (key == null) continue;
       final value = _store.read(key as Object);
       if (value is Map && value['workplaceId'] == workplaceId) {
-        keys.add(key as Object);
+        keys.add(key);
       }
     }
     if (keys.isNotEmpty) await _store.deleteAll(keys);
