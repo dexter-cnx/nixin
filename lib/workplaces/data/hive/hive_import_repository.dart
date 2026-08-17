@@ -34,6 +34,5 @@ class HiveImportRepository implements ImportRepository {
   }
 
   @override
-  Future<void> save(ImportBatch batch) =>
-      _store.write(batch.id, batch.toMap());
+  Future<void> save(ImportBatch batch) => _store.write(batch.id, batch.toMap());
 }
