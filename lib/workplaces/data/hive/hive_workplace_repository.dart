@@ -1,18 +1,27 @@
+import 'package:hive/hive.dart';
+
 import '../../../storage/app_storage.dart';
+import '../../../storage/hive/hive_app_storage.dart';
 import '../../domain/repositories/workplace_repository.dart';
 import '../../domain/workplace.dart';
 
 class HiveWorkplaceRepository implements WorkplaceRepository {
   HiveWorkplaceRepository({
-    required KeyValueStore workplacesStore,
-    required KeyValueStore settingsStore,
-  })  : _workplacesStore = workplacesStore,
-        _settingsStore = settingsStore;
+    required Object workplacesBox,
+    required Object settingsBox,
+  })  : _workplacesStore = _asStore(workplacesBox),
+        _settingsStore = _asStore(settingsBox);
 
   static const currentWorkplaceKey = 'currentWorkplaceId';
 
   final KeyValueStore _workplacesStore;
   final KeyValueStore _settingsStore;
+
+  static KeyValueStore _asStore(Object store) {
+    if (store is KeyValueStore) return store;
+    if (store is Box<dynamic>) return HiveKeyValueStore(store);
+    throw ArgumentError.value(store, 'store', 'Unsupported storage backend');
+  }
 
   @override
   Future<List<Workplace>> getAll() async {
