@@ -91,7 +91,7 @@ For S2, use the bottom stress harness:
 - rapidly scroll the harness and click assets while scrolling;
 - the selected asset should update immediately without constructing all 5,000 thumbnail elements.
 
-The current S2 harness deliberately proves catalog-scale virtualization first. It is not yet the final horizontal Filmstrip implementation.
+The row-based harness deliberately proves catalog-scale virtualization first. It is not yet the final horizontal Filmstrip implementation.
 
 ## S1 buffer ownership
 
@@ -145,19 +145,18 @@ Follow-up soak/performance checks can still measure repeated image replacement, 
 
 Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
-### S2 — Filmstrip / catalog scale — IN PROGRESS
+### S2 — Filmstrip / catalog scale — IN PROGRESS, virtualization validated on physical macOS
 
-Implemented in the current branch:
+Implemented and physically validated so far:
 
 - 5,000 synthetic catalog-like asset records;
 - 625 fixed-height rows with eight assets per row;
 - GPUI `uniform_list` virtualization, so only visible rows are built;
 - clickable selection state over the virtualized records;
-- a physical test harness suitable for rapid-scroll/selection responsiveness checks.
+- rapid scrolling and selection work on the user's physical macOS machine without a blocking failure.
 
 Still required before S2 is PASS:
 
-- physical macOS validation that rapid scrolling and selection remain responsive;
 - bounded asynchronous thumbnail generation/loading instead of `thumb pending` placeholders;
 - verify thumbnail work does not block the UI thread;
 - establish a bounded queue/cache policy and cancellation/drop behavior for off-screen work;
@@ -199,4 +198,4 @@ Choose one of:
 
 The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has been observed successfully on the user's physical macOS machine.
 
-S0 and S1 are complete on physical macOS. S2 now has a 5,000-record virtualization harness and is waiting for physical responsiveness validation before async thumbnails and true horizontal Filmstrip work.
+S0 and S1 are complete on physical macOS. S2 catalog virtualization and selection are also physically validated; bounded async thumbnails and true horizontal Filmstrip virtualization remain before S2 can be closed.
