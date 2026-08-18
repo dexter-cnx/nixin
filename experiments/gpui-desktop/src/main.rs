@@ -4,7 +4,7 @@ use std::sync::Arc;
 use gpui::{
     App, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
     Pixels, Point, RenderImage, ScrollDelta, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
-    div, img, point, prelude::*, px, rgb, size,
+    div, img, point, prelude::*, px, rgb, size, uniform_list,
 };
 use gpui_platform::application;
 use rfd::FileDialog;
@@ -14,6 +14,9 @@ const VIEWPORT_HEIGHT: f32 = 480.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const SCROLL_LINE_MULTIPLIER: f32 = 20.0;
+const S2_ASSET_COUNT: usize = 5_000;
+const S2_ASSETS_PER_ROW: usize = 8;
+const S2_ROW_COUNT: usize = S2_ASSET_COUNT.div_ceil(S2_ASSETS_PER_ROW);
 
 struct DextryxSpike {
     engine_ready: bool,
@@ -23,31 +26,13 @@ struct DextryxSpike {
     zoom: f32,
     pan_offset: Point<Pixels>,
     last_mouse_position: Option<Point<Pixels>>,
+    selected_asset: usize,
     status: String,
 }
 
 impl DextryxSpike {
     fn panel_label(text: &'static str) -> impl IntoElement {
-        div()
-            .text_sm()
-            .text_color(rgb(0xb8bcc6))
-            .child(text)
-    }
-
-    fn thumbnail(index: usize) -> impl IntoElement {
-        div()
-            .w(px(96.0))
-            .h(px(72.0))
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0x434750))
-            .bg(rgb(0x25282e))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_sm()
-            .text_color(rgb(0x8d929c))
-            .child(format!("Asset {index}"))
+        div().text_sm().text_color(rgb(0xb8bcc6)).child(text)
     }
 
     fn toolbar_button(
@@ -108,9 +93,6 @@ impl DextryxSpike {
                     return;
                 }
 
-                // GPUI RenderImage currently uploads BGRA pixels. Keep the raw-engine
-                // public contract RGBA and swizzle in-place at the UI boundary. This
-                // changes channel order without allocating or encoding another image.
                 for pixel in pixels.chunks_exact_mut(4) {
                     pixel.swap(0, 2);
                 }
@@ -121,26 +103,20 @@ impl DextryxSpike {
                     return;
                 };
 
-                let render_image = Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
-
                 self.image_path = Some(path.clone());
                 self.image_dimensions = Some((width, height));
-                self.render_image = Some(render_image);
+                self.render_image = Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])));
                 self.zoom = Self::fit_zoom_for(width, height);
                 self.pan_offset = Point::default();
                 self.last_mouse_position = None;
                 self.status = format!(
-                    "{} — {} × {} — raw-engine RGBA → GPUI RenderImage",
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("image"),
+                    "{} — {} × {} — raw-engine buffer",
+                    path.file_name().and_then(|name| name.to_str()).unwrap_or("image"),
                     width,
                     height
                 );
             }
-            Err(error) => {
-                self.status = format!("raw-engine preview failed: {error}");
-            }
+            Err(error) => self.status = format!("raw-engine preview failed: {error}"),
         }
         cx.notify();
     }
@@ -276,13 +252,81 @@ impl DextryxSpike {
                     .top(top)
                     .w(px(scaled_width))
                     .h(px(scaled_height))
-                    .child(
-                        img(image)
-                            .w(px(scaled_width))
-                            .h(px(scaled_height)),
-                    ),
+                    .child(img(image).w(px(scaled_width)).h(px(scaled_height))),
             )
             .into_any_element()
+    }
+
+    fn s2_virtualized_catalog(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        uniform_list(
+            "s2-virtual-catalog",
+            S2_ROW_COUNT,
+            cx.processor(|this, range, _window, cx| {
+                range
+                    .map(|row_ix| {
+                        let first_asset = row_ix * S2_ASSETS_PER_ROW;
+                        let mut row = div()
+                            .h(px(92.0))
+                            .px_2()
+                            .flex()
+                            .gap_2()
+                            .items_center();
+
+                        for offset in 0..S2_ASSETS_PER_ROW {
+                            let asset_ix = first_asset + offset;
+                            if asset_ix >= S2_ASSET_COUNT {
+                                break;
+                            }
+
+                            let selected = this.selected_asset == asset_ix;
+                            row = row.child(
+                                div()
+                                    .id(format!("s2-asset-{asset_ix}"))
+                                    .w(px(96.0))
+                                    .h(px(76.0))
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(if selected {
+                                        rgb(0xb8bcc6)
+                                    } else {
+                                        rgb(0x434750)
+                                    })
+                                    .bg(if selected {
+                                        rgb(0x343840)
+                                    } else {
+                                        rgb(0x25282e)
+                                    })
+                                    .cursor_pointer()
+                                    .flex()
+                                    .flex_col()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_sm()
+                                    .text_color(rgb(0xb8bcc6))
+                                    .child(format!("Asset {}", asset_ix + 1))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x686d76))
+                                            .child("thumb pending"),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_asset = asset_ix;
+                                        this.status = format!(
+                                            "S2 selection: Asset {} / {}",
+                                            asset_ix + 1,
+                                            S2_ASSET_COUNT
+                                        );
+                                        cx.notify();
+                                    })),
+                            );
+                        }
+                        row
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .h_full()
     }
 }
 
@@ -293,13 +337,13 @@ impl Render for DextryxSpike {
         } else {
             "raw-engine unavailable"
         };
-
         let zoom_label = format!("{}%", (self.zoom * 100.0).round() as i32);
         let pan_label = format!(
             "pan {:.0}, {:.0}",
             f32::from(self.pan_offset.x),
             f32::from(self.pan_offset.y)
         );
+        let selected_label = format!("Selected: Asset {}", self.selected_asset + 1);
 
         div()
             .flex()
@@ -350,7 +394,10 @@ impl Render for DextryxSpike {
                             .child(Self::panel_label("CATALOG"))
                             .child("All photos")
                             .child("Missing")
-                            .child("Recent imports"),
+                            .child("Recent imports")
+                            .child(Self::panel_label("S2 HARNESS"))
+                            .child("5,000 assets")
+                            .child("625 virtual rows"),
                     )
                     .child(
                         div()
@@ -370,32 +417,12 @@ impl Render for DextryxSpike {
                                     .child(Self::toolbar_button("open-image", "Open Image", cx, |this, cx| {
                                         this.open_image(cx)
                                     }))
-                                    .child(Self::toolbar_button("fit", "Fit", cx, |this, cx| {
-                                        this.fit(cx)
-                                    }))
-                                    .child(Self::toolbar_button("one-to-one", "1:1", cx, |this, cx| {
-                                        this.one_to_one(cx)
-                                    }))
-                                    .child(Self::toolbar_button("zoom-out", "−", cx, |this, cx| {
-                                        this.zoom_by(0.8, cx)
-                                    }))
-                                    .child(Self::toolbar_button("zoom-in", "+", cx, |this, cx| {
-                                        this.zoom_by(1.25, cx)
-                                    }))
-                                    .child(
-                                        div()
-                                            .ml_2()
-                                            .text_sm()
-                                            .text_color(rgb(0x8d929c))
-                                            .child(zoom_label),
-                                    )
-                                    .child(
-                                        div()
-                                            .ml_2()
-                                            .text_sm()
-                                            .text_color(rgb(0x686d76))
-                                            .child(pan_label),
-                                    ),
+                                    .child(Self::toolbar_button("fit", "Fit", cx, |this, cx| this.fit(cx)))
+                                    .child(Self::toolbar_button("one-to-one", "1:1", cx, |this, cx| this.one_to_one(cx)))
+                                    .child(Self::toolbar_button("zoom-out", "−", cx, |this, cx| this.zoom_by(0.8, cx)))
+                                    .child(Self::toolbar_button("zoom-in", "+", cx, |this, cx| this.zoom_by(1.25, cx)))
+                                    .child(div().ml_2().text_sm().text_color(rgb(0x8d929c)).child(zoom_label))
+                                    .child(div().ml_2().text_sm().text_color(rgb(0x686d76)).child(pan_label)),
                             )
                             .child(
                                 div()
@@ -431,15 +458,30 @@ impl Render for DextryxSpike {
                             )
                             .child(
                                 div()
-                                    .h(px(124.0))
-                                    .p_3()
-                                    .flex()
-                                    .gap_3()
-                                    .items_center()
+                                    .h(px(184.0))
                                     .border_t_1()
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x16181c))
-                                    .children((1..=8).map(Self::thumbnail)),
+                                    .flex()
+                                    .flex_col()
+                                    .child(
+                                        div()
+                                            .h(px(30.0))
+                                            .px_3()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .text_sm()
+                                            .text_color(rgb(0x8d929c))
+                                            .child("S2 virtualized catalog / filmstrip stress harness")
+                                            .child(selected_label),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .child(self.s2_virtualized_catalog(cx)),
+                                    ),
                             ),
                     )
                     .child(
@@ -456,18 +498,25 @@ impl Render for DextryxSpike {
                             .child("Exposure        0.00")
                             .child("Temperature     0.00")
                             .child("Contrast        1.00")
-                            .child(Self::panel_label("S1 VIEWPORT"))
+                            .child(Self::panel_label("S1 VIEWPORT — PASS"))
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(rgb(0x858a94))
                                     .child(self.status.clone()),
                             )
+                            .child(Self::panel_label("S2 — IN PROGRESS"))
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(rgb(0x858a94))
-                                    .child("Drag with left/middle mouse to pan. Trackpad/two-finger scroll pans. Pinch or Cmd/Ctrl-scroll zooms."),
+                                    .child("5,000 records are virtualized in 625 fixed-height rows. Only visible rows are built. Scroll rapidly and click assets to validate selection responsiveness."),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0x686d76))
+                                    .child("Next S2 step: real async/bounded thumbnail jobs and a true horizontal filmstrip implementation."),
                             ),
                     ),
             )
@@ -476,8 +525,7 @@ impl Render for DextryxSpike {
 
 fn main() {
     application().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1440.0), px(900.0)), cx);
-
+        let bounds = Bounds::centered(None, size(px(1440.0), px(960.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -492,13 +540,13 @@ fn main() {
                     zoom: 1.0,
                     pan_offset: point(px(0.0), px(0.0)),
                     last_mouse_position: None,
-                    status: "S0 passed. S1 direct raw-engine buffer + pan is ready for validation."
+                    selected_asset: 0,
+                    status: "S1 passed on physical macOS. S2 virtualization harness ready."
                         .to_string(),
                 })
             },
         )
         .expect("failed to open Dextryx GPUI spike window");
-
         cx.activate(true);
     });
 }
