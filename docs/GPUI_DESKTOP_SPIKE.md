@@ -25,17 +25,21 @@ The spike currently contains:
 - mouse drag pan;
 - trackpad/two-finger scroll pan;
 - pinch zoom and Cmd/Ctrl-scroll zoom;
-- an S2 catalog-scale virtualization harness containing 5,000 synthetic asset records;
-- selection state over the virtualized catalog rows;
+- a 5,000-asset horizontal Filmstrip stress harness;
+- visible-range + overscan virtualization;
+- bounded background thumbnail generation with max 4 in-flight jobs;
+- a 128-entry thumbnail cache;
+- live Catalog state for All photos / Missing / Recent imports;
+- stable synthetic asset identity across Catalog filters;
 - a Develop inspector placeholder.
 
-It does **not** replace Flutter, change Workplaces persistence, implement the production Import flow, add real RAW demosaic/debayer behavior, or change PixelCraft processing ownership.
+It does **not** replace Flutter, move production Workplaces persistence, implement the production Import flow, add real RAW demosaic/debayer behavior, or change PixelCraft processing ownership.
 
 ## Why this is worth testing
 
 The current application already has a standalone Rust image engine. A GPUI desktop shell can consume that crate directly instead of crossing Dart FFI for every engine interaction. This potentially simplifies image-buffer ownership, background processing, cancellation, cache coordination and future GPU resource ownership.
 
-The experiment also maps naturally to the existing Dextryx desktop structure:
+The experiment maps naturally to the existing Dextryx desktop structure:
 
 ```text
 GPUI application
@@ -71,27 +75,16 @@ cd experiments/gpui-desktop
 cargo run
 ```
 
-For S1, click `Open Image` and select a JPEG/PNG/TIFF/WebP image or one of the existing RAW-preview formats. The toolbar provides `Fit`, `1:1`, zoom out and zoom in controls.
+## S1 interaction checks
 
-Interaction checks:
-
-- `Fit` resets zoom and pan to fit the 720x480 validation viewport;
-- `1:1` resets to 100% and centered pan;
+- `Open Image` opens a raster or current RAW-preview format;
+- `Fit` resets zoom and pan;
+- `1:1` resets to 100%;
 - `+` / `-` changes zoom;
 - left or middle mouse drag pans;
 - two-finger/trackpad scrolling pans;
 - pinch zooms;
 - Cmd/Ctrl + scroll zooms.
-
-For S2, use the bottom stress harness:
-
-- it represents 5,000 catalog-like assets;
-- records are grouped into 625 fixed-height virtual rows of eight assets each;
-- GPUI `uniform_list` only builds the currently visible row range;
-- rapidly scroll the harness and click assets while scrolling;
-- the selected asset should update immediately without constructing all 5,000 thumbnail elements.
-
-The row-based harness deliberately proves catalog-scale virtualization first. It is not yet the final horizontal Filmstrip implementation.
 
 ## S1 buffer ownership
 
@@ -102,15 +95,15 @@ file path
   -> raw_engine::develop_preview(...)
   -> DevelopedImage { width, height, Vec<u8> RGBA }
   -> in-place RGBA/BGRA channel swizzle at GPUI boundary
-  -> image::RgbaImage::from_raw(...)  // adopts Vec, no pixel-buffer clone
+  -> image::RgbaImage::from_raw(...)
   -> image::Frame
   -> gpui::RenderImage
   -> GPUI renderer / image atlas
 ```
 
-The pinned GPUI renderer expects BGRA-oriented render-image bytes. The channel swizzle is therefore performed in place at the UI boundary. No intermediate JPEG/PNG encoding or temporary file is introduced.
+The pinned GPUI renderer expects BGRA-oriented render-image bytes. The channel swizzle is performed in place at the UI boundary. No intermediate JPEG/PNG encoding or temporary file is introduced.
 
-The existing C ABI remains intact for Flutter. The new native Rust entry point is additive and is used only by the GPUI experiment at this stage.
+The existing C ABI remains intact for Flutter. The native Rust entry point is additive and is used only by the GPUI experiment at this stage.
 
 ## Validation gates
 
@@ -141,34 +134,65 @@ Implemented and physically validated on the user's Mac:
 - pinch and Cmd/Ctrl-scroll zoom;
 - direct Rust-to-Rust engine integration remains functional while interacting with the viewport.
 
-Follow-up soak/performance checks can still measure repeated image replacement, large-image memory behavior and resize ergonomics, but they are no longer blockers for the S1 architectural proof.
-
 Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
-### S2 — Filmstrip / catalog scale — IN PROGRESS, virtualization validated on physical macOS
+### S2 — Filmstrip / catalog scale — FINAL VALIDATION
 
-Implemented and physically validated so far:
+Already physically validated:
 
 - 5,000 synthetic catalog-like asset records;
-- 625 fixed-height rows with eight assets per row;
-- GPUI `uniform_list` virtualization, so only visible rows are built;
-- clickable selection state over the virtualized records;
-- rapid scrolling and selection work on the user's physical macOS machine without a blocking failure.
+- large-catalog virtualization concept;
+- rapid scrolling and selection responsiveness on physical macOS.
 
-Still required before S2 is PASS:
+Current implementation now also contains:
 
-- bounded asynchronous thumbnail generation/loading instead of `thumb pending` placeholders;
-- verify thumbnail work does not block the UI thread;
-- establish a bounded queue/cache policy and cancellation/drop behavior for off-screen work;
-- implement and validate a true horizontal Filmstrip virtualization path rather than treating the row-based harness as the final UI.
+- true horizontal Filmstrip visible-range virtualization;
+- three-item overscan on each side;
+- only visible/overscan Filmstrip elements are constructed;
+- GPUI background-executor thumbnail work;
+- maximum 4 thumbnail jobs in flight;
+- queued off-screen work is replaced by the latest visible range before it starts;
+- completed thumbnails are bounded by a 128-entry cache.
 
-The row-based harness is intentional: GPUI's current `uniform_list` is a vertical uniform-height virtual list. It is being used to prove large-catalog lazy rendering independently before we build a specialized horizontal Filmstrip element or adapter.
+Still required before S2 is marked PASS:
 
-### S3 — Workplace/catalog boundary
+- compile/run the latest horizontal Filmstrip + async-thumbnail implementation on physical macOS;
+- confirm thumbnails progressively appear;
+- confirm Filmstrip scroll remains responsive while thumbnail jobs run;
+- confirm selection remains immediate while jobs run;
+- confirm displayed in-flight count never exceeds 4;
+- confirm queue does not grow continuously during fast scrolling.
 
-- prove whether the existing Dart Workplace persistence should remain behind an adapter during migration or be ported to Rust;
-- preserve stable asset identity and linked/managed storage semantics;
-- preserve missing/relink/catalog-only removal behavior.
+### S3 — Workplace/catalog boundary — STATE SHELL IN PROGRESS
+
+The first S3 layer is now implemented without moving persistence ownership:
+
+```text
+CatalogView
+├── AllPhotos
+├── Missing
+└── RecentImports
+```
+
+Current synthetic behavior:
+
+- `All photos` exposes all 5,000 stable assets;
+- `Missing` exposes every 17th asset as a deterministic missing subset;
+- `Recent imports` exposes the latest 500 assets;
+- changing Catalog view resets Filmstrip position and selects the first asset in that view;
+- the underlying `asset_ix` remains stable across filters;
+- Filmstrip virtualization and thumbnail caching operate on stable asset identity rather than view position.
+
+This state shell is deliberately separate from persistence. The next S3 step is to define a catalog/workplace repository boundary and adapt production Workplaces data through it without teaching GPUI about Hive or moving storage semantics into UI code.
+
+S3 acceptance still requires preserving production semantics for:
+
+- stable asset identity;
+- linked vs managed storage;
+- missing/relink behavior;
+- catalog-only removal;
+- recent-import membership;
+- Workplace selection.
 
 ### S4 — Desktop compatibility
 
@@ -193,9 +217,8 @@ Choose one of:
 - Do not resume real RAW demosaic/debayer work as part of this experiment.
 - Keep the Flutter production path buildable throughout the experiment.
 - Treat GPUI API churn as a real maintenance cost in the final decision.
+- Keep catalog filtering/state independent from persistence implementation details.
 
 ## Current evidence
 
-The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has been observed successfully on the user's physical macOS machine.
-
-S0 and S1 are complete on physical macOS. S2 catalog virtualization and selection are also physically validated; bounded async thumbnails and true horizontal Filmstrip virtualization remain before S2 can be closed.
+The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. S0 and S1 are complete on physical macOS. The earlier S2 large-catalog virtualization/selection proof is also physically validated. The latest horizontal Filmstrip/background-thumbnail implementation is awaiting physical validation, while S3 now has a live catalog-state shell ready for repository-boundary work.
