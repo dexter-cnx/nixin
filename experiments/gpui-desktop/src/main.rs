@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -111,7 +112,9 @@ impl DextryxSpike {
                 self.last_mouse_position = None;
                 self.status = format!(
                     "{} — {} × {} — raw-engine buffer",
-                    path.file_name().and_then(|name| name.to_str()).unwrap_or("image"),
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("image"),
                     width,
                     height
                 );
@@ -261,7 +264,7 @@ impl DextryxSpike {
         uniform_list(
             "s2-virtual-catalog",
             S2_ROW_COUNT,
-            cx.processor(|this, range, _window, cx| {
+            cx.processor(|this, range: Range<usize>, _window, cx| {
                 range
                     .map(|row_ix| {
                         let first_asset = row_ix * S2_ASSETS_PER_ROW;
@@ -362,12 +365,7 @@ impl Render for DextryxSpike {
                     .border_color(rgb(0x2b2e34))
                     .bg(rgb(0x191b1f))
                     .child("Dextryx Images — GPUI spike")
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0x8d929c))
-                            .child(engine_status),
-                    ),
+                    .child(div().text_sm().text_color(rgb(0x8d929c)).child(engine_status)),
             )
             .child(
                 div()
@@ -384,13 +382,7 @@ impl Render for DextryxSpike {
                             .border_color(rgb(0x2b2e34))
                             .bg(rgb(0x17191d))
                             .child(Self::panel_label("WORKPLACES"))
-                            .child(
-                                div()
-                                    .p_3()
-                                    .rounded_md()
-                                    .bg(rgb(0x25282e))
-                                    .child("My workplace"),
-                            )
+                            .child(div().p_3().rounded_md().bg(rgb(0x25282e)).child("My workplace"))
                             .child(Self::panel_label("CATALOG"))
                             .child("All photos")
                             .child("Missing")
@@ -414,9 +406,7 @@ impl Render for DextryxSpike {
                                     .border_b_1()
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x15171a))
-                                    .child(Self::toolbar_button("open-image", "Open Image", cx, |this, cx| {
-                                        this.open_image(cx)
-                                    }))
+                                    .child(Self::toolbar_button("open-image", "Open Image", cx, |this, cx| this.open_image(cx)))
                                     .child(Self::toolbar_button("fit", "Fit", cx, |this, cx| this.fit(cx)))
                                     .child(Self::toolbar_button("one-to-one", "1:1", cx, |this, cx| this.one_to_one(cx)))
                                     .child(Self::toolbar_button("zoom-out", "−", cx, |this, cx| this.zoom_by(0.8, cx)))
@@ -476,12 +466,7 @@ impl Render for DextryxSpike {
                                             .child("S2 virtualized catalog / filmstrip stress harness")
                                             .child(selected_label),
                                     )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .overflow_hidden()
-                                            .child(self.s2_virtualized_catalog(cx)),
-                                    ),
+                                    .child(div().flex_1().overflow_hidden().child(self.s2_virtualized_catalog(cx))),
                             ),
                     )
                     .child(
@@ -499,12 +484,7 @@ impl Render for DextryxSpike {
                             .child("Temperature     0.00")
                             .child("Contrast        1.00")
                             .child(Self::panel_label("S1 VIEWPORT — PASS"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x858a94))
-                                    .child(self.status.clone()),
-                            )
+                            .child(div().text_sm().text_color(rgb(0x858a94)).child(self.status.clone()))
                             .child(Self::panel_label("S2 — IN PROGRESS"))
                             .child(
                                 div()
