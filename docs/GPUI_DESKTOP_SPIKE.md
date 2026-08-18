@@ -12,16 +12,19 @@ Experiment path:
 experiments/gpui-desktop/
 ```
 
-Spike 0 intentionally contains only:
+The spike currently contains:
 
 - a desktop application/window shell;
 - Workplace/navigation panel placeholders;
-- a central image viewport placeholder;
+- a central image viewport;
+- native raster file selection for JPEG/PNG/TIFF/WebP;
+- GPUI image rendering from a local filesystem path;
+- Fit, 1:1 and incremental zoom controls;
 - a bottom Filmstrip placeholder;
 - a Develop inspector placeholder;
 - a direct Rust-to-Rust linkage check against the existing `raw-engine` crate.
 
-It does **not** replace Flutter, change Workplaces persistence, implement Import, decode images, alter RAW behavior, or change PixelCraft processing ownership.
+It does **not** replace Flutter, change Workplaces persistence, implement the production Import flow, change RAW behavior, or change PixelCraft processing ownership.
 
 ## Why this is worth testing
 
@@ -50,6 +53,8 @@ Pinned Zed commit at spike creation:
 fd90c0af7f021d89e511dd9a5f92d4f04ec29314
 ```
 
+`gpui_platform` enables the `font-kit` feature because physical macOS validation showed that the default spike built and painted layout surfaces but did not discover/render system fonts without it.
+
 The spike is macOS-first. Linux is useful for compile/smoke validation. Windows should be treated as an explicit compatibility gate rather than assumed production-ready.
 
 ## Run
@@ -61,25 +66,43 @@ cd experiments/gpui-desktop
 cargo run
 ```
 
-Expected first result: a dark Dextryx desktop shell with Workplace, viewport, Filmstrip and Develop regions. The top bar reports whether the existing `raw-engine` crate linked successfully.
+For S1, click `Open Image` and select a JPEG, PNG, TIFF or WebP image. The toolbar provides `Fit`, `1:1`, zoom out and zoom in controls.
 
 ## Validation gates
 
 Do not consider a GPUI migration until all of these are demonstrated.
 
-### S0 — Build / launch
+### S0 — Build / launch — PASS on physical macOS
+
+Observed on the user's Mac:
 
 - macOS debug build succeeds;
-- application launches and resizes correctly;
-- existing `raw-engine` links directly;
-- no change is required to the Flutter production build.
+- Metal shader compilation succeeds after installing Xcode's Metal Toolchain component;
+- application launches and paints the expected desktop shell;
+- system text renders after enabling `gpui_platform/font-kit`;
+- existing `raw-engine` links directly and the UI reports `raw-engine linked`;
+- Flutter production code remains untouched by the experiment.
 
-### S1 — Real image viewport
+### S1 — Real image viewport — IN PROGRESS
 
-- open one raster image;
-- render it in the GPUI viewport;
-- resize, fit, 1:1, zoom and pan remain responsive;
-- define image-buffer ownership with no avoidable copies across an FFI boundary.
+Implemented in the spike branch:
+
+- native file picker for one raster image;
+- local JPEG/PNG/TIFF/WebP dimension probe;
+- local image path rendered through GPUI's `img(...)` element;
+- Fit mode using `ObjectFit::Contain`;
+- 1:1 mode;
+- bounded incremental zoom from 10% to 800%.
+
+Still required before S1 is PASS:
+
+- physical macOS validation of image open/render;
+- pointer/trackpad pan while zoomed;
+- resize behavior validation with a real image;
+- direct rendering of an image buffer produced by `raw-engine`, rather than relying only on GPUI's path-based raster decoder;
+- confirm the intended BGRA/RGBA ownership/conversion contract and count avoidable copies.
+
+GPUI's current `img()` path-based image element is useful for the first raster validation. Upstream GPUI also supports `ImageSource::Image`, `ImageSource::Render` and `ImageSource::Custom`; these are the candidates for the raw-engine buffer experiment. GPUI internally paints decoded image data as render-image data, and current upstream source uses BGRA-oriented image data on this path. Do not assume a zero-copy engine-to-GPU contract until it is measured.
 
 ### S2 — Filmstrip
 
@@ -120,6 +143,6 @@ Choose one of:
 
 ## Current evidence
 
-The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The first spike calls `raw_engine::check_engine()` directly to prove that intended dependency direction at source level.
+The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has now been observed successfully on the user's physical macOS machine.
 
-The source has been scaffolded in GitHub, but it has **not yet been physically compiled or launched on the user's macOS/Windows machines**. A real-device build remains the next evidence gate.
+S0 is therefore complete. S1 is the current gate.
