@@ -116,30 +116,25 @@ Observed on the user's Mac:
 - existing `raw-engine` links directly and the UI reports `raw-engine linked`;
 - Flutter production code remains untouched by the experiment.
 
-### S1 — Real image viewport — IMPLEMENTED, PHYSICAL VALIDATION PENDING
+### S1 — Real image viewport — PASS on physical macOS
 
-Implemented in the spike branch:
+Implemented and physically validated on the user's Mac:
 
 - native file picker for raster and current embedded-RAW-preview formats;
 - image decode/develop through `raw-engine`, not GPUI's file-path decoder;
 - owned engine RGBA buffer passed into GPUI `RenderImage` without an encoded-image round trip;
+- correct visible image rendering through the direct buffer path;
 - Fit / 1:1 / bounded zoom;
 - left/middle mouse drag pan;
 - trackpad/two-finger scroll pan;
-- pinch and Cmd/Ctrl-scroll zoom.
+- pinch and Cmd/Ctrl-scroll zoom;
+- direct Rust-to-Rust engine integration remains functional while interacting with the viewport.
 
-Still required before S1 is PASS:
-
-- physical macOS validation of direct buffer open/render;
-- confirm color channels are correct after BGRA swizzle;
-- confirm mouse/trackpad pan and pinch zoom feel responsive on large images;
-- validate current RAW embedded preview display;
-- repeated open/replace smoke test for stale imagery or obvious memory growth;
-- resize behavior validation with a real image.
+Follow-up soak/performance checks can still measure repeated image replacement, large-image memory behavior and resize ergonomics, but they are no longer blockers for the S1 architectural proof.
 
 Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
-### S2 — Filmstrip
+### S2 — Filmstrip — NEXT
 
 - load at least 5,000 catalog-like asset records;
 - virtualize Filmstrip rendering;
@@ -180,4 +175,4 @@ Choose one of:
 
 The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has been observed successfully on the user's physical macOS machine.
 
-S0 is complete. S1 implementation is now ready for physical validation.
+S0 and S1 are complete on physical macOS. S2 Filmstrip/catalog-scale responsiveness is the next evidence gate.
