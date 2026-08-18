@@ -25,7 +25,8 @@ The spike currently contains:
 - mouse drag pan;
 - trackpad/two-finger scroll pan;
 - pinch zoom and Cmd/Ctrl-scroll zoom;
-- a bottom Filmstrip placeholder;
+- an S2 catalog-scale virtualization harness containing 5,000 synthetic asset records;
+- selection state over the virtualized catalog rows;
 - a Develop inspector placeholder.
 
 It does **not** replace Flutter, change Workplaces persistence, implement the production Import flow, add real RAW demosaic/debayer behavior, or change PixelCraft processing ownership.
@@ -40,7 +41,7 @@ The experiment also maps naturally to the existing Dextryx desktop structure:
 GPUI application
 ├── Workplace/catalog navigation
 ├── Image viewport
-├── Filmstrip
+├── Filmstrip / catalog virtualization
 ├── Inspector / Develop controls
 └── Commands / shortcuts
         │
@@ -81,6 +82,16 @@ Interaction checks:
 - two-finger/trackpad scrolling pans;
 - pinch zooms;
 - Cmd/Ctrl + scroll zooms.
+
+For S2, use the bottom stress harness:
+
+- it represents 5,000 catalog-like assets;
+- records are grouped into 625 fixed-height virtual rows of eight assets each;
+- GPUI `uniform_list` only builds the currently visible row range;
+- rapidly scroll the harness and click assets while scrolling;
+- the selected asset should update immediately without constructing all 5,000 thumbnail elements.
+
+The current S2 harness deliberately proves catalog-scale virtualization first. It is not yet the final horizontal Filmstrip implementation.
 
 ## S1 buffer ownership
 
@@ -134,12 +145,25 @@ Follow-up soak/performance checks can still measure repeated image replacement, 
 
 Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
-### S2 — Filmstrip — NEXT
+### S2 — Filmstrip / catalog scale — IN PROGRESS
 
-- load at least 5,000 catalog-like asset records;
-- virtualize Filmstrip rendering;
-- selection remains responsive while scrolling;
-- thumbnail work remains asynchronous and bounded.
+Implemented in the current branch:
+
+- 5,000 synthetic catalog-like asset records;
+- 625 fixed-height rows with eight assets per row;
+- GPUI `uniform_list` virtualization, so only visible rows are built;
+- clickable selection state over the virtualized records;
+- a physical test harness suitable for rapid-scroll/selection responsiveness checks.
+
+Still required before S2 is PASS:
+
+- physical macOS validation that rapid scrolling and selection remain responsive;
+- bounded asynchronous thumbnail generation/loading instead of `thumb pending` placeholders;
+- verify thumbnail work does not block the UI thread;
+- establish a bounded queue/cache policy and cancellation/drop behavior for off-screen work;
+- implement and validate a true horizontal Filmstrip virtualization path rather than treating the row-based harness as the final UI.
+
+The row-based harness is intentional: GPUI's current `uniform_list` is a vertical uniform-height virtual list. It is being used to prove large-catalog lazy rendering independently before we build a specialized horizontal Filmstrip element or adapter.
 
 ### S3 — Workplace/catalog boundary
 
@@ -175,4 +199,4 @@ Choose one of:
 
 The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has been observed successfully on the user's physical macOS machine.
 
-S0 and S1 are complete on physical macOS. S2 Filmstrip/catalog-scale responsiveness is the next evidence gate.
+S0 and S1 are complete on physical macOS. S2 now has a 5,000-record virtualization harness and is waiting for physical responsiveness validation before async thumbnails and true horizontal Filmstrip work.
