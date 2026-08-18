@@ -31,6 +31,8 @@ The spike currently contains:
 - a 128-entry thumbnail cache;
 - live Catalog state for All photos / Missing / Recent imports;
 - stable synthetic asset identity across Catalog filters;
+- a framework-neutral Rust `CatalogRepository` boundary and contract tests;
+- production-like linked/managed, effective-path, relink, catalog-removal and Workplace-selection semantics in the S3 test adapter;
 - a Develop inspector placeholder.
 
 It does **not** replace Flutter, move production Workplaces persistence, implement the production Import flow, add real RAW demosaic/debayer behavior, or change PixelCraft processing ownership.
@@ -73,6 +75,12 @@ From the repository root:
 ```bash
 cd experiments/gpui-desktop
 cargo run
+```
+
+S3 repository-boundary contract validation:
+
+```bash
+cargo test --test catalog_boundary
 ```
 
 ## S1 interaction checks
@@ -154,11 +162,11 @@ Physically validated on the user's Mac:
 - observed in-flight count stays within the configured bound;
 - queue behavior remains bounded under fast scrolling.
 
-S2 now provides positive evidence that GPUI can support a catalog-heavy desktop Filmstrip workload without constructing the entire asset set in the live element tree.
+S2 provides positive evidence that GPUI can support a catalog-heavy desktop Filmstrip workload without constructing the entire asset set in the live element tree.
 
-### S3 — Workplace/catalog boundary — STATE SHELL PASS, REPOSITORY BOUNDARY NEXT
+### S3 — Workplace/catalog boundary — CONTRACT READY FOR VALIDATION
 
-The first S3 layer is implemented and physically validated without moving persistence ownership:
+The S3 Catalog state shell is already physically validated:
 
 ```text
 CatalogView
@@ -167,67 +175,109 @@ CatalogView
 └── RecentImports
 ```
 
-Validated synthetic behavior:
+Validated UI behavior:
 
 - `All photos` exposes all 5,000 stable assets;
 - `Missing` exposes every 17th asset as a deterministic missing subset;
 - `Recent imports` exposes the latest 500 assets;
 - changing Catalog view resets Filmstrip position and selects the first asset in that view;
-- the underlying `asset_ix` remains stable across filters;
+- the underlying synthetic asset identity remains stable across filters;
 - Filmstrip virtualization and thumbnail caching operate on stable asset identity rather than view position;
 - repeatedly switching Catalog views remains responsive on physical macOS.
 
-The state shell is deliberately separate from persistence. The next S3 step is to define a catalog/workplace repository boundary and adapt production Workplaces data through it without teaching GPUI about Hive or moving storage semantics into UI code.
-
-Target boundary:
+The repository boundary is now implemented separately from GPUI in `experiments/gpui-desktop/src/catalog.rs`:
 
 ```text
 GPUI CatalogState / WorkplaceState
           ↓
-CatalogRepository / WorkplaceRepository
+framework-neutral CatalogRepository
           ↓
-production Workplaces adapter
+production adapter (decision deferred)
           ↓
-existing persistence semantics
+authoritative catalog/storage implementation
 ```
 
-The adapter must preserve:
+The S3 contract models and tests:
 
-- stable asset identity;
-- linked vs managed storage;
-- missing/relink behavior;
-- catalog-only removal;
-- recent-import membership;
-- Workplace selection.
+- stable string asset identity independent from view position;
+- `WorkplaceSummary` and active-Workplace selection;
+- linked vs managed storage mode;
+- `effective_path = managed_path ?? source_path`;
+- relink preserving asset identity while updating the correct linked/managed path;
+- missing state cleared by successful relink;
+- recent-import membership/order;
+- catalog-only removal with no physical-delete operation in the repository contract.
 
-No persistence migration is authorized merely by this S3 state-shell result.
+`SyntheticCatalogRepository` is only a test adapter. It is deliberately not a persistence proposal.
 
-### S4 — Desktop compatibility
+Production Flutter already has its own storage boundary from the merged storage-abstraction work:
+
+```text
+Flutter application/domain
+        ↓
+WorkplaceRepository / AssetRepository / ImportRepository
+        ↓
+repository adapters
+        ↓
+KeyValueStore / AppStorage
+        ↓
+current Hive backend
+```
+
+Therefore GPUI must **not** learn Hive APIs or duplicate persistence semantics. The architecture review will decide how a native Rust desktop shell should reach the authoritative catalog: for example through a retained Dart-side service boundary, through a future shared Rust catalog core/storage frontend, or by stopping the migration. No persistence move is authorized by this spike.
+
+Before S3 is marked PASS, run:
+
+```bash
+cd experiments/gpui-desktop
+cargo test --test catalog_boundary
+cargo run
+```
+
+The test suite must pass and the already validated Catalog/Filmstrip UI must remain unchanged.
+
+### Architecture Review — NEXT AFTER S3
+
+Do not proceed to S4 automatically. Once the S3 contract test/build is validated, produce a GPUI architecture review covering:
+
+- viewport and interaction performance;
+- direct Rust engine integration;
+- catalog scale and async background work;
+- GPUI-native state ergonomics;
+- catalog/persistence boundary cleanliness;
+- implementation and migration complexity;
+- GPUI pre-1.0 API churn/maintenance risk;
+- desktop platform/support risk;
+- migration cost and long-term ownership.
+
+The review must choose a recommendation among:
+
+1. **STOP** — retain Flutter desktop;
+2. **HYBRID** — use GPUI only for a specialized desktop shell/viewport/Filmstrip boundary;
+3. **CONTINUE MIGRATION** — proceed to S4 and an incremental native desktop migration.
+
+### S4 — Desktop compatibility — BLOCKED ON ARCHITECTURE REVIEW
 
 - validate macOS packaging and filesystem dialogs;
 - compile/smoke Linux;
 - compile and launch on Windows before treating Windows as supported.
 
-### S5 — Decision
+### S5 — Final migration decision
 
-Choose one of:
-
-1. stop the experiment and keep Flutter desktop;
-2. use GPUI only for a specialized desktop viewport/shell;
-3. incrementally migrate desktop UI to GPUI while retaining Flutter for mobile;
-4. migrate the desktop application fully to Rust/GPUI.
+Only after the architecture review and, if approved, S4 evidence.
 
 ## Guardrails
 
 - No Big Bang rewrite.
-- Do not port Workplaces persistence before S1/S2 prove a material benefit.
+- Do not port Workplaces persistence before the architecture review.
 - Do not duplicate PixelCraft image-processing ownership.
 - Do not resume real RAW demosaic/debayer work as part of this experiment.
 - Keep the Flutter production path buildable throughout the experiment.
 - Treat GPUI API churn as a real maintenance cost in the final decision.
 - Keep catalog filtering/state independent from persistence implementation details.
-- Introduce a repository/adapter boundary before connecting GPUI to production Workplaces data.
+- Keep the native catalog contract independent from GPUI and any concrete database.
+- Do not add Hive knowledge to GPUI.
 
 ## Current evidence
 
-S0, S1 and S2 are complete on physical macOS. S3's live Catalog state shell is also physically validated. The next evidence gate is the repository boundary: GPUI should consume production Workplaces/catalog data through an explicit adapter while preserving existing asset/storage semantics and without directly depending on Hive or other Flutter persistence details.
+S0, S1 and S2 are complete on physical macOS. S3's live Catalog state shell is also physically validated. The framework-neutral S3 repository contract and contract tests are now implemented and await local compile/test confirmation. After that confirmation, stop feature migration work and perform the GPUI Architecture Review before S4.
