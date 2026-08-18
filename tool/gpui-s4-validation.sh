@@ -39,6 +39,7 @@ host_name() {
 
 check_host() {
   require_cmd cargo
+  require_cmd rustc
   local host
   host="$(host_name)"
 
@@ -55,7 +56,17 @@ check_host() {
 
   echo
   echo "== GPUI release compile =="
-  cargo build --locked --release
+  case "$host" in
+    linux)
+      # The pinned Zed workspace disables gpui_linux default features. GPUI's
+      # standalone-app guidance requires at least one Linux window backend.
+      # Enable both during S4 so we validate the broad desktop configuration.
+      cargo build --release --features gpui_platform/wayland,gpui_platform/x11
+      ;;
+    *)
+      cargo build --locked --release
+      ;;
+  esac
 
   echo
   echo "GPUI S4 host compile PASS ($host)"
@@ -65,9 +76,12 @@ check_host() {
       echo "Next: make gpui-s4-macos-bundle"
       ;;
     linux)
-      echo "Next: launch ./target/release/$BINARY_NAME under a desktop session and smoke file dialog, viewport, and Filmstrip."
+      echo "Linux S4 build used GPUI wayland+x11 features."
+      echo "Next: launch ./target/release/$BINARY_NAME under a desktop session and smoke text, file dialog, viewport, and Filmstrip."
+      echo "If Cargo.lock changes because optional Linux dependencies were first resolved, review and commit that lockfile change separately."
       ;;
     windows)
+      echo "Windows S4 requires no gpui_platform feature beyond the package configuration."
       echo "Next: launch target\\release\\${BINARY_NAME}.exe and smoke text, file dialog, viewport, and Filmstrip."
       ;;
     *)
