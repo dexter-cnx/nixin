@@ -1,8 +1,10 @@
 mod api;
 
-use api::{DevelopSettings, ExportOptions};
+pub use api::{DevelopSettings, DevelopedImage};
+use api::ExportOptions;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
+use std::path::Path;
 use std::ptr;
 use std::sync::Mutex;
 
@@ -47,6 +49,28 @@ fn run_image<F>(f: F) -> *mut ImageBuffer where F: FnOnce() -> Result<api::Devel
 
 fn develop_settings(exposure: f32, temperature: f32, contrast: f32) -> DevelopSettings {
     DevelopSettings { exposure, temperature, contrast }
+}
+
+/// Native Rust entry point for the current preview/develop pipeline.
+///
+/// Unlike the C ABI functions below, this returns owned RGBA pixels directly to
+/// Rust callers. Raster images are decoded with EXIF orientation normalization;
+/// RAW containers still use the existing embedded-JPEG preview path and do not
+/// perform sensor demosaic/debayer processing.
+pub fn develop_image(
+    path: impl AsRef<Path>,
+    settings: DevelopSettings,
+) -> Result<DevelopedImage, String> {
+    let path = path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| "Image path is not valid UTF-8".to_string())?;
+    api::apply_develop_settings(path.to_owned(), settings)
+}
+
+/// Native Rust convenience entry point using neutral develop settings.
+pub fn develop_preview(path: impl AsRef<Path>) -> Result<DevelopedImage, String> {
+    develop_image(path, DevelopSettings::default())
 }
 
 #[no_mangle]
