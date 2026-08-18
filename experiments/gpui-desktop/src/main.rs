@@ -1,11 +1,11 @@
-use std::ops::Range;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
     App, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
     Pixels, Point, RenderImage, ScrollDelta, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
-    div, img, point, prelude::*, px, rgb, size, uniform_list,
+    div, img, point, prelude::*, px, rgb, size,
 };
 use gpui_platform::application;
 use rfd::FileDialog;
@@ -15,9 +15,32 @@ const VIEWPORT_HEIGHT: f32 = 480.0;
 const MIN_ZOOM: f32 = 0.1;
 const MAX_ZOOM: f32 = 8.0;
 const SCROLL_LINE_MULTIPLIER: f32 = 20.0;
+
 const S2_ASSET_COUNT: usize = 5_000;
-const S2_ASSETS_PER_ROW: usize = 8;
-const S2_ROW_COUNT: usize = S2_ASSET_COUNT.div_ceil(S2_ASSETS_PER_ROW);
+const FILMSTRIP_VIEW_WIDTH: f32 = 900.0;
+const FILMSTRIP_ITEM_WIDTH: f32 = 96.0;
+const FILMSTRIP_GAP: f32 = 8.0;
+const FILMSTRIP_STRIDE: f32 = FILMSTRIP_ITEM_WIDTH + FILMSTRIP_GAP;
+const FILMSTRIP_OVERSCAN: usize = 3;
+const THUMB_WIDTH: u32 = 88;
+const THUMB_HEIGHT: u32 = 54;
+const THUMB_MAX_IN_FLIGHT: usize = 4;
+const THUMB_CACHE_CAPACITY: usize = 128;
+
+fn build_synthetic_thumbnail(asset_ix: usize) -> image::RgbaImage {
+    let mut image = image::RgbaImage::new(THUMB_WIDTH, THUMB_HEIGHT);
+    let seed = asset_ix as u32;
+
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        let r = ((x * 3 + seed * 13) % 255) as u8;
+        let g = ((y * 5 + seed * 7) % 255) as u8;
+        let b = (((x + y) * 2 + seed * 17) % 255) as u8;
+        // GPUI RenderImage expects BGRA-oriented bytes on the pinned renderer path.
+        *pixel = image::Rgba([b, g, r, 255]);
+    }
+
+    image
+}
 
 struct DextryxSpike {
     engine_ready: bool,
@@ -28,6 +51,14 @@ struct DextryxSpike {
     pan_offset: Point<Pixels>,
     last_mouse_position: Option<Point<Pixels>>,
     selected_asset: usize,
+
+    filmstrip_scroll_x: f32,
+    thumbnails: HashMap<usize, Arc<RenderImage>>,
+    thumbnail_pending: HashSet<usize>,
+    thumbnail_queue: VecDeque<usize>,
+    thumbnail_cache_order: VecDeque<usize>,
+    thumbnail_in_flight: usize,
+
     status: String,
 }
 
@@ -260,76 +291,198 @@ impl DextryxSpike {
             .into_any_element()
     }
 
-    fn s2_virtualized_catalog(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        uniform_list(
-            "s2-virtual-catalog",
-            S2_ROW_COUNT,
-            cx.processor(|this, range: Range<usize>, _window, cx| {
-                range
-                    .map(|row_ix| {
-                        let first_asset = row_ix * S2_ASSETS_PER_ROW;
-                        let mut row = div()
-                            .h(px(92.0))
-                            .px_2()
-                            .flex()
-                            .gap_2()
-                            .items_center();
+    fn max_filmstrip_scroll() -> f32 {
+        (S2_ASSET_COUNT as f32 * FILMSTRIP_STRIDE - FILMSTRIP_VIEW_WIDTH).max(0.0)
+    }
 
-                        for offset in 0..S2_ASSETS_PER_ROW {
-                            let asset_ix = first_asset + offset;
-                            if asset_ix >= S2_ASSET_COUNT {
-                                break;
-                            }
+    fn filmstrip_visible_range(&self) -> std::ops::Range<usize> {
+        let first = (self.filmstrip_scroll_x / FILMSTRIP_STRIDE).floor() as usize;
+        let visible_count = (FILMSTRIP_VIEW_WIDTH / FILMSTRIP_STRIDE).ceil() as usize + 1;
+        let start = first.saturating_sub(FILMSTRIP_OVERSCAN);
+        let end = (first + visible_count + FILMSTRIP_OVERSCAN).min(S2_ASSET_COUNT);
+        start..end
+    }
 
-                            let selected = this.selected_asset == asset_ix;
-                            row = row.child(
-                                div()
-                                    .id(format!("s2-asset-{asset_ix}"))
-                                    .w(px(96.0))
-                                    .h(px(76.0))
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(if selected {
-                                        rgb(0xb8bcc6)
-                                    } else {
-                                        rgb(0x434750)
-                                    })
-                                    .bg(if selected {
-                                        rgb(0x343840)
-                                    } else {
-                                        rgb(0x25282e)
-                                    })
-                                    .cursor_pointer()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_sm()
-                                    .text_color(rgb(0xb8bcc6))
-                                    .child(format!("Asset {}", asset_ix + 1))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(rgb(0x686d76))
-                                            .child("thumb pending"),
-                                    )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.selected_asset = asset_ix;
-                                        this.status = format!(
-                                            "S2 selection: Asset {} / {}",
-                                            asset_ix + 1,
-                                            S2_ASSET_COUNT
-                                        );
-                                        cx.notify();
-                                    })),
-                            );
+    fn handle_filmstrip_scroll(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = match event.delta {
+            ScrollDelta::Pixels(pixels) => {
+                let x: f32 = pixels.x.into();
+                let y: f32 = pixels.y.into();
+                if x.abs() > y.abs() { x } else { y }
+            }
+            ScrollDelta::Lines(lines) => {
+                let raw = if lines.x.abs() > lines.y.abs() {
+                    lines.x
+                } else {
+                    lines.y
+                };
+                raw * 48.0
+            }
+        };
+
+        self.filmstrip_scroll_x =
+            (self.filmstrip_scroll_x - delta).clamp(0.0, Self::max_filmstrip_scroll());
+        cx.notify();
+    }
+
+    fn schedule_visible_thumbnails(
+        &mut self,
+        visible: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        // Any queued-but-not-started work outside the latest visible/overscan range is stale.
+        self.thumbnail_queue.clear();
+
+        for asset_ix in visible {
+            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix) {
+                continue;
+            }
+            self.thumbnail_queue.push_back(asset_ix);
+        }
+
+        self.pump_thumbnail_jobs(cx);
+    }
+
+    fn pump_thumbnail_jobs(&mut self, cx: &mut Context<Self>) {
+        while self.thumbnail_in_flight < THUMB_MAX_IN_FLIGHT {
+            let Some(asset_ix) = self.thumbnail_queue.pop_front() else {
+                break;
+            };
+
+            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix) {
+                continue;
+            }
+
+            self.thumbnail_pending.insert(asset_ix);
+            self.thumbnail_in_flight += 1;
+
+            let background = cx
+                .background_executor()
+                .spawn(async move { build_synthetic_thumbnail(asset_ix) });
+
+            cx.spawn(async move |this, cx| {
+                let buffer = background.await;
+                let _ = this.update(cx, |this, cx| {
+                    this.thumbnail_pending.remove(&asset_ix);
+                    this.thumbnail_in_flight = this.thumbnail_in_flight.saturating_sub(1);
+
+                    let render_image =
+                        Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
+                    this.thumbnails.insert(asset_ix, render_image);
+                    this.thumbnail_cache_order.retain(|ix| *ix != asset_ix);
+                    this.thumbnail_cache_order.push_back(asset_ix);
+
+                    while this.thumbnail_cache_order.len() > THUMB_CACHE_CAPACITY {
+                        if let Some(oldest) = this.thumbnail_cache_order.pop_front() {
+                            this.thumbnails.remove(&oldest);
                         }
-                        row
-                    })
-                    .collect::<Vec<_>>()
-            }),
-        )
-        .h_full()
+                    }
+
+                    this.pump_thumbnail_jobs(cx);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+
+    fn filmstrip_asset(
+        &self,
+        asset_ix: usize,
+        left: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.selected_asset == asset_ix;
+        let thumbnail = self.thumbnails.get(&asset_ix).cloned();
+
+        let preview = if let Some(image) = thumbnail {
+            div()
+                .w(px(THUMB_WIDTH as f32))
+                .h(px(THUMB_HEIGHT as f32))
+                .overflow_hidden()
+                .rounded_sm()
+                .child(img(image).w(px(THUMB_WIDTH as f32)).h(px(THUMB_HEIGHT as f32)))
+                .into_any_element()
+        } else {
+            div()
+                .w(px(THUMB_WIDTH as f32))
+                .h(px(THUMB_HEIGHT as f32))
+                .rounded_sm()
+                .bg(rgb(0x202329))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_xs()
+                .text_color(rgb(0x686d76))
+                .child("loading")
+                .into_any_element()
+        };
+
+        div()
+            .id(format!("filmstrip-asset-{asset_ix}"))
+            .absolute()
+            .left(px(left))
+            .top(px(6.0))
+            .w(px(FILMSTRIP_ITEM_WIDTH))
+            .h(px(78.0))
+            .p_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0xd4d7de)
+            } else {
+                rgb(0x434750)
+            })
+            .bg(if selected {
+                rgb(0x343840)
+            } else {
+                rgb(0x25282e)
+            })
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .child(preview)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0xb8bcc6))
+                    .child(format!("{}", asset_ix + 1)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.selected_asset = asset_ix;
+                this.status = format!("S2 filmstrip selection: Asset {} / {}", asset_ix + 1, S2_ASSET_COUNT);
+                cx.notify();
+            }))
+    }
+
+    fn s2_horizontal_filmstrip(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let visible = self.filmstrip_visible_range();
+        self.schedule_visible_thumbnails(visible.clone(), cx);
+
+        let mut canvas = div()
+            .relative()
+            .w(px(FILMSTRIP_VIEW_WIDTH))
+            .h(px(90.0));
+
+        for asset_ix in visible {
+            let left = asset_ix as f32 * FILMSTRIP_STRIDE - self.filmstrip_scroll_x;
+            canvas = canvas.child(self.filmstrip_asset(asset_ix, left, cx));
+        }
+
+        div()
+            .id("s2-horizontal-filmstrip")
+            .w(px(FILMSTRIP_VIEW_WIDTH))
+            .h(px(90.0))
+            .overflow_hidden()
+            .on_scroll_wheel(cx.listener(Self::handle_filmstrip_scroll))
+            .child(canvas)
     }
 }
 
@@ -347,6 +500,12 @@ impl Render for DextryxSpike {
             f32::from(self.pan_offset.y)
         );
         let selected_label = format!("Selected: Asset {}", self.selected_asset + 1);
+        let thumb_status = format!(
+            "thumbs cached {} / in-flight {} / queue {}",
+            self.thumbnails.len(),
+            self.thumbnail_in_flight,
+            self.thumbnail_queue.len()
+        );
 
         div()
             .flex()
@@ -389,7 +548,9 @@ impl Render for DextryxSpike {
                             .child("Recent imports")
                             .child(Self::panel_label("S2 HARNESS"))
                             .child("5,000 assets")
-                            .child("625 virtual rows"),
+                            .child("horizontal virtualization")
+                            .child("4 thumbnail workers")
+                            .child("128 thumbnail cache"),
                     )
                     .child(
                         div()
@@ -448,7 +609,7 @@ impl Render for DextryxSpike {
                             )
                             .child(
                                 div()
-                                    .h(px(184.0))
+                                    .h(px(132.0))
                                     .border_t_1()
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x16181c))
@@ -456,17 +617,25 @@ impl Render for DextryxSpike {
                                     .flex_col()
                                     .child(
                                         div()
-                                            .h(px(30.0))
+                                            .h(px(32.0))
                                             .px_3()
                                             .flex()
                                             .items_center()
                                             .justify_between()
                                             .text_sm()
                                             .text_color(rgb(0x8d929c))
-                                            .child("S2 virtualized catalog / filmstrip stress harness")
+                                            .child("S2 horizontal virtualized Filmstrip — scroll / trackpad")
                                             .child(selected_label),
                                     )
-                                    .child(div().flex_1().overflow_hidden().child(self.s2_virtualized_catalog(cx))),
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .px_3()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(self.s2_horizontal_filmstrip(cx)),
+                                    ),
                             ),
                     )
                     .child(
@@ -485,18 +654,24 @@ impl Render for DextryxSpike {
                             .child("Contrast        1.00")
                             .child(Self::panel_label("S1 VIEWPORT — PASS"))
                             .child(div().text_sm().text_color(rgb(0x858a94)).child(self.status.clone()))
-                            .child(Self::panel_label("S2 — IN PROGRESS"))
+                            .child(Self::panel_label("S2 — FINAL VALIDATION"))
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(rgb(0x858a94))
-                                    .child("5,000 records are virtualized in 625 fixed-height rows. Only visible rows are built. Scroll rapidly and click assets to validate selection responsiveness."),
+                                    .child("Only the visible Filmstrip range plus 3-item overscan is constructed. Synthetic thumbnail work runs on GPUI's background executor with max 4 in-flight jobs."),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0x858a94))
+                                    .child(thumb_status),
                             )
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(rgb(0x686d76))
-                                    .child("Next S2 step: real async/bounded thumbnail jobs and a true horizontal filmstrip implementation."),
+                                    .child("Queued off-screen thumbnail work is dropped on the next scroll. Completed thumbnails are bounded by a 128-entry cache."),
                             ),
                     ),
             )
@@ -521,7 +696,13 @@ fn main() {
                     pan_offset: point(px(0.0), px(0.0)),
                     last_mouse_position: None,
                     selected_asset: 0,
-                    status: "S1 passed on physical macOS. S2 virtualization harness ready."
+                    filmstrip_scroll_x: 0.0,
+                    thumbnails: HashMap::new(),
+                    thumbnail_pending: HashSet::new(),
+                    thumbnail_queue: VecDeque::new(),
+                    thumbnail_cache_order: VecDeque::new(),
+                    thumbnail_in_flight: 0,
+                    status: "S1 passed on physical macOS. S2 horizontal filmstrip + bounded async thumbnails ready for validation."
                         .to_string(),
                 })
             },
