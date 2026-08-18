@@ -136,36 +136,29 @@ Implemented and physically validated on the user's Mac:
 
 Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
-### S2 — Filmstrip / catalog scale — FINAL VALIDATION
+### S2 — Filmstrip / catalog scale — PASS on physical macOS
 
-Already physically validated:
+Physically validated on the user's Mac:
 
 - 5,000 synthetic catalog-like asset records;
-- large-catalog virtualization concept;
-- rapid scrolling and selection responsiveness on physical macOS.
-
-Current implementation now also contains:
-
 - true horizontal Filmstrip visible-range virtualization;
 - three-item overscan on each side;
 - only visible/overscan Filmstrip elements are constructed;
 - GPUI background-executor thumbnail work;
 - maximum 4 thumbnail jobs in flight;
 - queued off-screen work is replaced by the latest visible range before it starts;
-- completed thumbnails are bounded by a 128-entry cache.
+- completed thumbnails are bounded by a 128-entry cache;
+- thumbnails progressively appear;
+- Filmstrip scrolling remains responsive while thumbnail jobs run;
+- selection remains responsive while jobs run;
+- observed in-flight count stays within the configured bound;
+- queue behavior remains bounded under fast scrolling.
 
-Still required before S2 is marked PASS:
+S2 now provides positive evidence that GPUI can support a catalog-heavy desktop Filmstrip workload without constructing the entire asset set in the live element tree.
 
-- compile/run the latest horizontal Filmstrip + async-thumbnail implementation on physical macOS;
-- confirm thumbnails progressively appear;
-- confirm Filmstrip scroll remains responsive while thumbnail jobs run;
-- confirm selection remains immediate while jobs run;
-- confirm displayed in-flight count never exceeds 4;
-- confirm queue does not grow continuously during fast scrolling.
+### S3 — Workplace/catalog boundary — STATE SHELL PASS, REPOSITORY BOUNDARY NEXT
 
-### S3 — Workplace/catalog boundary — STATE SHELL IN PROGRESS
-
-The first S3 layer is now implemented without moving persistence ownership:
+The first S3 layer is implemented and physically validated without moving persistence ownership:
 
 ```text
 CatalogView
@@ -174,18 +167,31 @@ CatalogView
 └── RecentImports
 ```
 
-Current synthetic behavior:
+Validated synthetic behavior:
 
 - `All photos` exposes all 5,000 stable assets;
 - `Missing` exposes every 17th asset as a deterministic missing subset;
 - `Recent imports` exposes the latest 500 assets;
 - changing Catalog view resets Filmstrip position and selects the first asset in that view;
 - the underlying `asset_ix` remains stable across filters;
-- Filmstrip virtualization and thumbnail caching operate on stable asset identity rather than view position.
+- Filmstrip virtualization and thumbnail caching operate on stable asset identity rather than view position;
+- repeatedly switching Catalog views remains responsive on physical macOS.
 
-This state shell is deliberately separate from persistence. The next S3 step is to define a catalog/workplace repository boundary and adapt production Workplaces data through it without teaching GPUI about Hive or moving storage semantics into UI code.
+The state shell is deliberately separate from persistence. The next S3 step is to define a catalog/workplace repository boundary and adapt production Workplaces data through it without teaching GPUI about Hive or moving storage semantics into UI code.
 
-S3 acceptance still requires preserving production semantics for:
+Target boundary:
+
+```text
+GPUI CatalogState / WorkplaceState
+          ↓
+CatalogRepository / WorkplaceRepository
+          ↓
+production Workplaces adapter
+          ↓
+existing persistence semantics
+```
+
+The adapter must preserve:
 
 - stable asset identity;
 - linked vs managed storage;
@@ -193,6 +199,8 @@ S3 acceptance still requires preserving production semantics for:
 - catalog-only removal;
 - recent-import membership;
 - Workplace selection.
+
+No persistence migration is authorized merely by this S3 state-shell result.
 
 ### S4 — Desktop compatibility
 
@@ -218,7 +226,8 @@ Choose one of:
 - Keep the Flutter production path buildable throughout the experiment.
 - Treat GPUI API churn as a real maintenance cost in the final decision.
 - Keep catalog filtering/state independent from persistence implementation details.
+- Introduce a repository/adapter boundary before connecting GPUI to production Workplaces data.
 
 ## Current evidence
 
-The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. S0 and S1 are complete on physical macOS. The earlier S2 large-catalog virtualization/selection proof is also physically validated. The latest horizontal Filmstrip/background-thumbnail implementation is awaiting physical validation, while S3 now has a live catalog-state shell ready for repository-boundary work.
+S0, S1 and S2 are complete on physical macOS. S3's live Catalog state shell is also physically validated. The next evidence gate is the repository boundary: GPUI should consume production Workplaces/catalog data through an explicit adapter while preserving existing asset/storage semantics and without directly depending on Hive or other Flutter persistence details.
