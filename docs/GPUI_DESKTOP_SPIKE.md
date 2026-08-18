@@ -17,14 +17,18 @@ The spike currently contains:
 - a desktop application/window shell;
 - Workplace/navigation panel placeholders;
 - a central image viewport;
-- native raster file selection for JPEG/PNG/TIFF/WebP;
-- GPUI image rendering from a local filesystem path;
+- native image/RAW-preview file selection;
+- direct Rust-to-Rust linkage against the existing `raw-engine` crate;
+- a safe native Rust `raw-engine` preview/develop entry point returning owned RGBA pixels;
+- direct raw-engine RGBA -> GPUI `RenderImage` rendering without C FFI, temporary image files, or PNG/JPEG re-encoding;
 - Fit, 1:1 and incremental zoom controls;
+- mouse drag pan;
+- trackpad/two-finger scroll pan;
+- pinch zoom and Cmd/Ctrl-scroll zoom;
 - a bottom Filmstrip placeholder;
-- a Develop inspector placeholder;
-- a direct Rust-to-Rust linkage check against the existing `raw-engine` crate.
+- a Develop inspector placeholder.
 
-It does **not** replace Flutter, change Workplaces persistence, implement the production Import flow, change RAW behavior, or change PixelCraft processing ownership.
+It does **not** replace Flutter, change Workplaces persistence, implement the production Import flow, add real RAW demosaic/debayer behavior, or change PixelCraft processing ownership.
 
 ## Why this is worth testing
 
@@ -66,7 +70,36 @@ cd experiments/gpui-desktop
 cargo run
 ```
 
-For S1, click `Open Image` and select a JPEG, PNG, TIFF or WebP image. The toolbar provides `Fit`, `1:1`, zoom out and zoom in controls.
+For S1, click `Open Image` and select a JPEG/PNG/TIFF/WebP image or one of the existing RAW-preview formats. The toolbar provides `Fit`, `1:1`, zoom out and zoom in controls.
+
+Interaction checks:
+
+- `Fit` resets zoom and pan to fit the 720x480 validation viewport;
+- `1:1` resets to 100% and centered pan;
+- `+` / `-` changes zoom;
+- left or middle mouse drag pans;
+- two-finger/trackpad scrolling pans;
+- pinch zooms;
+- Cmd/Ctrl + scroll zooms.
+
+## S1 buffer ownership
+
+The current direct path is:
+
+```text
+file path
+  -> raw_engine::develop_preview(...)
+  -> DevelopedImage { width, height, Vec<u8> RGBA }
+  -> in-place RGBA/BGRA channel swizzle at GPUI boundary
+  -> image::RgbaImage::from_raw(...)  // adopts Vec, no pixel-buffer clone
+  -> image::Frame
+  -> gpui::RenderImage
+  -> GPUI renderer / image atlas
+```
+
+The pinned GPUI renderer expects BGRA-oriented render-image bytes. The channel swizzle is therefore performed in place at the UI boundary. No intermediate JPEG/PNG encoding or temporary file is introduced.
+
+The existing C ABI remains intact for Flutter. The new native Rust entry point is additive and is used only by the GPUI experiment at this stage.
 
 ## Validation gates
 
@@ -83,26 +116,28 @@ Observed on the user's Mac:
 - existing `raw-engine` links directly and the UI reports `raw-engine linked`;
 - Flutter production code remains untouched by the experiment.
 
-### S1 — Real image viewport — IN PROGRESS
+### S1 — Real image viewport — IMPLEMENTED, PHYSICAL VALIDATION PENDING
 
 Implemented in the spike branch:
 
-- native file picker for one raster image;
-- local JPEG/PNG/TIFF/WebP dimension probe;
-- local image path rendered through GPUI's `img(...)` element;
-- Fit mode using `ObjectFit::Contain`;
-- 1:1 mode;
-- bounded incremental zoom from 10% to 800%.
+- native file picker for raster and current embedded-RAW-preview formats;
+- image decode/develop through `raw-engine`, not GPUI's file-path decoder;
+- owned engine RGBA buffer passed into GPUI `RenderImage` without an encoded-image round trip;
+- Fit / 1:1 / bounded zoom;
+- left/middle mouse drag pan;
+- trackpad/two-finger scroll pan;
+- pinch and Cmd/Ctrl-scroll zoom.
 
 Still required before S1 is PASS:
 
-- physical macOS validation of image open/render;
-- pointer/trackpad pan while zoomed;
-- resize behavior validation with a real image;
-- direct rendering of an image buffer produced by `raw-engine`, rather than relying only on GPUI's path-based raster decoder;
-- confirm the intended BGRA/RGBA ownership/conversion contract and count avoidable copies.
+- physical macOS validation of direct buffer open/render;
+- confirm color channels are correct after BGRA swizzle;
+- confirm mouse/trackpad pan and pinch zoom feel responsive on large images;
+- validate current RAW embedded preview display;
+- repeated open/replace smoke test for stale imagery or obvious memory growth;
+- resize behavior validation with a real image.
 
-GPUI's current `img()` path-based image element is useful for the first raster validation. Upstream GPUI also supports `ImageSource::Image`, `ImageSource::Render` and `ImageSource::Custom`; these are the candidates for the raw-engine buffer experiment. GPUI internally paints decoded image data as render-image data, and current upstream source uses BGRA-oriented image data on this path. Do not assume a zero-copy engine-to-GPU contract until it is measured.
+Do not claim engine-to-GPU zero-copy. The current improvement removes the Dart/C FFI boundary and avoids an encoded-image/file round trip, but GPUI still owns renderer/image-atlas upload behavior.
 
 ### S2 — Filmstrip
 
@@ -143,6 +178,6 @@ Choose one of:
 
 ## Current evidence
 
-The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has now been observed successfully on the user's physical macOS machine.
+The repository's `raw-engine` is already an `rlib` in addition to `cdylib` and `staticlib`, so a Rust desktop binary can link it as a normal Rust dependency. The spike calls `raw_engine::check_engine()` directly and that direct linkage has been observed successfully on the user's physical macOS machine.
 
-S0 is therefore complete. S1 is the current gate.
+S0 is complete. S1 implementation is now ready for physical validation.
