@@ -164,9 +164,9 @@ Physically validated on the user's Mac:
 
 S2 provides positive evidence that GPUI can support a catalog-heavy desktop Filmstrip workload without constructing the entire asset set in the live element tree.
 
-### S3 — Workplace/catalog boundary — CONTRACT READY FOR VALIDATION
+### S3 — Workplace/catalog boundary — PASS on physical macOS
 
-The S3 Catalog state shell is already physically validated:
+The S3 Catalog state shell is physically validated:
 
 ```text
 CatalogView
@@ -185,7 +185,15 @@ Validated UI behavior:
 - Filmstrip virtualization and thumbnail caching operate on stable asset identity rather than view position;
 - repeatedly switching Catalog views remains responsive on physical macOS.
 
-The repository boundary is now implemented separately from GPUI in `experiments/gpui-desktop/src/catalog.rs`:
+The framework-neutral repository boundary in `experiments/gpui-desktop/src/catalog.rs` is also validated by:
+
+```bash
+cargo test --test catalog_boundary
+```
+
+The test command passes locally and `cargo run` continues to behave normally after the boundary was introduced.
+
+Repository architecture:
 
 ```text
 GPUI CatalogState / WorkplaceState
@@ -224,52 +232,46 @@ KeyValueStore / AppStorage
 current Hive backend
 ```
 
-Therefore GPUI must **not** learn Hive APIs or duplicate persistence semantics. The architecture review will decide how a native Rust desktop shell should reach the authoritative catalog: for example through a retained Dart-side service boundary, through a future shared Rust catalog core/storage frontend, or by stopping the migration. No persistence move is authorized by this spike.
+Therefore GPUI must **not** learn Hive APIs or duplicate persistence semantics.
 
-Before S3 is marked PASS, run:
+## Architecture Review — COMPLETE
 
-```bash
-cd experiments/gpui-desktop
-cargo test --test catalog_boundary
-cargo run
+Full review:
+
+```text
+docs/GPUI_ARCHITECTURE_REVIEW.md
 ```
 
-The test suite must pass and the already validated Catalog/Filmstrip UI must remain unchanged.
+Decision:
 
-### Architecture Review — NEXT AFTER S3
+**CONTINUE MIGRATION — incrementally, desktop-only, with S4 as the next hard gate.**
 
-Do not proceed to S4 automatically. Once the S3 contract test/build is validated, produce a GPUI architecture review covering:
+Architecture score: approximately **8.3/10 before S4**.
 
-- viewport and interaction performance;
-- direct Rust engine integration;
-- catalog scale and async background work;
-- GPUI-native state ergonomics;
-- catalog/persistence boundary cleanliness;
-- implementation and migration complexity;
-- GPUI pre-1.0 API churn/maintenance risk;
-- desktop platform/support risk;
-- migration cost and long-term ownership.
+The decision is based on positive S0-S3 evidence for direct Rust engine integration, viewport interaction, 5,000-asset catalog virtualization, bounded asynchronous work, and a clean catalog-domain boundary.
 
-The review must choose a recommendation among:
+This is **not** approval for a Big Bang rewrite, production persistence migration, Flutter desktop removal, or new RAW demosaic/debayer work.
 
-1. **STOP** — retain Flutter desktop;
-2. **HYBRID** — use GPUI only for a specialized desktop shell/viewport/Filmstrip boundary;
-3. **CONTINUE MIGRATION** — proceed to S4 and an incremental native desktop migration.
+### S4 — Desktop compatibility — NEXT
 
-### S4 — Desktop compatibility — BLOCKED ON ARCHITECTURE REVIEW
+S4 is now authorized as the next spike gate only:
 
-- validate macOS packaging and filesystem dialogs;
-- compile/smoke Linux;
-- compile and launch on Windows before treating Windows as supported.
+- validate macOS release packaging, app-bundle launch and filesystem dialogs;
+- compile and launch the pinned GPUI spike on Windows;
+- validate text, file dialog, direct raw-engine viewport and Filmstrip smoke on Windows;
+- compile/smoke Linux and record required native dependencies;
+- document the maintenance cost of moving the pinned GPUI revision forward.
+
+Do not port additional production feature families merely to complete S4.
 
 ### S5 — Final migration decision
 
-Only after the architecture review and, if approved, S4 evidence.
+Only after S4 evidence.
 
 ## Guardrails
 
 - No Big Bang rewrite.
-- Do not port Workplaces persistence before the architecture review.
+- Do not port production Workplaces persistence before a separate storage architecture decision.
 - Do not duplicate PixelCraft image-processing ownership.
 - Do not resume real RAW demosaic/debayer work as part of this experiment.
 - Keep the Flutter production path buildable throughout the experiment.
@@ -277,7 +279,19 @@ Only after the architecture review and, if approved, S4 evidence.
 - Keep catalog filtering/state independent from persistence implementation details.
 - Keep the native catalog contract independent from GPUI and any concrete database.
 - Do not add Hive knowledge to GPUI.
+- S4 is compatibility/packaging evidence, not a feature-port milestone.
 
 ## Current evidence
 
-S0, S1 and S2 are complete on physical macOS. S3's live Catalog state shell is also physically validated. The framework-neutral S3 repository contract and contract tests are now implemented and await local compile/test confirmation. After that confirmation, stop feature migration work and perform the GPUI Architecture Review before S4.
+```text
+S0  PASS  native macOS build/launch/font/Rust linkage
+S1  PASS  direct Rust image viewport + pan/zoom
+S2  PASS  5,000-asset virtualized Filmstrip + bounded thumbnails
+S3  PASS  Catalog state + framework-neutral repository contract
+
+ARCHITECTURE REVIEW
+     CONTINUE MIGRATION — incremental desktop-only
+
+NEXT
+S4   desktop compatibility / packaging / Windows-Linux gates
+```
