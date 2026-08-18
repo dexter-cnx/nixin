@@ -30,12 +30,27 @@ make gpui-s4-check
 
 This runs the S3 catalog contract and a release build for the current host.
 
-### macOS bundle
+### macOS bundle — PASS on physical macOS
+
+Validated on the user's Mac:
 
 ```bash
+make gpui-s4-check
 make gpui-s4-macos-bundle
 open "build/gpui-s4/Dextryx Images GPUI.app"
 ```
+
+Observed PASS:
+
+- release compile succeeds;
+- the unsigned `.app` bundle is created successfully;
+- the `.app` launches outside `cargo run`;
+- text renders correctly;
+- native `Open Image` file dialog works;
+- direct raw-engine viewport still displays correctly;
+- pan/zoom remains functional;
+- 5,000-asset Filmstrip remains responsive;
+- Catalog switching remains responsive.
 
 The spike bundle deliberately uses:
 
@@ -43,25 +58,32 @@ The spike bundle deliberately uses:
 com.cnxdev.dextryx.images.gpui-spike
 ```
 
-so it does not collide with the production Dextryx Images application identifier. The generated S4 bundle is intentionally unsigned; signing/notarization is a later production-distribution concern, not required to prove the GPUI packaging boundary.
+so it does not collide with the production Dextryx Images application identifier. Signing/notarization remains a later production-distribution concern.
 
-### Windows
+## Windows and Linux without physical machines
 
-Run from Git Bash/MSYS2:
+The current development environment has no physical Windows or Linux machine available. S4 therefore separates **CI compile evidence** from **physical interactive evidence**.
 
-```bash
-make gpui-s4-check
+Dedicated workflow:
+
+```text
+.github/workflows/gpui-s4.yml
 ```
 
-Or from PowerShell, from `experiments/gpui-desktop`:
+`GPUI S4 Compatibility` runs only for the GPUI spike branch (or manual dispatch) and does not add cost/latency to normal production CI. It provides:
 
-```powershell
-cargo test --locked --test catalog_boundary
-cargo build --locked --release
-.\target\release\dextryx-gpui-spike.exe
-```
+- Windows `cargo test --locked --test catalog_boundary`;
+- Windows release compile and executable existence check;
+- Linux catalog contract test;
+- Linux release compile with `gpui_platform/wayland,gpui_platform/x11`;
+- Linux executable existence check;
+- Linux native packages based on the pinned Zed Linux dependency guidance.
 
-Windows physical smoke must verify:
+A green CI job proves that the project and pinned GPUI backend compile on that runner. It does **not** prove text rendering, window behavior, native dialogs, input, viewport presentation, or Filmstrip responsiveness on a real Windows/Linux desktop session.
+
+### Windows physical smoke — deferred, not failed
+
+When a Windows machine becomes available, validate:
 
 - application launches;
 - text/glyphs render correctly;
@@ -73,57 +95,47 @@ Windows physical smoke must verify:
 - background thumbnail work remains bounded;
 - Catalog switching remains responsive.
 
-### Linux
+### Linux physical smoke — deferred, not failed
 
-From repository root:
+When a Linux desktop becomes available, validate under Wayland or X11:
 
-```bash
-make gpui-s4-check
-```
-
-The S4 script explicitly builds with:
-
-```text
-gpui_platform/wayland,gpui_platform/x11
-```
-
-Linux physical smoke must verify under a real desktop session:
-
-- application launches under Wayland or X11;
+- application launches;
 - text renders;
 - file dialog opens;
 - viewport and Filmstrip work;
 - no obvious backend-specific input/scroll regression.
 
-If the first Linux feature-enabled resolution changes `experiments/gpui-desktop/Cargo.lock`, review and commit that lockfile delta separately before claiming deterministic Linux builds.
-
 ## S4 scorecard
 
 | Gate | Status | Evidence |
 |---|---|---|
-| macOS release compile | Pending | `make gpui-s4-check` |
-| macOS `.app` bundle creation | Pending | `make gpui-s4-macos-bundle` |
-| macOS `.app` launch | Pending | Physical smoke |
-| macOS file dialog | Pending | Physical smoke |
-| macOS viewport/Filmstrip regression smoke | Pending | Physical smoke |
-| Windows release compile | Pending | Windows host |
-| Windows launch + text | Pending | Windows physical smoke |
-| Windows file dialog | Pending | Windows physical smoke |
-| Windows viewport/Filmstrip | Pending | Windows physical smoke |
-| Linux release compile | Pending | Linux host |
-| Linux launch | Pending | Linux desktop smoke |
-| Linux file dialog/viewport/Filmstrip | Pending | Linux desktop smoke |
+| macOS release compile | PASS | `make gpui-s4-check`, physical macOS |
+| macOS `.app` bundle creation | PASS | `make gpui-s4-macos-bundle` |
+| macOS `.app` launch | PASS | Physical smoke |
+| macOS file dialog | PASS | Physical smoke |
+| macOS viewport/Filmstrip regression smoke | PASS | Physical smoke |
+| Windows release compile | CI pending | `GPUI S4 Compatibility` workflow |
+| Windows launch + text | Deferred | No physical Windows machine available |
+| Windows file dialog | Deferred | No physical Windows machine available |
+| Windows viewport/Filmstrip | Deferred | No physical Windows machine available |
+| Linux release compile | CI pending | `GPUI S4 Compatibility` workflow |
+| Linux launch | Deferred | No physical Linux desktop available |
+| Linux file dialog/viewport/Filmstrip | Deferred | No physical Linux desktop available |
 | pinned-revision maintenance assessment | Pending | Controlled upgrade experiment |
 
-## S4 pass rule
+## S4 interpretation rule
 
-Do not mark S4 globally PASS from macOS alone.
+Do not label Windows or Linux **physically validated** from CI alone.
 
-Minimum evidence for the final migration decision:
+For the architecture decision, distinguish these evidence levels:
 
-1. macOS release bundle builds and launches with no S0-S3 regression;
-2. Windows compiles and physically launches with text, file dialog, viewport, and Filmstrip working;
-3. Linux compiles and at least one Linux desktop backend launches successfully;
-4. a controlled GPUI pin-update experiment quantifies source churn rather than assuming dependency upgrades are cheap.
+```text
+physical PASS      macOS interaction + packaging verified on real hardware
+CI compile PASS    platform backend compiles on hosted runner
+DEFERRED           interactive desktop behavior not tested because hardware is unavailable
+FAIL               an attempted required gate actually failed
+```
 
-A platform failure does not automatically mean GPUI must be abandoned. The final S5 decision may choose a narrower supported-platform policy, but that tradeoff must be explicit.
+Unavailable hardware is a deferred evidence item, not a platform failure.
+
+A final S5 decision may proceed with an explicit macOS-first support policy if Windows/Linux CI compiles cleanly and the remaining uncertainty is accepted, but it must not claim production Windows/Linux support until their interactive smoke gates are eventually run.
