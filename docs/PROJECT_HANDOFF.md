@@ -64,6 +64,32 @@ Validated architecture evidence includes:
 
 The experiment is evidence for the architecture, not yet the production persistence implementation.
 
+## M0 implementation now present
+
+The first production-neutral Rust boundaries now exist on this branch:
+
+```text
+experiments/gpui-desktop
+        |
+        v
+crates/dextryx-frontend-api
+        |
+        v
+crates/dextryx-core
+```
+
+`dextryx-core` owns the extracted catalog/domain contract and semantics. `dextryx-frontend-api` owns frontend-facing DTOs, queries, mapped errors, application commands/events, and the runtime-neutral long-operation contract.
+
+Long-running operation infrastructure now includes:
+
+- stable `OperationId`;
+- `OperationKind` for Import / Thumbnail / DevelopPreview;
+- Started / Progress / ItemCompleted / Failed / Cancelled / Completed events;
+- `OperationEventSink` that can be implemented by a plain Rust closure or frontend adapter;
+- cooperative `CancellationToken` implemented only with Rust `std` primitives.
+
+This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, or FFI-specific types. Actual Import/Thumbnail/Develop implementations still need to adopt the contract before the long-operation part of M0 is considered complete.
+
 ## Frontend-neutral core guardrails
 
 The following are hard architecture rules for production migration:
@@ -119,15 +145,15 @@ For each vertical slice:
 
 Before the production GPUI foundation can be called complete:
 
-- [ ] GPUI dependencies exist only in frontend/app crates.
-- [ ] Shared core crates compile without GPUI.
-- [ ] Domain models contain no GPUI types.
-- [ ] Catalog/storage/image-processing rules are testable without launching GPUI.
-- [ ] Frontend-facing commands/DTOs/events are framework-neutral.
-- [ ] Long-running core work exposes runtime-neutral results/progress.
+- [x] GPUI dependencies exist only in frontend/app crates for the new shared Rust boundaries.
+- [x] Shared core/application crates compile independently of GPUI by construction.
+- [x] Extracted domain models contain no GPUI types.
+- [ ] Catalog/storage/image-processing rules are fully represented/testable through the new shared architecture without launching GPUI. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
+- [x] Frontend-facing commands/DTOs/events are framework-neutral.
+- [ ] Real long-running core operations expose runtime-neutral results/progress. The contract and cancellation mechanism exist; production Import/Thumbnail/Develop still need adoption.
 - [ ] Platform-specific functionality is behind adapters.
-- [ ] A future Flutter/FFI frontend can use the same application API.
-- [ ] CI includes a dependency-policy guard preventing GPUI from entering protected core crates.
+- [x] A future Flutter/FFI frontend can target the same frontend/application API without depending on GPUI.
+- [x] CI includes a transitive dependency-policy guard preventing GPUI/Flutter/FFI dependencies from entering protected core/application crates.
 
 ## Migration queue
 
@@ -194,6 +220,7 @@ GPUI migration must preserve existing capabilities until explicitly replaced or 
 ```text
 docs/PROJECT_HANDOFF.md             canonical current status / execution queue
 docs/FRONTEND_NEUTRAL_CORE.md       mandatory frontend-neutral Rust core contract
+docs/M0_FRONTEND_API_FOUNDATION.md  M0 implementation status and remaining gates
 docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI architecture evidence / migration decision
 docs/GPUI_DESKTOP_SPIKE.md          spike implementation and validation
 docs/GPUI_S4_COMPATIBILITY.md       compatibility/platform gate
@@ -206,10 +233,15 @@ docs/CI_ARCHITECTURE.md             CI contract
 
 ```text
 DONE      lock GPUI as preferred desktop frontend direction
-DONE      define mandatory frontend-neutral core dependency contract
-CURRENT   extract/promote reusable catalog/application contracts out of GPUI-owned code
-NEXT      establish production Rust workspace/crate boundaries
-NEXT      add architecture dependency guard in CI
-NEXT      build GPUI app shell only on top of the stable frontend/application API
+DONE      define mandatory frontend-neutral dependency contract
+DONE      extract catalog/domain semantics into dextryx-core
+DONE      establish dextryx-frontend-api application boundary
+DONE      route GPUI boundary tests through frontend-api -> core
+DONE      add transitive architecture dependency guard in CI
+DONE      define runtime-neutral operation/progress/cancellation contract
+CURRENT   introduce filesystem/platform adapter boundary for shared application code
+NEXT      apply operation contract to the first real long-running slice
+NEXT      regenerate GPUI Cargo.lock and restore strict --locked CI
+NEXT      build production GPUI app shell only on stable frontend/application API
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
