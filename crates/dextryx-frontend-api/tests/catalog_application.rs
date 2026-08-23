@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use dextryx_core::SyntheticCatalogRepository;
 use dextryx_frontend_api::{
-    AssetQuery, AssetStorageDto, CatalogApplication, FrontendApiError, FrontendEvent,
-    OperationEvent, OperationEventSink, OperationFailure, OperationKind, OperationProgress,
-    OperationStarted,
+    AssetQuery, AssetStorageDto, CancellationToken, CatalogApplication, FrontendApiError,
+    FrontendEvent, OperationEvent, OperationEventSink, OperationFailure, OperationKind,
+    OperationProgress, OperationStarted,
 };
 
 #[test]
@@ -179,4 +179,14 @@ fn operation_failure_is_serializable_in_shape_without_framework_error_types() {
         }
         _ => panic!("expected failure event"),
     }
+}
+
+#[test]
+fn cancellation_token_is_cloneable_and_runtime_neutral() {
+    let token = CancellationToken::new();
+    let worker_view = token.clone();
+
+    assert!(!worker_view.is_cancelled());
+    token.cancel();
+    assert!(worker_view.is_cancelled());
 }
