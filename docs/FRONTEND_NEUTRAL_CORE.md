@@ -12,6 +12,30 @@ GPUI is a presentation/application-shell dependency. It must never become a depe
 
 This is a permanent architecture rule intended to keep a future Flutter frontend viable without rewriting the product core.
 
+## M0 implementation status
+
+The first code boundary is now real rather than documentation-only:
+
+```text
+crates/dextryx-core
+  ├─ Cargo.toml          no GPUI/Flutter/FFI dependencies
+  ├─ src/lib.rs          catalog domain + CatalogRepository contract
+  └─ tests/              framework-independent catalog semantics
+
+experiments/gpui-desktop
+  └─ depends on dextryx-core through a normal path dependency
+```
+
+The former GPUI-owned `src/catalog.rs` has been removed. The GPUI boundary test imports `dextryx_core` directly, while the full catalog semantic tests now execute inside the shared core crate.
+
+Current extracted behavior includes stable asset/workplace identity, linked vs managed effective paths, filtering, relink semantics, active Workplace state, and catalog-only removal.
+
+`SyntheticCatalogRepository` remains a test adapter only. Production persistence is still deferred and must not be introduced as part of this extraction.
+
+### Temporary lockfile note
+
+Adding the new path crate requires regenerating `experiments/gpui-desktop/Cargo.lock` with Cargo. Until that generated lockfile is committed, the S4 workflow intentionally runs the affected Cargo commands without `--locked`. Do not hand-edit or guess Cargo's resolved lockfile. After regeneration, restore strict `--locked` validation.
+
 ## Target dependency direction
 
 ```text
@@ -141,9 +165,9 @@ Potential bridge technology such as `flutter_rust_bridge` is an implementation c
 
 ## Current GPUI spike rule
 
-`experiments/gpui-desktop` may temporarily contain synthetic adapters and GPUI-specific composition because it is an experiment, but any code promoted to production core must first cross the frontend-neutral boundary.
+`experiments/gpui-desktop` may temporarily contain synthetic presentation data and GPUI-specific composition because it is an experiment, but any code promoted to production core must first cross the frontend-neutral boundary.
 
-The existing `CatalogRepository`, catalog data models and filtering/relink semantics are already framework-neutral and are candidates to move into a shared Rust crate when production migration begins.
+The catalog contract has now crossed that boundary into `crates/dextryx-core`.
 
 Do not connect the GPUI spike directly to Hive and do not create a second durable catalog format.
 
@@ -151,21 +175,23 @@ Do not connect the GPUI spike directly to Hive and do not create a second durabl
 
 Before calling the production GPUI foundation complete:
 
-- [ ] GPUI dependencies exist only in frontend/app crates.
-- [ ] Core crates compile without GPUI.
-- [ ] Domain models contain no GPUI types.
-- [ ] Catalog/storage/image-processing rules are testable without launching a window.
-- [ ] Frontend-facing commands and DTO/events are framework-neutral.
-- [ ] Long-running core operations expose runtime-neutral results/progress.
-- [ ] Platform-specific filesystem/UI behavior is behind adapters.
-- [ ] A future Flutter/FFI entry point can use the same application API.
-- [ ] CI contains an architecture/dependency guard that fails if a core crate gains a GPUI dependency.
+- [x] Initial shared core crate compiles independently by construction with no GPUI dependency declared.
+- [x] Extracted catalog domain models contain no GPUI types.
+- [x] Extracted catalog/storage semantics are covered by framework-independent tests.
+- [x] GPUI boundary tests consume the shared crate instead of source-path inclusion.
+- [ ] Move remaining application/domain behavior out of GPUI-owned code where applicable.
+- [ ] Define frontend-facing command/DTO/event boundary.
+- [ ] Define runtime-neutral progress/events for long-running operations.
+- [ ] Put platform-specific filesystem/UI behavior behind adapters.
+- [ ] Add a future Flutter/FFI entry point against the same application API.
+- [ ] Add a dependency-graph CI guard that fails if protected core crates gain GPUI/Flutter/FFI dependencies.
+- [ ] Regenerate GPUI `Cargo.lock`, commit it, and restore `--locked` S4 commands.
 
 ## CI guard direction
 
-When the shared workspace is introduced, add an automated dependency-policy check. At minimum it should verify that protected core crates do not depend on `gpui`, `gpui_platform`, Flutter/Dart bindings, or the GPUI app crate.
+When the shared workspace matures, add an automated dependency-policy check. At minimum it should verify that protected core crates do not depend on `gpui`, `gpui_platform`, Flutter/Dart bindings, or the GPUI app crate.
 
-A stronger future guard can use `cargo metadata` to validate the transitive dependency graph rather than relying only on text search.
+A stronger guard should use `cargo metadata` to validate the transitive dependency graph rather than relying only on text search.
 
 ## Migration rule
 
