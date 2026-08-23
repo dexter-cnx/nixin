@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use dextryx_core::SyntheticCatalogRepository;
 use dextryx_frontend_api::{
     AssetQuery, AssetStorageDto, CatalogApplication, FrontendApiError, FrontendEvent,
+    OperationEvent, OperationEventSink, OperationFailure, OperationKind, OperationProgress,
+    OperationStarted,
 };
 
 #[test]
@@ -112,4 +114,69 @@ fn repository_errors_are_mapped_at_api_boundary() {
         error,
         FrontendApiError::UnknownWorkplace("unknown".to_string())
     );
+}
+
+#[test]
+fn operation_events_preserve_one_stable_operation_identity() {
+    let id = "import-0001".to_string();
+    let events = vec![
+        OperationEvent::Started(OperationStarted {
+            operation_id: id.clone(),
+            kind: OperationKind::Import,
+            total_units: Some(3),
+        }),
+        OperationEvent::Progress(OperationProgress {
+            operation_id: id.clone(),
+            completed_units: 1,
+            total_units: Some(3),
+            message: Some("image-1.raw".to_string()),
+        }),
+        OperationEvent::ItemCompleted {
+            operation_id: id.clone(),
+            item_id: "asset-1".to_string(),
+        },
+        OperationEvent::Completed {
+            operation_id: id.clone(),
+        },
+    ];
+
+    assert!(events.iter().all(|event| event.operation_id() == id));
+}
+
+#[test]
+fn operation_sink_can_be_a_plain_rust_closure() {
+    let mut received = Vec::new();
+    let mut sink = |event| received.push(event);
+
+    sink.emit(OperationEvent::Started(OperationStarted {
+        operation_id: "thumb-1".to_string(),
+        kind: OperationKind::Thumbnail,
+        total_units: Some(1),
+    }));
+    sink.emit(OperationEvent::Completed {
+        operation_id: "thumb-1".to_string(),
+    });
+
+    assert_eq!(received.len(), 2);
+    assert_eq!(received[0].operation_id(), "thumb-1");
+    assert_eq!(received[1].operation_id(), "thumb-1");
+}
+
+#[test]
+fn operation_failure_is_serializable_in_shape_without_framework_error_types() {
+    let event = OperationEvent::Failed(OperationFailure {
+        operation_id: "develop-1".to_string(),
+        code: "decode_failed".to_string(),
+        message: "preview decode failed".to_string(),
+        recoverable: true,
+    });
+
+    assert_eq!(event.operation_id(), "develop-1");
+    match event {
+        OperationEvent::Failed(failure) => {
+            assert_eq!(failure.code, "decode_failed");
+            assert!(failure.recoverable);
+        }
+        _ => panic!("expected failure event"),
+    }
 }
