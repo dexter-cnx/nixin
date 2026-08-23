@@ -38,9 +38,11 @@ CLI/tests ────────────────┘                   
                                                           ├─ thumbnail/cache policy
                                                           ├─ metadata
                                                           └─ image engine
+
+frontends/platform hosts ──> platform ports/adapters
 ```
 
-Dependencies may point inward toward the core. Core crates must never depend on GPUI, Flutter, Dart, or FFI bindings.
+Dependencies may point inward toward the core. Core/application/platform contract crates must never depend on GPUI, Flutter, Dart, FFI bindings, or frontend-only adapters.
 
 Full mandatory rules: `docs/FRONTEND_NEUTRAL_CORE.md`.
 
@@ -71,14 +73,12 @@ The first production-neutral Rust boundaries now exist on this branch:
 ```text
 experiments/gpui-desktop
         |
-        v
-crates/dextryx-frontend-api
+        +--> crates/dextryx-frontend-api --> crates/dextryx-core
         |
-        v
-crates/dextryx-core
+        +--> crates/dextryx-platform
 ```
 
-`dextryx-core` owns the extracted catalog/domain contract and semantics. `dextryx-frontend-api` owns frontend-facing DTOs, queries, mapped errors, application commands/events, and the runtime-neutral long-operation contract.
+`dextryx-core` owns the extracted catalog/domain contract and semantics. `dextryx-frontend-api` owns frontend-facing DTOs, queries, mapped errors, application commands/events, and the runtime-neutral long-operation contract. `dextryx-platform` owns neutral platform/filesystem ports and a `std` filesystem implementation.
 
 Long-running operation infrastructure now includes:
 
@@ -88,19 +88,28 @@ Long-running operation infrastructure now includes:
 - `OperationEventSink` that can be implemented by a plain Rust closure or frontend adapter;
 - cooperative `CancellationToken` implemented only with Rust `std` primitives.
 
-This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, or FFI-specific types. Actual Import/Thumbnail/Develop implementations still need to adopt the contract before the long-operation part of M0 is considered complete.
+Platform infrastructure now includes:
+
+- `FileDialogRequest`;
+- `FileDialogPort`;
+- `FileSystemPort`;
+- `StdFileSystem`;
+- GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`.
+
+This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, FFI-specific types, or `rfd` from shared crates. Actual Import/Thumbnail/Develop implementations still need to adopt the operation contract, and the current GPUI `open_image()` call site still needs to be switched from direct `rfd::FileDialog` usage to the adapter before the platform gate is complete.
 
 ## Frontend-neutral core guardrails
 
 The following are hard architecture rules for production migration:
 
-- no `gpui::Entity`, `Context`, `Window`, `Task`, action, subscription, or render type in shared core crates;
+- no `gpui::Entity`, `Context`, `Window`, `Task`, action, subscription, or render type in shared core/application/platform contract crates;
 - GPUI owns view/window/focus/shortcut/presentation state only;
 - catalog identity and linked/managed semantics remain core rules;
 - import duplicate prevention/recovery remains core behavior;
 - cache validity/invalidation policy remains core behavior;
 - image-processing semantics remain Rust engine/core behavior;
 - long-running operations expose runtime-neutral progress/results/events;
+- platform access is expressed through neutral ports and frontend/platform adapters;
 - future Flutter integration maps the stable frontend API through FFI instead of calling GPUI;
 - the FFI layer is a translation boundary, not a second application layer;
 - do not redesign core models around Dart DTOs;
@@ -146,14 +155,14 @@ For each vertical slice:
 Before the production GPUI foundation can be called complete:
 
 - [x] GPUI dependencies exist only in frontend/app crates for the new shared Rust boundaries.
-- [x] Shared core/application crates compile independently of GPUI by construction.
+- [x] Shared core/application/platform contract crates compile independently of GPUI by construction.
 - [x] Extracted domain models contain no GPUI types.
 - [ ] Catalog/storage/image-processing rules are fully represented/testable through the new shared architecture without launching GPUI. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
 - [x] Frontend-facing commands/DTOs/events are framework-neutral.
 - [ ] Real long-running core operations expose runtime-neutral results/progress. The contract and cancellation mechanism exist; production Import/Thumbnail/Develop still need adoption.
-- [ ] Platform-specific functionality is behind adapters.
+- [ ] Platform-specific functionality is fully behind adapters. Neutral ports, `StdFileSystem`, and GPUI `RfdFileDialogAdapter` exist; the current GPUI `open_image()` call site still directly invokes `rfd` and must be migrated.
 - [x] A future Flutter/FFI frontend can target the same frontend/application API without depending on GPUI.
-- [x] CI includes a transitive dependency-policy guard preventing GPUI/Flutter/FFI dependencies from entering protected core/application crates.
+- [x] CI includes a transitive dependency-policy guard preventing GPUI/Flutter/FFI dependencies from entering protected core/application/platform crates.
 
 ## Migration queue
 
@@ -239,7 +248,8 @@ DONE      establish dextryx-frontend-api application boundary
 DONE      route GPUI boundary tests through frontend-api -> core
 DONE      add transitive architecture dependency guard in CI
 DONE      define runtime-neutral operation/progress/cancellation contract
-CURRENT   introduce filesystem/platform adapter boundary for shared application code
+DONE      introduce dextryx-platform ports + StdFileSystem + GPUI rfd adapter
+CURRENT   migrate existing GPUI open_image() call site off direct rfd usage
 NEXT      apply operation contract to the first real long-running slice
 NEXT      regenerate GPUI Cargo.lock and restore strict --locked CI
 NEXT      build production GPUI app shell only on stable frontend/application API
