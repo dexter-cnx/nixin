@@ -7,6 +7,7 @@ on:
     paths:
       - 'experiments/gpui-desktop/**'
       - 'crates/dextryx-core/**'
+      - 'crates/dextryx-frontend-api/**'
       - 'rust/**'
       - 'tool/gpui-s4-validation.sh'
       - 'tool/check-rust-core-dependencies.py'
@@ -38,12 +39,16 @@ jobs:
           workspaces: |
             experiments/gpui-desktop -> target
             crates/dextryx-core -> target
+            crates/dextryx-frontend-api -> target
             rust -> target
       - name: Core dependency boundary
         working-directory: .
         run: python tool/check-rust-core-dependencies.py
       - name: Shared core contract
         working-directory: crates/dextryx-core
+        run: cargo test
+      - name: Frontend application API contract
+        working-directory: crates/dextryx-frontend-api
         run: cargo test
       - name: GPUI frontend boundary
         run: cargo test --test catalog_boundary
@@ -71,6 +76,7 @@ jobs:
           workspaces: |
             experiments/gpui-desktop -> target
             crates/dextryx-core -> target
+            crates/dextryx-frontend-api -> target
             rust -> target
       - name: Core dependency boundary
         working-directory: .
@@ -96,6 +102,9 @@ jobs:
             xdg-desktop-portal
       - name: Shared core contract
         working-directory: crates/dextryx-core
+        run: cargo test
+      - name: Frontend application API contract
+        working-directory: crates/dextryx-frontend-api
         run: cargo test
       - name: GPUI frontend boundary
         run: cargo test --test catalog_boundary
