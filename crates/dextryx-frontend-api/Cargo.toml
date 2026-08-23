@@ -1,0 +1,8 @@
+[package]
+name = "dextryx-frontend-api"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+dextryx-core = { path = "../dextryx-core" }
