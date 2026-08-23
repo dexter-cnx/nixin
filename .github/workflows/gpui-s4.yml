@@ -6,10 +6,12 @@ on:
       - agent/gpui-desktop-spike
     paths:
       - 'experiments/gpui-desktop/**'
+      - 'crates/dextryx-core/**'
       - 'rust/**'
       - 'tool/gpui-s4-validation.sh'
       - '.github/workflows/gpui-s4.yml'
       - 'docs/GPUI_S4_COMPATIBILITY.md'
+      - 'docs/FRONTEND_NEUTRAL_CORE.md'
   workflow_dispatch:
 
 permissions:
@@ -34,11 +36,15 @@ jobs:
         with:
           workspaces: |
             experiments/gpui-desktop -> target
+            crates/dextryx-core -> target
             rust -> target
-      - name: Catalog repository contract
-        run: cargo test --locked --test catalog_boundary
+      - name: Shared core contract
+        working-directory: crates/dextryx-core
+        run: cargo test
+      - name: GPUI frontend boundary
+        run: cargo test --test catalog_boundary
       - name: Release compile
-        run: cargo build --locked --release
+        run: cargo build --release
       - name: Verify executable
         shell: pwsh
         run: |
@@ -60,6 +66,7 @@ jobs:
         with:
           workspaces: |
             experiments/gpui-desktop -> target
+            crates/dextryx-core -> target
             rust -> target
       - name: Install GPUI Linux native dependencies
         run: |
@@ -80,8 +87,11 @@ jobs:
             libzstd-dev \
             pkg-config \
             xdg-desktop-portal
-      - name: Catalog repository contract
-        run: cargo test --locked --test catalog_boundary
+      - name: Shared core contract
+        working-directory: crates/dextryx-core
+        run: cargo test
+      - name: GPUI frontend boundary
+        run: cargo test --test catalog_boundary
       - name: Release compile with desktop backends
         run: cargo build --release --features gpui_platform/wayland,gpui_platform/x11
       - name: Verify executable
