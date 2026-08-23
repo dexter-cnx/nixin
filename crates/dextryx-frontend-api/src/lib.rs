@@ -57,6 +57,10 @@ pub enum FrontendEvent {
     AssetRemovedFromCatalog { asset_id: String },
 }
 
+/// Stable frontend-facing application boundary.
+///
+/// GPUI and a future Flutter/FFI adapter should call this layer rather than
+/// reaching into repository implementations or domain object graphs directly.
 pub struct CatalogApplication<R> {
     repository: R,
 }
@@ -143,14 +147,17 @@ fn map_workplace(workplace: WorkplaceSummary, active: Option<&str>) -> Workplace
 }
 
 fn map_asset(asset: CatalogAsset) -> AssetSummaryDto {
+    let effective_path = asset.effective_path().to_path_buf();
+    let storage = match asset.storage_mode {
+        AssetStorageMode::Linked => AssetStorageDto::Linked,
+        AssetStorageMode::Managed => AssetStorageDto::Managed,
+    };
+
     AssetSummaryDto {
         id: asset.id,
         workplace_id: asset.workplace_id,
-        effective_path: asset.effective_path().to_path_buf(),
-        storage: match asset.storage_mode {
-            AssetStorageMode::Linked => AssetStorageDto::Linked,
-            AssetStorageMode::Managed => AssetStorageDto::Managed,
-        },
+        effective_path,
+        storage,
         missing: asset.missing,
         import_sequence: asset.import_sequence,
     }
