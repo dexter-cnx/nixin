@@ -13,24 +13,29 @@ Branch: `agent/gpui-desktop-spike`
 - Added `CatalogApplication<R>` operations for Workplace listing, asset listing/filtering, active Workplace changes, relink and catalog-only removal.
 - Added frontend-API contract tests independent from GPUI.
 - GPUI boundary tests now call `dextryx-frontend-api`; the GPUI package no longer has `dextryx-core` as a production dependency. `dextryx-core` remains a dev-dependency only for constructing the synthetic test adapter.
-- Added `tool/check-rust-core-dependencies.py` using `cargo metadata` to protect both `dextryx-core` and `dextryx-frontend-api` from GPUI/Flutter/FFI dependencies, including transitive dependencies.
-- Updated GPUI S4 CI triggers/cache/tests to include both shared crates and the dependency guard.
+- Added `tool/check-rust-core-dependencies.py` using `cargo metadata` to protect `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform` from GPUI/Flutter/FFI dependencies, including transitive dependencies.
+- Updated GPUI S4 CI triggers/cache/tests to include all three shared crates and the dependency guard.
 - Added runtime-neutral long-operation contracts in `dextryx-frontend-api`: `OperationId`, `OperationKind`, started/progress/item/failure/cancel/completed events, `OperationEventSink`, and cooperative `CancellationToken`.
 - Operation reporting can be consumed by a plain Rust closure today, by GPUI presentation adapters later, or mapped to a Dart Stream/Future bridge without changing the application contract.
+- Added `crates/dextryx-platform` with frontend-neutral `FileDialogPort`, `FileDialogRequest`, `FileSystemPort`, and `StdFileSystem`.
+- Added platform contract tests covering dialog request shape plus basic filesystem operations without GPUI or Flutter.
+- Added GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`; `rfd` remains an implementation detail of the GPUI frontend.
 
 ## Current dependency direction
 
 ```text
 GPUI production dependency
         |
-        v
-dextryx-frontend-api
+        +--> dextryx-frontend-api --> dextryx-core
         |
-        v
-dextryx-core
+        +--> dextryx-platform
+
+GPUI-local adapters
+        |
+        +--> rfd / GPUI / native desktop APIs
 ```
 
-A future Flutter frontend should enter at `dextryx-frontend-api` through an FFI translation crate, never through GPUI.
+A future Flutter frontend should enter at `dextryx-frontend-api` through an FFI translation crate and provide its own platform/file-picker adapters rather than calling GPUI adapters.
 
 ## Runtime-neutral operation rule
 
@@ -55,14 +60,31 @@ shared Rust operation
 
 Cancellation is cooperative. The frontend requests cancellation through `CancellationToken`; Rust operations decide safe stopping points and emit `OperationEvent::Cancelled` when termination has actually occurred.
 
+## Platform boundary rule
+
+Shared application/core code must not open dialogs or call frontend-specific filesystem APIs directly.
+
+```text
+shared application/core
+        |
+        +--> neutral platform/file-system ports
+                     |
+                     +--> GPUI adapter -> rfd / desktop filesystem
+                     |
+                     +--> Flutter adapter -> Flutter/native picker APIs
+```
+
+The dialog-selection mechanism and filesystem implementation are replaceable adapters. Catalog/import semantics must remain outside those adapters.
+
 ## Still pending for M0
 
 - Regenerate and commit `experiments/gpui-desktop/Cargo.lock` after the new local path crates are resolved; only then restore strict `--locked` S4 commands.
+- Wire the current GPUI `open_image()` path through `RfdFileDialogAdapter` instead of its existing direct `rfd::FileDialog` call. The adapter exists, but this call site has not yet been migrated.
 - Apply the runtime-neutral operation contract to the first real long-running slice rather than leaving it as contract-only infrastructure. Import is the preferred first candidate because production semantics already include progress/cancellation/recovery.
-- Introduce platform/filesystem adapter boundaries where UI/platform calls would otherwise leak into application code.
+- Route real import/thumbnail filesystem work through `FileSystemPort` as those slices move into shared Rust; do not merely wrap every `std::fs` call without preserving domain ownership.
 - Replace synthetic GPUI catalog data with a read-only authoritative catalog adapter in the later persistence milestone; do not connect GPUI directly to Hive.
 - Decide production workspace layout once the experimental crates are promoted; do not force a workspace reshuffle merely to satisfy M0 naming.
 
 ## M0 completion rule
 
-M0 is not complete merely because GPUI can compile. It is complete when shared catalog/application behavior is independently testable, protected from UI-framework dependencies, and usable by both the GPUI frontend and a future Flutter/FFI adapter without redesigning the core.
+M0 is not complete merely because GPUI can compile. It is complete when shared catalog/application behavior is independently testable, protected from UI-framework dependencies, platform access is behind replaceable adapters, and the same application contracts can serve GPUI plus a future Flutter/FFI frontend without redesigning the core.
