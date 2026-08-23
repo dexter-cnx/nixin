@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail when protected Rust application/core crates depend on frontend/framework crates."""
+"""Fail when protected Rust application/core/platform crates depend on frontend frameworks."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "crates" / "dextryx-frontend-api" / "Cargo.toml"
-PROTECTED_PACKAGES = {"dextryx-core", "dextryx-frontend-api"}
+MANIFEST = ROOT / "experiments" / "gpui-desktop" / "Cargo.toml"
+PROTECTED_PACKAGES = {"dextryx-core", "dextryx-frontend-api", "dextryx-platform"}
 FORBIDDEN_NAMES = {
     "gpui",
     "gpui_platform",
@@ -86,7 +86,7 @@ def main() -> int:
             )
         return 1
 
-    print("Rust core/application dependency boundary: PASS")
+    print("Rust core/application/platform dependency boundary: PASS")
     return 0
 
 
