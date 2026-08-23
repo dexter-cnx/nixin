@@ -5,6 +5,8 @@ use dextryx_core::{
     CatalogRepositoryError, WorkplaceSummary,
 };
 
+pub type OperationId = String;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkplaceDto {
     pub id: String,
@@ -55,6 +57,86 @@ pub enum FrontendEvent {
     ActiveWorkplaceChanged { workplace_id: String },
     AssetRelinked { asset_id: String },
     AssetRemovedFromCatalog { asset_id: String },
+}
+
+/// Runtime-neutral operation category for work that can outlive one UI callback.
+///
+/// This deliberately contains no GPUI task/entity type and no Dart/FFI type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationKind {
+    Import,
+    Thumbnail,
+    DevelopPreview,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OperationStarted {
+    pub operation_id: OperationId,
+    pub kind: OperationKind,
+    pub total_units: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OperationProgress {
+    pub operation_id: OperationId,
+    pub completed_units: u64,
+    pub total_units: Option<u64>,
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OperationFailure {
+    pub operation_id: OperationId,
+    pub code: String,
+    pub message: String,
+    pub recoverable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OperationEvent {
+    Started(OperationStarted),
+    Progress(OperationProgress),
+    ItemCompleted {
+        operation_id: OperationId,
+        item_id: String,
+    },
+    Failed(OperationFailure),
+    Cancelled {
+        operation_id: OperationId,
+    },
+    Completed {
+        operation_id: OperationId,
+    },
+}
+
+impl OperationEvent {
+    pub fn operation_id(&self) -> &str {
+        match self {
+            Self::Started(event) => &event.operation_id,
+            Self::Progress(event) => &event.operation_id,
+            Self::ItemCompleted { operation_id, .. }
+            | Self::Cancelled { operation_id }
+            | Self::Completed { operation_id } => operation_id,
+            Self::Failed(event) => &event.operation_id,
+        }
+    }
+}
+
+/// Sink abstraction used by application/core operations to report progress.
+///
+/// GPUI may implement this by forwarding into its own task/entity update path;
+/// a future Flutter bridge may forward the same events into a Dart Stream.
+pub trait OperationEventSink {
+    fn emit(&mut self, event: OperationEvent);
+}
+
+impl<F> OperationEventSink for F
+where
+    F: FnMut(OperationEvent),
+{
+    fn emit(&mut self, event: OperationEvent) {
+        self(event);
+    }
 }
 
 /// Stable frontend-facing application boundary.
