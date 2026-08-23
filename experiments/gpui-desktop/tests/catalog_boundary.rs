@@ -1,22 +1,31 @@
-use dextryx_core::{CatalogFilter, CatalogRepository, SyntheticCatalogRepository, filter_assets};
+use dextryx_core::SyntheticCatalogRepository;
+use dextryx_frontend_api::{AssetQuery, CatalogApplication, FrontendEvent};
 
 #[test]
-fn gpui_frontend_consumes_shared_catalog_contract() {
-    let repo = SyntheticCatalogRepository::new(5_000);
-    let workplace_id = repo.active_workplace_id().unwrap();
-    let assets = repo.assets(workplace_id).unwrap();
-    let missing = filter_assets(assets, CatalogFilter::Missing);
+fn gpui_frontend_consumes_frontend_application_api() {
+    let app = CatalogApplication::new(SyntheticCatalogRepository::new(5_000));
+    let missing = app
+        .list_assets("workplace-my", AssetQuery::Missing)
+        .unwrap();
 
     assert_eq!(missing.len(), 5_000usize.div_ceil(17));
 }
 
 #[test]
-fn shared_core_preserves_active_workplace_semantics() {
-    let mut repo = SyntheticCatalogRepository::new(10);
-    let workplaces = repo.workplaces();
+fn gpui_mutations_receive_neutral_events() {
+    let mut app = CatalogApplication::new(SyntheticCatalogRepository::new(10));
+    let event = app.set_active_workplace("workplace-secondary").unwrap();
 
-    repo.set_active_workplace(&workplaces[1].id).unwrap();
-
-    assert_eq!(repo.active_workplace_id(), Some("workplace-secondary"));
-    assert_eq!(repo.assets("workplace-secondary").unwrap().len(), 8);
+    assert_eq!(
+        event,
+        FrontendEvent::ActiveWorkplaceChanged {
+            workplace_id: "workplace-secondary".to_string(),
+        }
+    );
+    assert_eq!(
+        app.list_assets("workplace-secondary", AssetQuery::All)
+            .unwrap()
+            .len(),
+        8
+    );
 }
