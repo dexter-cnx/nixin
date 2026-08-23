@@ -1,4 +1,8 @@
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use dextryx_core::{
     filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogRepository,
@@ -136,6 +140,29 @@ where
 {
     fn emit(&mut self, event: OperationEvent) {
         self(event);
+    }
+}
+
+/// Cooperative cancellation handle independent from any async runtime.
+///
+/// Frontends request cancellation; long-running Rust operations decide safe
+/// cancellation points and emit `OperationEvent::Cancelled` when they stop.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
     }
 }
 
