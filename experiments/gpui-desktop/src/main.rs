@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
-    Pixels, Point, RenderImage, ScrollDelta, ScrollWheelEvent, Window, WindowBounds, WindowOptions,
-    div, img, point, prelude::*, px, rgb, size,
+    div, img, point, prelude::*, px, rgb, size, App, Bounds, Context, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PinchEvent, Pixels, Point, RenderImage, ScrollDelta,
+    ScrollWheelEvent, Window, WindowBounds, WindowOptions,
 };
 use gpui_platform::application;
 use rfd::FileDialog;
@@ -150,8 +150,8 @@ impl DextryxSpike {
             .add_filter(
                 "Images / RAW previews",
                 &[
-                    "jpg", "jpeg", "png", "tif", "tiff", "webp", "arw", "cr2", "cr3", "nef",
-                    "dng", "raf", "orf",
+                    "jpg", "jpeg", "png", "tif", "tiff", "webp", "arw", "cr2", "cr3", "nef", "dng",
+                    "raf", "orf",
                 ],
             )
             .pick_file();
@@ -188,7 +188,8 @@ impl DextryxSpike {
 
                 self.image_path = Some(path.clone());
                 self.image_dimensions = Some((width, height));
-                self.render_image = Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])));
+                self.render_image =
+                    Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])));
                 self.zoom = Self::fit_zoom_for(width, height);
                 self.pan_offset = Point::default();
                 self.last_mouse_position = None;
@@ -291,12 +292,7 @@ impl DextryxSpike {
         cx.notify();
     }
 
-    fn handle_pinch(
-        &mut self,
-        event: &PinchEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_pinch(&mut self, event: &PinchEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.zoom = (self.zoom * (1.0 + event.delta)).clamp(MIN_ZOOM, MAX_ZOOM);
         cx.notify();
     }
@@ -314,10 +310,9 @@ impl DextryxSpike {
                 .justify_center()
                 .child("Image viewport")
                 .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0x858a94))
-                        .child("Open a raster or RAW file to validate direct engine-buffer rendering"),
+                    div().text_sm().text_color(rgb(0x858a94)).child(
+                        "Open a raster or RAW file to validate direct engine-buffer rendering",
+                    ),
                 )
                 .into_any_element();
         };
@@ -408,7 +403,11 @@ impl DextryxSpike {
             ScrollDelta::Pixels(pixels) => {
                 let x: f32 = pixels.x.into();
                 let y: f32 = pixels.y.into();
-                if x.abs() > y.abs() { x } else { y }
+                if x.abs() > y.abs() {
+                    x
+                } else {
+                    y
+                }
             }
             ScrollDelta::Lines(lines) => {
                 let raw = if lines.x.abs() > lines.y.abs() {
@@ -433,7 +432,8 @@ impl DextryxSpike {
         self.thumbnail_queue.clear();
 
         for asset_ix in visible_assets {
-            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix) {
+            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix)
+            {
                 continue;
             }
             self.thumbnail_queue.push_back(asset_ix);
@@ -448,7 +448,8 @@ impl DextryxSpike {
                 break;
             };
 
-            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix) {
+            if self.thumbnails.contains_key(&asset_ix) || self.thumbnail_pending.contains(&asset_ix)
+            {
                 continue;
             }
 
@@ -499,7 +500,11 @@ impl DextryxSpike {
                 .h(px(THUMB_HEIGHT as f32))
                 .overflow_hidden()
                 .rounded_sm()
-                .child(img(image).w(px(THUMB_WIDTH as f32)).h(px(THUMB_HEIGHT as f32)))
+                .child(
+                    img(image)
+                        .w(px(THUMB_WIDTH as f32))
+                        .h(px(THUMB_HEIGHT as f32)),
+                )
                 .into_any_element()
         } else {
             div()
@@ -570,10 +575,7 @@ impl DextryxSpike {
 
         self.schedule_visible_thumbnails(visible_pairs.iter().map(|(_, asset_ix)| *asset_ix), cx);
 
-        let mut canvas = div()
-            .relative()
-            .w(px(FILMSTRIP_VIEW_WIDTH))
-            .h(px(90.0));
+        let mut canvas = div().relative().w(px(FILMSTRIP_VIEW_WIDTH)).h(px(90.0));
 
         for (position, asset_ix) in visible_pairs {
             let left = position as f32 * FILMSTRIP_STRIDE - self.filmstrip_scroll_x;
