@@ -25,13 +25,17 @@ echo "== Rust format: shared crates =="
 "$CARGO_CMD" fmt --manifest-path crates/Cargo.toml --all
 
 echo
-echo "== Rust format: GPUI desktop =="
+echo "== Rust format: GPUI spike =="
 "$CARGO_CMD" fmt --manifest-path experiments/gpui-desktop/Cargo.toml
 
 # main.rs is included from src/entry.rs and is not discovered by cargo fmt.
 # Keep this explicit rustfmt guard aligned with ci-rust-format-check.sh so
 # pre-push formatting cannot diverge from the CI changed-file format gate.
 "$RUSTFMT_CMD" --edition 2021 experiments/gpui-desktop/src/main.rs
+
+echo
+echo "== Rust format: production GPUI desktop =="
+"$CARGO_CMD" fmt --manifest-path apps/desktop-gpui/Cargo.toml
 
 echo
 echo "Formatting complete."
