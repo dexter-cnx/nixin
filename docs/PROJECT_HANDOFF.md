@@ -80,6 +80,8 @@ experiments/gpui-desktop
 
 `dextryx-core` owns the extracted catalog/domain contract and semantics. `dextryx-frontend-api` owns frontend-facing DTOs, queries, mapped errors, application commands/events, and the runtime-neutral long-operation contract. `dextryx-platform` owns neutral platform/filesystem ports and a `std` filesystem implementation.
 
+A shared Rust workspace now exists at `crates/Cargo.toml` and contains `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
+
 Long-running operation infrastructure now includes:
 
 - stable `OperationId`;
@@ -94,9 +96,13 @@ Platform infrastructure now includes:
 - `FileDialogPort`;
 - `FileSystemPort`;
 - `StdFileSystem`;
-- GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`.
+- GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`;
+- `rfd-backend` as an explicitly frontend-local implementation dependency;
+- an explicit GPUI `src/entry.rs` compatibility entrypoint that routes the legacy spike `rfd::FileDialog` name through a local facade and then through `FileDialogPort -> RfdFileDialogAdapter -> rfd-backend`.
 
-This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, FFI-specific types, or `rfd` from shared crates. Actual Import/Thumbnail/Develop implementations still need to adopt the operation contract, and the current GPUI `open_image()` call site still needs to be switched from direct `rfd::FileDialog` usage to the adapter before the platform gate is complete.
+The compatibility facade is transitional spike infrastructure. The future production GPUI shell should import the neutral port/adapter explicitly rather than preserve the legacy alias.
+
+This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, FFI-specific types, or `rfd` from shared crates. Actual Import/Thumbnail/Develop implementations still need to adopt the operation contract, and real Import/thumbnail filesystem mutations still need to adopt `FileSystemPort` before the platform portion of M0 is complete.
 
 ## Frontend-neutral core guardrails
 
@@ -160,7 +166,7 @@ Before the production GPUI foundation can be called complete:
 - [ ] Catalog/storage/image-processing rules are fully represented/testable through the new shared architecture without launching GPUI. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
 - [x] Frontend-facing commands/DTOs/events are framework-neutral.
 - [ ] Real long-running core operations expose runtime-neutral results/progress. The contract and cancellation mechanism exist; production Import/Thumbnail/Develop still need adoption.
-- [ ] Platform-specific functionality is fully behind adapters. Neutral ports, `StdFileSystem`, and GPUI `RfdFileDialogAdapter` exist; the current GPUI `open_image()` call site still directly invokes `rfd` and must be migrated.
+- [ ] Platform-specific functionality is fully behind adapters. File-dialog selection is now routed through `FileDialogPort`; real Import/thumbnail filesystem mutation paths still need `FileSystemPort` adoption.
 - [x] A future Flutter/FFI frontend can target the same frontend/application API without depending on GPUI.
 - [x] CI includes a transitive dependency-policy guard preventing GPUI/Flutter/FFI dependencies from entering protected core/application/platform crates.
 
@@ -249,8 +255,10 @@ DONE      route GPUI boundary tests through frontend-api -> core
 DONE      add transitive architecture dependency guard in CI
 DONE      define runtime-neutral operation/progress/cancellation contract
 DONE      introduce dextryx-platform ports + StdFileSystem + GPUI rfd adapter
-CURRENT   migrate existing GPUI open_image() call site off direct rfd usage
-NEXT      apply operation contract to the first real long-running slice
+DONE      route current GPUI file-picker runtime path through FileDialogPort
+DONE      establish shared frontend-neutral Rust workspace
+CURRENT   apply operation contract to the first real long-running slice
+NEXT      route real Import/thumbnail filesystem mutation paths through FileSystemPort
 NEXT      regenerate GPUI Cargo.lock and restore strict --locked CI
 NEXT      build production GPUI app shell only on stable frontend/application API
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
