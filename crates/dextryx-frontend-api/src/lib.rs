@@ -1,3 +1,6 @@
+mod import_operation;
+pub use import_operation::*;
+
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -63,9 +66,6 @@ pub enum FrontendEvent {
     AssetRemovedFromCatalog { asset_id: String },
 }
 
-/// Runtime-neutral operation category for work that can outlive one UI callback.
-///
-/// This deliberately contains no GPUI task/entity type and no Dart/FFI type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind {
     Import,
@@ -126,10 +126,6 @@ impl OperationEvent {
     }
 }
 
-/// Sink abstraction used by application/core operations to report progress.
-///
-/// GPUI may implement this by forwarding into its own task/entity update path;
-/// a future Flutter bridge may forward the same events into a Dart Stream.
 pub trait OperationEventSink {
     fn emit(&mut self, event: OperationEvent);
 }
@@ -143,10 +139,6 @@ where
     }
 }
 
-/// Cooperative cancellation handle independent from any async runtime.
-///
-/// Frontends request cancellation; long-running Rust operations decide safe
-/// cancellation points and emit `OperationEvent::Cancelled` when they stop.
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
@@ -166,10 +158,6 @@ impl CancellationToken {
     }
 }
 
-/// Stable frontend-facing application boundary.
-///
-/// GPUI and a future Flutter/FFI adapter should call this layer rather than
-/// reaching into repository implementations or domain object graphs directly.
 pub struct CatalogApplication<R> {
     repository: R,
 }
