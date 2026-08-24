@@ -8,8 +8,8 @@ use std::sync::{
 };
 
 use dextryx_core::{
-    filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogRepository,
-    CatalogRepositoryError, WorkplaceSummary,
+    filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogReadRepository,
+    CatalogRepository, CatalogRepositoryError, WorkplaceSummary,
 };
 
 pub type OperationId = String;
@@ -158,6 +158,37 @@ impl CancellationToken {
     }
 }
 
+/// Read-only application service for authoritative Workplace/catalog data.
+///
+/// M2 production frontends depend on this service so the read path cannot gain
+/// catalog mutation authority accidentally. The concrete durable adapter sits
+/// behind `CatalogReadRepository`.
+pub struct CatalogReadApplication<R> {
+    repository: R,
+}
+
+impl<R> CatalogReadApplication<R>
+where
+    R: CatalogReadRepository,
+{
+    pub fn new(repository: R) -> Self {
+        Self { repository }
+    }
+
+    pub fn list_workplaces(&self) -> Vec<WorkplaceDto> {
+        let active = self.repository.active_workplace_id();
+        map_workplaces(self.repository.workplaces(), active)
+    }
+
+    pub fn list_assets(
+        &self,
+        workplace_id: &str,
+        query: AssetQuery,
+    ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
+        map_assets(self.repository.assets(workplace_id)?, query)
+    }
+}
+
 pub struct CatalogApplication<R> {
     repository: R,
 }
@@ -172,11 +203,7 @@ where
 
     pub fn list_workplaces(&self) -> Vec<WorkplaceDto> {
         let active = self.repository.active_workplace_id();
-        self.repository
-            .workplaces()
-            .into_iter()
-            .map(|workplace| map_workplace(workplace, active))
-            .collect()
+        map_workplaces(self.repository.workplaces(), active)
     }
 
     pub fn list_assets(
@@ -184,17 +211,7 @@ where
         workplace_id: &str,
         query: AssetQuery,
     ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
-        let assets = self.repository.assets(workplace_id)?;
-        let filter = match query {
-            AssetQuery::All => CatalogFilter::AllPhotos,
-            AssetQuery::Missing => CatalogFilter::Missing,
-            AssetQuery::Recent { limit } => CatalogFilter::RecentImports { limit },
-        };
-
-        Ok(filter_assets(assets, filter)
-            .into_iter()
-            .map(map_asset)
-            .collect())
+        map_assets(self.repository.assets(workplace_id)?, query)
     }
 
     pub fn set_active_workplace(
@@ -235,6 +252,29 @@ where
     }
 }
 
+fn map_workplaces(workplaces: Vec<WorkplaceSummary>, active: Option<&str>) -> Vec<WorkplaceDto> {
+    workplaces
+        .into_iter()
+        .map(|workplace| map_workplace(workplace, active))
+        .collect()
+}
+
+fn map_assets(
+    assets: Vec<CatalogAsset>,
+    query: AssetQuery,
+) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
+    let filter = match query {
+        AssetQuery::All => CatalogFilter::AllPhotos,
+        AssetQuery::Missing => CatalogFilter::Missing,
+        AssetQuery::Recent { limit } => CatalogFilter::RecentImports { limit },
+    };
+
+    Ok(filter_assets(assets, filter)
+        .into_iter()
+        .map(map_asset)
+        .collect())
+}
+
 fn map_workplace(workplace: WorkplaceSummary, active: Option<&str>) -> WorkplaceDto {
     WorkplaceDto {
         is_active: active == Some(workplace.id.as_str()),
@@ -257,5 +297,28 @@ fn map_asset(asset: CatalogAsset) -> AssetSummaryDto {
         storage,
         missing: asset.missing,
         import_sequence: asset.import_sequence,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dextryx_core::SyntheticCatalogRepository;
+
+    #[test]
+    fn read_application_exposes_authoritative_queries_without_mutation_api() {
+        let app = CatalogReadApplication::new(SyntheticCatalogRepository::new(32));
+        let workplaces = app.list_workplaces();
+        let active = workplaces
+            .iter()
+            .find(|workplace| workplace.is_active)
+            .expect("synthetic adapter should have an active workplace");
+
+        let missing = app
+            .list_assets(&active.id, AssetQuery::Missing)
+            .expect("active workplace should be readable");
+
+        assert!(!missing.is_empty());
+        assert!(missing.iter().all(|asset| asset.missing));
     }
 }

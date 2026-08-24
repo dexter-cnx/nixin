@@ -46,15 +46,23 @@ pub enum CatalogRepositoryError {
     UnknownAsset(AssetId),
 }
 
-/// Frontend-neutral catalog boundary.
+/// Read-only, frontend-neutral catalog boundary.
 ///
-/// GPUI, Flutter/FFI, CLI tools, and tests must depend on this contract rather
-/// than concrete persistence or UI framework types.
-pub trait CatalogRepository {
+/// Production frontends should depend on this contract for authoritative
+/// Workplace/catalog reads. It deliberately exposes no persistence mutations.
+pub trait CatalogReadRepository {
     fn workplaces(&self) -> Vec<WorkplaceSummary>;
     fn active_workplace_id(&self) -> Option<&str>;
-    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError>;
     fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError>;
+}
+
+/// Frontend-neutral catalog mutation boundary.
+///
+/// Mutation-capable application services depend on this extension. Keeping it
+/// separate from `CatalogReadRepository` lets read-only frontends and adapters
+/// compile without acquiring write authority.
+pub trait CatalogRepository: CatalogReadRepository {
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError>;
     fn relink_asset(
         &mut self,
         asset_id: &str,
@@ -78,6 +86,75 @@ pub fn filter_assets(mut assets: Vec<CatalogAsset>, filter: CatalogFilter) -> Ve
             assets.truncate(limit);
             assets
         }
+    }
+}
+
+/// In-memory read projection supplied by the current persistence authority.
+///
+/// This structure is not a persistence format. It is a typed hand-off model
+/// that can be populated by the current Hive-backed application, a future
+/// Rust-native storage adapter, tests, or other hosts without changing the
+/// frontend-facing catalog contract.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuthoritativeCatalogProjection {
+    pub workplaces: Vec<WorkplaceSummary>,
+    pub active_workplace_id: Option<WorkplaceId>,
+    pub assets: Vec<CatalogAsset>,
+}
+
+/// Read-only adapter over an authoritative catalog projection.
+///
+/// The adapter owns no mutation API and cannot become a second persistence
+/// authority. Refreshing it means replacing the projection with a newer one
+/// supplied by the durable-source boundary.
+pub struct ProjectionCatalogReadAdapter {
+    projection: AuthoritativeCatalogProjection,
+}
+
+impl ProjectionCatalogReadAdapter {
+    pub fn new(projection: AuthoritativeCatalogProjection) -> Self {
+        Self { projection }
+    }
+
+    pub fn replace_projection(&mut self, projection: AuthoritativeCatalogProjection) {
+        self.projection = projection;
+    }
+
+    pub fn projection(&self) -> &AuthoritativeCatalogProjection {
+        &self.projection
+    }
+}
+
+impl CatalogReadRepository for ProjectionCatalogReadAdapter {
+    fn workplaces(&self) -> Vec<WorkplaceSummary> {
+        self.projection.workplaces.clone()
+    }
+
+    fn active_workplace_id(&self) -> Option<&str> {
+        self.projection.active_workplace_id.as_deref()
+    }
+
+    fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
+        if !self
+            .projection
+            .workplaces
+            .iter()
+            .any(|workplace| workplace.id == workplace_id)
+        {
+            return Err(CatalogRepositoryError::UnknownWorkplace(
+                workplace_id.to_string(),
+            ));
+        }
+
+        let mut assets: Vec<_> = self
+            .projection
+            .assets
+            .iter()
+            .filter(|asset| asset.workplace_id == workplace_id)
+            .cloned()
+            .collect();
+        assets.sort_by_key(|asset| asset.import_sequence);
+        Ok(assets)
     }
 }
 
@@ -153,27 +230,13 @@ impl SyntheticCatalogRepository {
     }
 }
 
-impl CatalogRepository for SyntheticCatalogRepository {
+impl CatalogReadRepository for SyntheticCatalogRepository {
     fn workplaces(&self) -> Vec<WorkplaceSummary> {
         self.workplaces.clone()
     }
 
     fn active_workplace_id(&self) -> Option<&str> {
         self.active_workplace_id.as_deref()
-    }
-
-    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError> {
-        if !self
-            .workplaces
-            .iter()
-            .any(|workplace| workplace.id == workplace_id)
-        {
-            return Err(CatalogRepositoryError::UnknownWorkplace(
-                workplace_id.to_string(),
-            ));
-        }
-        self.active_workplace_id = Some(workplace_id.to_string());
-        Ok(())
     }
 
     fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
@@ -195,6 +258,22 @@ impl CatalogRepository for SyntheticCatalogRepository {
             .collect();
         assets.sort_by_key(|asset| asset.import_sequence);
         Ok(assets)
+    }
+}
+
+impl CatalogRepository for SyntheticCatalogRepository {
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError> {
+        if !self
+            .workplaces
+            .iter()
+            .any(|workplace| workplace.id == workplace_id)
+        {
+            return Err(CatalogRepositoryError::UnknownWorkplace(
+                workplace_id.to_string(),
+            ));
+        }
+        self.active_workplace_id = Some(workplace_id.to_string());
+        Ok(())
     }
 
     fn relink_asset(
@@ -218,5 +297,41 @@ impl CatalogRepository for SyntheticCatalogRepository {
         self.assets
             .remove(asset_id)
             .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projection_adapter_preserves_identity_and_effective_path_semantics() {
+        let workplace = WorkplaceSummary {
+            id: "workplace-1".to_string(),
+            name: "My workplace".to_string(),
+        };
+        let managed = CatalogAsset {
+            id: "asset-1".to_string(),
+            workplace_id: workplace.id.clone(),
+            source_path: PathBuf::from("/external/original.nef"),
+            managed_path: Some(PathBuf::from("/managed/original.nef")),
+            storage_mode: AssetStorageMode::Managed,
+            missing: false,
+            import_sequence: 42,
+        };
+        let adapter = ProjectionCatalogReadAdapter::new(AuthoritativeCatalogProjection {
+            workplaces: vec![workplace.clone()],
+            active_workplace_id: Some(workplace.id.clone()),
+            assets: vec![managed],
+        });
+
+        assert_eq!(adapter.active_workplace_id(), Some("workplace-1"));
+        let assets = adapter.assets("workplace-1").unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "asset-1");
+        assert_eq!(
+            assets[0].effective_path(),
+            Path::new("/managed/original.nef")
+        );
     }
 }
