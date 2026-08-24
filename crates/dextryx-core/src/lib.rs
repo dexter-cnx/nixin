@@ -53,10 +53,7 @@ pub enum CatalogRepositoryError {
 pub trait CatalogRepository {
     fn workplaces(&self) -> Vec<WorkplaceSummary>;
     fn active_workplace_id(&self) -> Option<&str>;
-    fn set_active_workplace(
-        &mut self,
-        workplace_id: &str,
-    ) -> Result<(), CatalogRepositoryError>;
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError>;
     fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError>;
     fn relink_asset(
         &mut self,
@@ -113,9 +110,8 @@ impl SyntheticCatalogRepository {
                     id,
                     workplace_id: primary.id.clone(),
                     source_path: PathBuf::from(format!("/linked/source/image-{ix:06}.jpg")),
-                    managed_path: managed.then(|| {
-                        PathBuf::from(format!("/managed/library/image-{ix:06}.jpg"))
-                    }),
+                    managed_path: managed
+                        .then(|| PathBuf::from(format!("/managed/library/image-{ix:06}.jpg"))),
                     storage_mode: if managed {
                         AssetStorageMode::Managed
                     } else {
@@ -166,10 +162,7 @@ impl CatalogRepository for SyntheticCatalogRepository {
         self.active_workplace_id.as_deref()
     }
 
-    fn set_active_workplace(
-        &mut self,
-        workplace_id: &str,
-    ) -> Result<(), CatalogRepositoryError> {
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError> {
         if !self
             .workplaces
             .iter()

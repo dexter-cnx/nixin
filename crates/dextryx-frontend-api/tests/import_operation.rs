@@ -31,10 +31,7 @@ impl ImportCatalogPort for FakeCatalog {
 }
 
 fn temp_root(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "dextryx-import-{label}-{}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("dextryx-import-{label}-{}", std::process::id()))
 }
 
 #[test]
@@ -81,7 +78,10 @@ fn linked_import_skips_known_source_and_reports_progress() {
     assert_eq!(summary.imported, 1);
     assert_eq!(catalog.saved.len(), 1);
     assert_eq!(catalog.saved[0].source_path, second);
-    assert!(matches!(events.last(), Some(OperationEvent::Completed { .. })));
+    assert!(matches!(
+        events.last(),
+        Some(OperationEvent::Completed { .. })
+    ));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -152,18 +152,15 @@ fn cancelled_operation_stops_before_mutating_catalog_or_filesystem() {
         }],
     };
 
-    let summary = execute_import(
-        &request,
-        &StdFileSystem,
-        &mut catalog,
-        &token,
-        &mut sink,
-    );
+    let summary = execute_import(&request, &StdFileSystem, &mut catalog, &token, &mut sink);
 
     assert!(summary.cancelled);
     assert_eq!(summary.processed, 0);
     assert!(catalog.saved.is_empty());
     assert!(!managed.exists());
-    assert!(matches!(events.last(), Some(OperationEvent::Cancelled { .. })));
+    assert!(matches!(
+        events.last(),
+        Some(OperationEvent::Cancelled { .. })
+    ));
     fs::remove_dir_all(root).unwrap();
 }

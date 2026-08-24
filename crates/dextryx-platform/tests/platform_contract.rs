@@ -4,10 +4,8 @@ use dextryx_platform::{FileDialogRequest, FileSystemPort, StdFileSystem};
 
 #[test]
 fn file_dialog_request_is_framework_neutral() {
-    let request = FileDialogRequest::single_file(
-        "Open image",
-        ["jpg", "jpeg", "png", "arw", "cr3", "nef"],
-    );
+    let request =
+        FileDialogRequest::single_file("Open image", ["jpg", "jpeg", "png", "arw", "cr3", "nef"]);
 
     assert_eq!(request.title, "Open image");
     assert!(!request.allow_multiple);
@@ -17,10 +15,7 @@ fn file_dialog_request_is_framework_neutral() {
 
 #[test]
 fn std_filesystem_implements_basic_port_contract() {
-    let root = std::env::temp_dir().join(format!(
-        "dextryx-platform-test-{}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("dextryx-platform-test-{}", std::process::id()));
     let source = root.join("source.txt");
     let copied = root.join("copied.txt");
     let renamed = root.join("renamed.txt");

@@ -21,15 +21,15 @@ impl FileDialog {
     }
 
     pub fn add_filter(mut self, _name: &str, extensions: &[&str]) -> Self {
-        self.extensions = extensions.iter().map(|value| (*value).to_string()).collect();
+        self.extensions = extensions
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect();
         self
     }
 
     pub fn pick_file(self) -> Option<PathBuf> {
         let request = FileDialogRequest::single_file(self.title, self.extensions);
-        RfdFileDialogAdapter
-            .pick_paths(&request)
-            .into_iter()
-            .next()
+        RfdFileDialogAdapter.pick_paths(&request).into_iter().next()
     }
 }

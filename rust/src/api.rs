@@ -85,8 +85,7 @@ pub fn load_embedded_preview(path: &str) -> Result<DynamicImage, String> {
     }
 
     let bytes = fs::read(source).map_err(|e| format!("Image file read failed: {e}"))?;
-    extract_best_embedded_jpeg(&bytes)
-        .map_err(|e| format!("Unsupported image or RAW preview: {e}"))
+    extract_best_embedded_jpeg(&bytes).map_err(|e| format!("Unsupported image or RAW preview: {e}"))
 }
 
 fn extract_best_embedded_jpeg(bytes: &[u8]) -> Result<DynamicImage, String> {

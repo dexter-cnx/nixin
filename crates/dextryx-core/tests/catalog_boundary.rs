@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use dextryx_core::{
-    AssetStorageMode, CatalogFilter, CatalogRepository, SyntheticCatalogRepository, filter_assets,
+    filter_assets, AssetStorageMode, CatalogFilter, CatalogRepository, SyntheticCatalogRepository,
 };
 
 #[test]
@@ -10,10 +10,7 @@ fn catalog_filters_preserve_stable_asset_identity() {
     let workplace_id = repo.active_workplace_id().unwrap();
     let all = repo.assets(workplace_id).unwrap();
     let missing = filter_assets(all.clone(), CatalogFilter::Missing);
-    let recent = filter_assets(
-        all.clone(),
-        CatalogFilter::RecentImports { limit: 500 },
-    );
+    let recent = filter_assets(all.clone(), CatalogFilter::RecentImports { limit: 500 });
 
     assert_eq!(all.len(), 5_000);
     assert_eq!(missing.len(), 5_000usize.div_ceil(17));
@@ -42,7 +39,10 @@ fn effective_path_prefers_managed_copy() {
         .find(|asset| asset.storage_mode == AssetStorageMode::Linked)
         .unwrap();
 
-    assert_eq!(managed.effective_path(), managed.managed_path.as_deref().unwrap());
+    assert_eq!(
+        managed.effective_path(),
+        managed.managed_path.as_deref().unwrap()
+    );
     assert_eq!(linked.effective_path(), linked.source_path.as_path());
 }
 
@@ -78,7 +78,10 @@ fn relink_preserves_identity_and_storage_semantics() {
         Some(Path::new("/replacement/managed.jpg"))
     );
     assert_eq!(managed_after.source_path, managed.source_path);
-    assert_eq!(linked_after.source_path, PathBuf::from("/replacement/linked.jpg"));
+    assert_eq!(
+        linked_after.source_path,
+        PathBuf::from("/replacement/linked.jpg")
+    );
     assert_eq!(linked_after.managed_path, linked.managed_path);
     assert!(!managed_after.missing);
     assert!(!linked_after.missing);
