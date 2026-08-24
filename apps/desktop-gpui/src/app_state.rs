@@ -4,8 +4,7 @@ use dextryx_frontend_api::AssetQuery;
 use dextryx_platform::{FileDialogPort, FileDialogRequest};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
-    "arw", "cr2", "cr3", "nef", "dng", "raf", "orf", "jpg", "jpeg", "png", "tif", "tiff",
-    "webp",
+    "arw", "cr2", "cr3", "nef", "dng", "raf", "orf", "jpg", "jpeg", "png", "tif", "tiff", "webp",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,7 +80,10 @@ impl DesktopAppState {
 
         let request = FileDialogRequest {
             title: "Import images".to_string(),
-            extensions: IMAGE_EXTENSIONS.iter().map(|ext| (*ext).to_string()).collect(),
+            extensions: IMAGE_EXTENSIONS
+                .iter()
+                .map(|ext| (*ext).to_string())
+                .collect(),
             allow_multiple: true,
             pick_directories: false,
         };
