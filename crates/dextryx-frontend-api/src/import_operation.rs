@@ -99,9 +99,21 @@ where
         }
 
         let source = &candidate.source_path;
-        let duplicate = catalog
-            .contains_source(&request.workplace_id, source)
-            .unwrap_or(false);
+        let duplicate = match catalog.contains_source(&request.workplace_id, source) {
+            Ok(value) => value,
+            Err(_) => {
+                summary.processed += 1;
+                summary.failed += 1;
+                summary.failed_paths.push(source.clone());
+                sink.emit(OperationEvent::Progress(OperationProgress {
+                    operation_id: request.operation_id.clone(),
+                    completed_units: summary.processed,
+                    total_units: Some(total),
+                    message: Some(format!("catalog_lookup_failed:{}", source.display())),
+                }));
+                continue;
+            }
+        };
         if duplicate {
             summary.processed += 1;
             summary.skipped_duplicates += 1;
@@ -190,9 +202,9 @@ where
 
     let managed_path = if request.storage_mode == ImportStorageMode::Managed {
         let managed_root = request.managed_root.as_ref().expect("validated above");
-        filesystem
-            .create_dir_all(managed_root)
-            .map_err(|_| ImportOneError::Failed)?;
+        if !filesystem.exists(managed_root) {
+            return Err(ImportOneError::Failed);
+        }
 
         let extension = candidate
             .source_path
@@ -203,10 +215,15 @@ where
         let final_path = managed_root.join(format!("{}{}", candidate.asset_id, extension));
         let temp_path = managed_root.join(format!("{}.part", candidate.asset_id));
 
+        if filesystem.exists(&final_path) {
+            return Err(ImportOneError::Failed);
+        }
+
         let _ = filesystem.remove_file(&temp_path);
-        filesystem
-            .copy(&candidate.source_path, &temp_path)
-            .map_err(|_| ImportOneError::Failed)?;
+        if filesystem.copy(&candidate.source_path, &temp_path).is_err() {
+            let _ = filesystem.remove_file(&temp_path);
+            return Err(ImportOneError::Failed);
+        }
 
         if cancellation.is_cancelled() {
             let _ = filesystem.remove_file(&temp_path);

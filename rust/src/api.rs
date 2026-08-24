@@ -565,7 +565,9 @@ fn mask_overlay(base: &RgbaImage, mask: &[u8], color: [u8; 3]) -> DevelopedImage
     }
 }
 fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| [p[0], p[1], p[2]])
         .collect()
 }
