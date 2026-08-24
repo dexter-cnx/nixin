@@ -1,6 +1,6 @@
 # M0 — Frontend-Neutral API Foundation
 
-Status: VALIDATION GATE
+Status: COMPLETE
 Branch: `agent/gpui-desktop-spike`
 
 ## Completed
@@ -19,8 +19,10 @@ Branch: `agent/gpui-desktop-spike`
 - Import execution covers linked/managed mode, duplicate skip, source-file validation, managed-copy staging, collision refusal, rollback on catalog-save failure, partial-copy cleanup, managed-root availability checks, progress events, failure summary, and cooperative cancellation cleanup.
 - Duplicate catalog lookup failures stop that item before filesystem/catalog mutation.
 - Added regression tests for duplicate prevention, catalog lookup failure, missing managed root, managed destination collision, partial-copy cleanup, managed-copy rollback, and cancellation-before-mutation.
-- Rust 1.98 format/clippy gates and the full repository CI currently pass on PR #21 before the final locked-S4 validation change.
+- Rust 1.98 format/clippy gates pass.
 - `experiments/gpui-desktop/Cargo.lock` is committed and strict `--locked` commands are restored in GPUI S4 compatibility validation.
+- PR #21 validation passed with `CI #430` and `Full validation #46` green.
+- Strict `--locked` GPUI S4 Windows/Linux validation passed, closing the final M0 gate.
 
 ## Current dependency direction
 
@@ -64,7 +66,7 @@ execute_import()
         +--> ImportExecutionSummary
 ```
 
-Safety rules now enforced by the shared slice:
+Safety rules enforced by the shared slice:
 
 - duplicate sources are skipped rather than cataloged twice;
 - catalog lookup errors fail the item instead of being interpreted as "not duplicate";
@@ -122,9 +124,9 @@ M0 is scoped to proving the frontend-neutral architecture foundation, not comple
 - [x] The same application API can serve GPUI and a future Flutter/FFI frontend without redesigning the core.
 - [x] CI enforces the transitive dependency boundary for protected shared crates.
 - [x] Shared and GPUI Cargo lockfiles are committed.
-- [ ] Strict `--locked` S4 Windows/Linux validation passes after restoration of the lock gate.
+- [x] Strict `--locked` S4 Windows/Linux validation passes after restoration of the lock gate.
 
-Once the final locked S4 validation is green, M0 is complete and M1 can begin.
+M0 is complete. M1 may now build the production GPUI shell on this stable boundary.
 
 ## Deferred migration work — not M0 blockers
 
@@ -136,4 +138,4 @@ Once the final locked S4 validation is green, M0 is complete and M1 can begin.
 
 ## M1 entry condition
 
-Begin the production GPUI application shell only after the strict locked S4 gate is green. M1 should consume the stable frontend/application API and neutral platform ports rather than copying business logic from the experiment.
+Satisfied. The production GPUI application shell should consume the stable frontend/application API and neutral platform ports rather than copying business logic from the experiment.
