@@ -142,6 +142,7 @@ impl DesktopAppState {
                 self.filmstrip_scroll_x = self
                     .filmstrip_scroll_x
                     .clamp(0.0, self.max_filmstrip_scroll());
+                self.ensure_selected_asset_visible();
                 self.status = format!("Authoritative catalog read: {count} asset(s)");
             }
             Err(error) => {
@@ -186,6 +187,7 @@ impl DesktopAppState {
         }
 
         self.selected_asset_id = Some(asset_id.to_string());
+        self.ensure_selected_asset_visible();
         self.status = format!("Selected asset: {asset_id}");
         true
     }
@@ -215,6 +217,32 @@ impl DesktopAppState {
         let start = first.saturating_sub(FILMSTRIP_OVERSCAN);
         let end = (first + visible_count + FILMSTRIP_OVERSCAN).min(count);
         start..end
+    }
+
+    fn ensure_selected_asset_visible(&mut self) {
+        let Some(selected_id) = self.selected_asset_id.as_deref() else {
+            self.filmstrip_scroll_x = 0.0;
+            return;
+        };
+        let Some(index) = self.assets.iter().position(|asset| asset.id == selected_id) else {
+            self.filmstrip_scroll_x = 0.0;
+            return;
+        };
+
+        let viewport_start = self.filmstrip_scroll_x;
+        let viewport_end = viewport_start + FILMSTRIP_VIEW_WIDTH;
+        let item_start = index as f32 * FILMSTRIP_STRIDE;
+        let item_end = item_start + FILMSTRIP_ITEM_WIDTH;
+
+        if item_start < viewport_start {
+            self.filmstrip_scroll_x = item_start;
+        } else if item_end > viewport_end {
+            self.filmstrip_scroll_x = item_end - FILMSTRIP_VIEW_WIDTH;
+        }
+
+        self.filmstrip_scroll_x = self
+            .filmstrip_scroll_x
+            .clamp(0.0, self.max_filmstrip_scroll());
     }
 
     pub fn section_label(&self) -> &'static str {
@@ -291,6 +319,17 @@ mod tests {
         fn pick_paths(&self, request: &FileDialogRequest) -> Vec<PathBuf> {
             self.requests.borrow_mut().push(request.clone());
             self.paths.clone()
+        }
+    }
+
+    fn asset(index: usize) -> AssetSummaryDto {
+        AssetSummaryDto {
+            id: format!("asset-{index}"),
+            workplace_id: "workplace-1".to_string(),
+            effective_path: PathBuf::from(format!("/tmp/{index}.jpg")),
+            storage: dextryx_frontend_api::AssetStorageDto::Linked,
+            missing: false,
+            import_sequence: index as u64,
         }
     }
 
@@ -388,17 +427,10 @@ mod tests {
 
     #[test]
     fn filmstrip_virtualization_bounds_visible_assets() {
-        let mut state = DesktopAppState::default();
-        state.assets = (0..5_000)
-            .map(|index| AssetSummaryDto {
-                id: format!("asset-{index}"),
-                workplace_id: "workplace-1".to_string(),
-                effective_path: PathBuf::from(format!("/tmp/{index}.jpg")),
-                storage: dextryx_frontend_api::AssetStorageDto::Linked,
-                missing: false,
-                import_sequence: index as u64,
-            })
-            .collect();
+        let mut state = DesktopAppState {
+            assets: (0..5_000).map(asset).collect(),
+            ..DesktopAppState::default()
+        };
 
         let first = state.filmstrip_visible_range();
         assert!(first.len() < 20);
@@ -413,19 +445,30 @@ mod tests {
 
     #[test]
     fn selection_rejects_unknown_asset_ids() {
-        let mut state = DesktopAppState::default();
-        state.assets = vec![AssetSummaryDto {
-            id: "asset-1".to_string(),
-            workplace_id: "workplace-1".to_string(),
-            effective_path: PathBuf::from("/tmp/a.jpg"),
-            storage: dextryx_frontend_api::AssetStorageDto::Linked,
-            missing: false,
-            import_sequence: 1,
-        }];
+        let mut state = DesktopAppState {
+            assets: vec![asset(1)],
+            ..DesktopAppState::default()
+        };
 
         assert!(state.select_asset("asset-1"));
         assert!(!state.select_asset("asset-404"));
         assert_eq!(state.selected_asset_id.as_deref(), Some("asset-1"));
+    }
+
+    #[test]
+    fn selection_scrolls_into_filmstrip_viewport() {
+        let mut state = DesktopAppState {
+            assets: (0..100).map(asset).collect(),
+            ..DesktopAppState::default()
+        };
+
+        assert!(state.select_asset("asset-80"));
+        let range = state.filmstrip_visible_range();
+        assert!(range.contains(&80));
+
+        assert!(state.select_asset("asset-2"));
+        let range = state.filmstrip_visible_range();
+        assert!(range.contains(&2));
     }
 
     #[test]
