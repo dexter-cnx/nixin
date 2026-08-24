@@ -7,8 +7,8 @@ use dextryx_frontend_api::AssetSummaryDto;
 pub const MAX_THUMBNAIL_WORKING_SET: usize = 64;
 
 const SUPPORTED_RASTER_EXTENSIONS: &[&str] = &[
-    "avif", "jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "tga", "dds", "bmp",
-    "ico", "hdr", "exr", "pbm", "pam", "ppm", "pgm", "ff", "farbfeld", "qoi", "svg",
+    "avif", "jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "tga", "dds", "bmp", "ico", "hdr",
+    "exr", "pbm", "pam", "ppm", "pgm", "ff", "farbfeld", "qoi", "svg",
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -87,7 +87,9 @@ mod tests {
 
     #[test]
     fn working_set_is_bounded_and_keeps_selection() {
-        let assets = (0..200).map(|index| asset(index, "jpg")).collect::<Vec<_>>();
+        let assets = (0..200)
+            .map(|index| asset(index, "jpg"))
+            .collect::<Vec<_>>();
         let mut working_set = ThumbnailWorkingSet::default();
 
         working_set.sync(&assets, 0..100, 100..150, Some("asset-199"));
@@ -107,7 +109,10 @@ mod tests {
 
         working_set.sync(&assets, 0..3, 0..0, None);
 
-        assert_eq!(working_set.thumbnail_path(&raster), Some(raster.effective_path));
+        assert_eq!(
+            working_set.thumbnail_path(&raster),
+            Some(raster.effective_path)
+        );
         assert!(working_set.thumbnail_path(&raw).is_none());
         assert!(working_set.thumbnail_path(&missing).is_none());
     }
