@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'asset_browser_controller.dart';
 import 'import_controller.dart';
 import 'import_state.dart';
 import 'workplace_controller.dart';
@@ -30,6 +31,14 @@ final catalogReadProjectionSyncProvider = Provider<void>((ref) {
     (previous, next) {
       final wasBusy = previous?.busy ?? false;
       if (wasBusy && !next.busy) refresh();
+    },
+  );
+
+  ref.listen<AssetBrowserState>(
+    assetBrowserControllerProvider,
+    (previous, next) {
+      if (next.loading) return;
+      if (!identical(previous?.assets, next.assets)) refresh();
     },
   );
 });
