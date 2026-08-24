@@ -1,4 +1,6 @@
+mod catalog_projection;
 mod import_operation;
+pub use catalog_projection::*;
 pub use import_operation::*;
 
 use std::path::PathBuf;
