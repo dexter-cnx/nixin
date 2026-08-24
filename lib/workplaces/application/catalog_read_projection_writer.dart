@@ -55,7 +55,9 @@ class CatalogReadProjectionWriter {
       ..writeln('ACTIVE\t${_escape(activeId ?? '')}');
 
     for (final workplace in workplaces) {
-      buffer.writeln('WORKPLACE\t${_escape(workplace.id)}\t${_escape(workplace.name)}');
+      buffer.writeln(
+        'WORKPLACE\t${_escape(workplace.id)}\t${_escape(workplace.name)}',
+      );
     }
 
     for (var index = 0; index < assets.length; index++) {
