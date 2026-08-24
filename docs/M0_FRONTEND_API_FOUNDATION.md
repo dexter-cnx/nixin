@@ -6,22 +6,18 @@ Branch: `agent/gpui-desktop-spike`
 ## Completed
 
 - Added `crates/dextryx-core` as a GPUI-free Rust domain/catalog crate.
-- Moved catalog identity, linked/managed storage semantics, filtering, relink, catalog-only removal, active Workplace state and the synthetic architecture-test repository out of the GPUI experiment.
-- Added framework-independent contract tests under `crates/dextryx-core/tests`.
+- Moved catalog identity, linked/managed storage semantics, filtering, relink, catalog-only removal, active Workplace state and synthetic architecture-test repository out of the GPUI experiment.
 - Added `crates/dextryx-frontend-api` as the stable frontend-facing application boundary.
-- Added frontend DTOs, queries, mapped API errors and neutral mutation events.
-- Added `CatalogApplication<R>` operations for Workplace listing, asset listing/filtering, active Workplace changes, relink and catalog-only removal.
-- Added frontend-API contract tests independent from GPUI.
-- GPUI boundary tests now call `dextryx-frontend-api`; the GPUI package no longer has `dextryx-core` as a production dependency. `dextryx-core` remains a dev-dependency only for constructing the synthetic test adapter.
-- Added `tool/check-rust-core-dependencies.py` using `cargo metadata` to protect `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform` from GPUI/Flutter/FFI dependencies, including transitive dependencies.
-- Updated GPUI S4 CI triggers/cache/tests to include all three shared crates and the dependency guard.
-- Added runtime-neutral long-operation contracts in `dextryx-frontend-api`: `OperationId`, `OperationKind`, started/progress/item/failure/cancel/completed events, `OperationEventSink`, and cooperative `CancellationToken`.
-- Operation reporting can be consumed by a plain Rust closure today, by GPUI presentation adapters later, or mapped to a Dart Stream/Future bridge without changing the application contract.
-- Added `crates/dextryx-platform` with frontend-neutral `FileDialogPort`, `FileDialogRequest`, `FileSystemPort`, and `StdFileSystem`.
-- Added platform contract tests covering dialog request shape plus basic filesystem operations without GPUI or Flutter.
-- Added GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`; upstream `rfd` is now named `rfd-backend` in the GPUI package so it is clearly an implementation detail.
-- Added a GPUI compatibility facade and explicit `src/entry.rs` binary entrypoint. The existing spike `main.rs` still contains its legacy `use rfd::FileDialog` syntax, but at compile time that name now resolves to the local facade, which delegates through `FileDialogPort -> RfdFileDialogAdapter -> rfd-backend`.
-- Added `crates/Cargo.toml` as the shared frontend-neutral Rust workspace for `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
+- Added frontend DTOs, queries, mapped errors, catalog commands/events, runtime-neutral operation events and cooperative cancellation.
+- Added `crates/dextryx-platform` with `FileDialogPort`, `FileDialogRequest`, `FileSystemPort`, and `StdFileSystem`.
+- Added GPUI-local `RfdFileDialogAdapter`; upstream `rfd` is a GPUI implementation detail only.
+- Added shared Rust workspace `crates/Cargo.toml`.
+- Added `cargo metadata` dependency guard protecting `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform` from GPUI/Flutter/FFI dependencies.
+- Added framework-independent tests for core, frontend API, platform ports, operation events, and cancellation.
+- Added the first real long-running shared Rust slice: `execute_import()` in `dextryx-frontend-api`.
+- `execute_import()` consumes `FileSystemPort`, `ImportCatalogPort`, `CancellationToken`, and `OperationEventSink` rather than GPUI/Dart APIs.
+- Import execution currently covers linked/managed mode, duplicate skip, source-file validation, managed copy, temporary `.part` staging, rollback on catalog-save failure, progress events, failure summary, and cooperative cancellation cleanup.
+- Added import regression tests for duplicate prevention, managed-copy rollback, and cancellation-before-mutation.
 
 ## Current dependency direction
 
@@ -29,6 +25,8 @@ Branch: `agent/gpui-desktop-spike`
 GPUI production dependency
         |
         +--> dextryx-frontend-api --> dextryx-core
+        |           |
+        |           +--> dextryx-platform
         |
         +--> dextryx-platform
 
@@ -38,18 +36,47 @@ GPUI-local adapters
         +--> GPUI / native desktop APIs
 ```
 
-A future Flutter frontend should enter at `dextryx-frontend-api` through an FFI translation crate and provide its own platform/file-picker adapters rather than calling GPUI adapters.
+A future Flutter frontend should enter at `dextryx-frontend-api` through an FFI translation crate and supply its own platform adapters.
+
+## Import slice boundary
+
+The existing Flutter `ImportController` remains the current production authority for batch persistence, retry/recovery, preferences, and Hive repositories.
+
+The new Rust slice intentionally extracts only execution semantics that can be shared safely:
+
+```text
+ImportExecutionRequest
+  + candidates / asset IDs
+  + workplace ID
+  + linked | managed
+  + managed root
+        |
+        v
+execute_import()
+  + FileSystemPort
+  + ImportCatalogPort
+  + CancellationToken
+  + OperationEventSink
+        |
+        +--> ImportExecutionSummary
+```
+
+This preserves the production safety rules already present in Dart:
+
+- duplicate sources are skipped rather than cataloged twice;
+- managed originals are staged before final placement;
+- a newly copied managed original is deleted when catalog persistence fails;
+- cancellation does not intentionally leave a newly copied managed artifact behind;
+- mixed success/failure can complete with a summary, while an all-failed import emits terminal failure.
+
+Batch/retry persistence is not duplicated in Rust yet. That belongs to the authoritative storage migration milestone.
 
 ## Runtime-neutral operation rule
 
-Long-running operations such as Import, thumbnail generation and Develop preview must not expose `gpui::Task`, GPUI entities, Tokio handles, or Dart Futures/Streams from shared application/core crates.
-
-They should use the neutral contract:
+Long-running operations must not expose `gpui::Task`, GPUI entities, Tokio handles, or Dart Futures/Streams from shared crates.
 
 ```text
-operation request
-    + OperationId
-    + CancellationToken
+operation request + CancellationToken
         |
         v
 shared Rust operation
@@ -57,15 +84,14 @@ shared Rust operation
         +--> OperationEventSink
                  |
                  +--> GPUI adapter -> GPUI state/task
-                 |
                  +--> future FFI adapter -> Dart Stream/Future
 ```
 
-Cancellation is cooperative. The frontend requests cancellation through `CancellationToken`; Rust operations decide safe stopping points and emit `OperationEvent::Cancelled` when termination has actually occurred.
+Cancellation is cooperative; shared Rust operations choose safe cancellation points.
 
 ## Platform boundary rule
 
-Shared application/core code must not open dialogs or call frontend-specific filesystem APIs directly.
+Shared application/core code must not open dialogs or depend on frontend-specific filesystem APIs directly.
 
 ```text
 shared application/core
@@ -73,22 +99,20 @@ shared application/core
         +--> neutral platform/file-system ports
                      |
                      +--> GPUI adapter -> rfd / desktop filesystem
-                     |
                      +--> Flutter adapter -> Flutter/native picker APIs
 ```
 
-The dialog-selection mechanism and filesystem implementation are replaceable adapters. Catalog/import semantics must remain outside those adapters.
-
-The current spike uses a compatibility entrypoint rather than rewriting the large experimental `main.rs` only to replace one import. This is transitional spike infrastructure; the production GPUI shell should import the neutral port/adapter explicitly instead of carrying the compatibility alias forward.
+The current spike still uses a compatibility facade around its large legacy `main.rs`; the production GPUI shell should use the neutral adapter explicitly.
 
 ## Still pending for M0
 
-- Regenerate and commit `experiments/gpui-desktop/Cargo.lock` after the new local path crates are resolved; only then restore strict `--locked` S4 commands.
-- Apply the runtime-neutral operation contract to the first real long-running slice rather than leaving it as contract-only infrastructure. Import is the preferred first candidate because production semantics already include progress/cancellation/recovery.
-- Route real import/thumbnail filesystem work through `FileSystemPort` as those slices move into shared Rust; do not merely wrap every `std::fs` call without preserving domain ownership.
-- Replace synthetic GPUI catalog data with a read-only authoritative catalog adapter in the later persistence milestone; do not connect GPUI directly to Hive.
-- Validate the new GPUI entrypoint/compatibility facade through CI and remove the compatibility alias when the production GPUI shell replaces the spike entrypoint.
+- Regenerate and commit `experiments/gpui-desktop/Cargo.lock`; then restore strict `--locked` S4 commands.
+- Validate the new shared import slice in CI on supported desktop runners.
+- Add a concrete adapter from the future authoritative Rust catalog/storage implementation to `ImportCatalogPort`; do not connect GPUI directly to Hive.
+- Extend filesystem migration to folder scanning/thumbnail work as those slices are promoted.
+- Decide whether import batch/retry persistence belongs in a future `dextryx-storage` crate or another neutral persistence crate during M2/M4; do not create a second durable format.
+- Remove the transitional GPUI file-dialog compatibility alias when the production GPUI shell replaces the spike entrypoint.
 
 ## M0 completion rule
 
-M0 is not complete merely because GPUI can compile. It is complete when shared catalog/application behavior is independently testable, protected from UI-framework dependencies, platform access is behind replaceable adapters, and the same application contracts can serve GPUI plus a future Flutter/FFI frontend without redesigning the core.
+M0 is complete only when shared catalog/application behavior is independently testable, protected from frontend-framework dependencies, platform access is behind replaceable ports, at least one real long-running operation uses the neutral operation contract, and the same API can serve GPUI plus a future Flutter/FFI frontend without redesigning the core.
