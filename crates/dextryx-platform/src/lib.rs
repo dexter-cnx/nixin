@@ -11,7 +11,10 @@ pub struct FileDialogRequest {
 }
 
 impl FileDialogRequest {
-    pub fn single_file(title: impl Into<String>, extensions: impl IntoIterator<Item = impl Into<String>>) -> Self {
+    pub fn single_file(
+        title: impl Into<String>,
+        extensions: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
         Self {
             title: title.into(),
             extensions: extensions.into_iter().map(Into::into).collect(),
@@ -27,6 +30,7 @@ pub trait FileDialogPort {
 
 pub trait FileSystemPort: Send + Sync {
     fn exists(&self, path: &Path) -> bool;
+    fn is_file(&self, path: &Path) -> io::Result<bool>;
     fn metadata_len(&self, path: &Path) -> io::Result<u64>;
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
     fn copy(&self, from: &Path, to: &Path) -> io::Result<u64>;
@@ -40,6 +44,10 @@ pub struct StdFileSystem;
 impl FileSystemPort for StdFileSystem {
     fn exists(&self, path: &Path) -> bool {
         path.exists()
+    }
+
+    fn is_file(&self, path: &Path) -> io::Result<bool> {
+        Ok(fs::metadata(path)?.is_file())
     }
 
     fn metadata_len(&self, path: &Path) -> io::Result<u64> {
