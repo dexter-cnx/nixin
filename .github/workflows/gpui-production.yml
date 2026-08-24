@@ -1,0 +1,57 @@
+name: GPUI Production Shell
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop-gpui/**'
+      - 'crates/dextryx-frontend-api/**'
+      - 'crates/dextryx-platform/**'
+      - '.github/workflows/gpui-production.yml'
+      - 'tool/format-all.sh'
+      - 'tool/ci-rust-format-check.sh'
+  push:
+    branches:
+      - feature/m1-gpui-production-shell
+    paths:
+      - 'apps/desktop-gpui/**'
+      - 'crates/dextryx-frontend-api/**'
+      - 'crates/dextryx-platform/**'
+      - '.github/workflows/gpui-production.yml'
+      - 'tool/format-all.sh'
+      - 'tool/ci-rust-format-check.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpui-production-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS production shell
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop-gpui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop-gpui -> target
+            crates/dextryx-frontend-api -> target
+            crates/dextryx-platform -> target
+      - name: Format
+        run: cargo fmt -- --check
+      - name: Unit tests
+        run: cargo test
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Debug build
+        run: cargo build
