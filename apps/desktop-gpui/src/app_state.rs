@@ -333,9 +333,7 @@ mod tests {
 
     #[test]
     fn sandboxed_home_does_not_duplicate_flutter_container_path() {
-        let home = Path::new(
-            "/Users/dexter/Library/Containers/com.cnxdev.dextryx.images/Data",
-        );
+        let home = Path::new("/Users/dexter/Library/Containers/com.cnxdev.dextryx.images/Data");
         let path = projection_path_for_home(home, true);
         assert_eq!(
             path,
