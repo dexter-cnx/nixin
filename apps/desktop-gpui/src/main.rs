@@ -1,5 +1,6 @@
 mod app_state;
 mod file_dialog;
+mod grid;
 
 use app_state::{
     AppCommand, DesktopAppState, FILMSTRIP_ITEM_WIDTH, FILMSTRIP_STRIDE, FILMSTRIP_VIEW_WIDTH,
@@ -10,13 +11,38 @@ use gpui::{
     Window, WindowBounds, WindowOptions,
 };
 use gpui_platform::application;
+use grid::{
+    GridViewport, GRID_COLUMNS, GRID_GAP, GRID_ITEM_HEIGHT, GRID_ITEM_WIDTH, GRID_ROW_STRIDE,
+    GRID_VIEW_HEIGHT,
+};
+
+const GRID_VIEW_WIDTH: f32 = 800.0;
 
 struct DesktopShell {
     state: DesktopAppState,
     file_dialog: RfdFileDialogAdapter,
+    grid_viewport: GridViewport,
 }
 
 impl DesktopShell {
+    fn sync_grid_to_selection(&mut self) {
+        let Some(selected_id) = self.state.selected_asset_id.as_deref() else {
+            self.grid_viewport.scroll_y = 0.0;
+            return;
+        };
+        let Some(index) = self
+            .state
+            .assets
+            .iter()
+            .position(|asset| asset.id == selected_id)
+        else {
+            self.grid_viewport.scroll_y = 0.0;
+            return;
+        };
+        self.grid_viewport
+            .ensure_index_visible(index, self.state.assets.len());
+    }
+
     fn command_button(
         id: &'static str,
         label: &'static str,
@@ -38,6 +64,7 @@ impl DesktopShell {
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.state.apply(command.clone());
                 this.state.refresh_catalog();
+                this.sync_grid_to_selection();
                 cx.notify();
             }))
     }
@@ -57,6 +84,7 @@ impl DesktopShell {
             .active(|this| this.opacity(0.75))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.state.refresh_catalog();
+                this.sync_grid_to_selection();
                 cx.notify();
             }))
     }
@@ -90,11 +118,7 @@ impl DesktopShell {
             ScrollDelta::Pixels(pixels) => {
                 let x: f32 = pixels.x.into();
                 let y: f32 = pixels.y.into();
-                if x.abs() > y.abs() {
-                    x
-                } else {
-                    y
-                }
+                if x.abs() > y.abs() { x } else { y }
             }
             ScrollDelta::Lines(lines) => {
                 let raw = if lines.x.abs() > lines.y.abs() {
@@ -107,6 +131,21 @@ impl DesktopShell {
         };
 
         self.state.scroll_filmstrip(delta);
+        cx.notify();
+    }
+
+    fn handle_grid_scroll(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = match event.delta {
+            ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
+            ScrollDelta::Lines(lines) => lines.y * 48.0,
+        };
+        self.grid_viewport
+            .scroll_by(delta, self.state.assets.len());
         cx.notify();
     }
 
@@ -151,16 +190,8 @@ impl DesktopShell {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(if selected {
-                        rgb(0xd4d7de)
-                    } else {
-                        rgb(0x434750)
-                    })
-                    .bg(if selected {
-                        rgb(0x343840)
-                    } else {
-                        rgb(0x25282e)
-                    })
+                    .border_color(if selected { rgb(0xd4d7de) } else { rgb(0x434750) })
+                    .bg(if selected { rgb(0x343840) } else { rgb(0x25282e) })
                     .cursor_pointer()
                     .flex()
                     .flex_col()
@@ -176,6 +207,7 @@ impl DesktopShell {
                     .child(div().text_xs().text_color(rgb(0x8d929c)).child(detail))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.state.select_asset(&asset_id);
+                        this.sync_grid_to_selection();
                         cx.notify();
                     })),
             );
@@ -187,6 +219,79 @@ impl DesktopShell {
             .h(px(92.0))
             .overflow_hidden()
             .on_scroll_wheel(cx.listener(Self::handle_filmstrip_scroll))
+            .child(canvas)
+    }
+
+    fn grid(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let visible = self
+            .grid_viewport
+            .visible_range(self.state.assets.len())
+            .map(|index| (index, self.state.assets[index].clone()))
+            .collect::<Vec<_>>();
+        let selected_id = self.state.selected_asset_id.clone();
+        let scroll_y = self.grid_viewport.scroll_y;
+        let mut canvas = div().relative().w(px(GRID_VIEW_WIDTH)).h(px(GRID_VIEW_HEIGHT));
+
+        for (index, asset) in visible {
+            let row = index / GRID_COLUMNS;
+            let column = index % GRID_COLUMNS;
+            let left = column as f32 * (GRID_ITEM_WIDTH + GRID_GAP);
+            let top = row as f32 * GRID_ROW_STRIDE - scroll_y;
+            let asset_id = asset.id.clone();
+            let selected = selected_id.as_deref() == Some(asset.id.as_str());
+            let filename = asset
+                .effective_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("asset")
+                .to_string();
+            let detail = if asset.missing {
+                "missing".to_string()
+            } else {
+                match asset.storage {
+                    dextryx_frontend_api::AssetStorageDto::Linked => "linked".to_string(),
+                    dextryx_frontend_api::AssetStorageDto::Managed => "managed".to_string(),
+                }
+            };
+
+            canvas = canvas.child(
+                div()
+                    .id(format!("grid-asset-{index}"))
+                    .absolute()
+                    .left(px(left))
+                    .top(px(top))
+                    .w(px(GRID_ITEM_WIDTH))
+                    .h(px(GRID_ITEM_HEIGHT))
+                    .p_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if selected { rgb(0xd4d7de) } else { rgb(0x343840) })
+                    .bg(if selected { rgb(0x343840) } else { rgb(0x202329) })
+                    .cursor_pointer()
+                    .flex()
+                    .flex_col()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0xe6e8ec))
+                            .overflow_hidden()
+                            .child(filename),
+                    )
+                    .child(div().text_xs().text_color(rgb(0x8d929c)).child(detail))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.state.select_asset(&asset_id);
+                        cx.notify();
+                    })),
+            );
+        }
+
+        div()
+            .id("authoritative-grid")
+            .w(px(GRID_VIEW_WIDTH))
+            .h(px(GRID_VIEW_HEIGHT))
+            .overflow_hidden()
+            .on_scroll_wheel(cx.listener(Self::handle_grid_scroll))
             .child(canvas)
     }
 }
@@ -210,10 +315,6 @@ impl Render for DesktopShell {
             .and_then(|name| name.to_str())
             .unwrap_or("No asset selected")
             .to_string();
-        let selected_path = selected
-            .as_ref()
-            .map(|asset| asset.effective_path.display().to_string())
-            .unwrap_or_else(|| "Select an asset from the Filmstrip".to_string());
 
         div()
             .flex()
@@ -232,12 +333,7 @@ impl Render for DesktopShell {
                     .border_color(rgb(0x2b2e34))
                     .bg(rgb(0x191b1f))
                     .child("Dextryx Images")
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0x8d929c))
-                            .child(format!("M3 • {section}")),
-                    ),
+                    .child(div().text_sm().text_color(rgb(0x8d929c)).child(format!("M3 • {section}"))),
             )
             .child(
                 div()
@@ -253,49 +349,13 @@ impl Render for DesktopShell {
                             .border_r_1()
                             .border_color(rgb(0x2b2e34))
                             .bg(rgb(0x17191d))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0x8d929c))
-                                    .child("WORKSPACE"),
-                            )
-                            .child(Self::command_button(
-                                "workspace-library",
-                                "Library",
-                                AppCommand::ShowLibrary,
-                                cx,
-                            ))
-                            .child(Self::command_button(
-                                "workspace-develop",
-                                "Develop",
-                                AppCommand::ShowDevelop,
-                                cx,
-                            ))
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .text_xs()
-                                    .text_color(rgb(0x8d929c))
-                                    .child("CATALOG"),
-                            )
-                            .child(Self::command_button(
-                                "catalog-all",
-                                "All photos",
-                                AppCommand::ShowAllPhotos,
-                                cx,
-                            ))
-                            .child(Self::command_button(
-                                "catalog-missing",
-                                "Missing",
-                                AppCommand::ShowMissing,
-                                cx,
-                            ))
-                            .child(Self::command_button(
-                                "catalog-recent",
-                                "Recent imports",
-                                AppCommand::ShowRecentImports,
-                                cx,
-                            ))
+                            .child(div().text_xs().text_color(rgb(0x8d929c)).child("WORKSPACE"))
+                            .child(Self::command_button("workspace-library", "Library", AppCommand::ShowLibrary, cx))
+                            .child(Self::command_button("workspace-develop", "Develop", AppCommand::ShowDevelop, cx))
+                            .child(div().mt_3().text_xs().text_color(rgb(0x8d929c)).child("CATALOG"))
+                            .child(Self::command_button("catalog-all", "All photos", AppCommand::ShowAllPhotos, cx))
+                            .child(Self::command_button("catalog-missing", "Missing", AppCommand::ShowMissing, cx))
+                            .child(Self::command_button("catalog-recent", "Recent imports", AppCommand::ShowRecentImports, cx))
                             .child(Self::refresh_button(cx)),
                     )
                     .child(
@@ -314,18 +374,8 @@ impl Render for DesktopShell {
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x15171a))
                                     .child(Self::import_button(cx))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(rgb(0x8d929c))
-                                            .child(format!("Catalog: {query}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(rgb(0x686d76))
-                                            .child(format!("Selected for import: {import_count}")),
-                                    ),
+                                    .child(div().text_sm().text_color(rgb(0x8d929c)).child(format!("Catalog: {query}")))
+                                    .child(div().text_sm().text_color(rgb(0x686d76)).child(format!("Selected for import: {import_count}"))),
                             )
                             .child(
                                 div()
@@ -338,36 +388,25 @@ impl Render for DesktopShell {
                                         div()
                                             .w(px(820.0))
                                             .h(px(420.0))
-                                            .p_6()
+                                            .p_3()
                                             .rounded_lg()
                                             .border_1()
                                             .border_color(rgb(0x343840))
-                                            .bg(rgb(0x202329))
+                                            .bg(rgb(0x17191d))
                                             .flex()
                                             .flex_col()
-                                            .gap_3()
-                                            .child(div().text_lg().child(selected_title))
+                                            .gap_2()
                                             .child(
                                                 div()
-                                                    .text_sm()
-                                                    .text_color(rgb(0x8d929c))
-                                                    .child(format!(
-                                                        "{workplace} • {asset_count} authoritative asset(s)"
-                                                    )),
+                                                    .h(px(32.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_between()
+                                                    .child(div().text_sm().child(selected_title))
+                                                    .child(div().text_xs().text_color(rgb(0x8d929c)).child(format!("{workplace} • {asset_count} asset(s)"))),
                                             )
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(rgb(0xb8bcc6))
-                                                    .child(selected_path),
-                                            )
-                                            .child(
-                                                div()
-                                                    .mt_3()
-                                                    .text_sm()
-                                                    .text_color(rgb(0xb8bcc6))
-                                                    .child(status),
-                                            ),
+                                            .child(self.grid(cx))
+                                            .child(div().text_xs().text_color(rgb(0x686d76)).child(status)),
                                     ),
                             )
                             .child(
@@ -390,15 +429,7 @@ impl Render for DesktopShell {
                                             .child("Authoritative Filmstrip — scroll / trackpad")
                                             .child(format!("{asset_count} asset(s)")),
                                     )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .px_3()
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .child(self.filmstrip(cx)),
-                                    ),
+                                    .child(div().flex_1().px_3().flex().items_center().justify_center().child(self.filmstrip(cx))),
                             ),
                     ),
             )
@@ -417,10 +448,13 @@ fn main() {
                 cx.new(|_cx| {
                     let mut state = DesktopAppState::default();
                     state.refresh_catalog();
-                    DesktopShell {
+                    let mut shell = DesktopShell {
                         state,
                         file_dialog: RfdFileDialogAdapter,
-                    }
+                        grid_viewport: GridViewport::default(),
+                    };
+                    shell.sync_grid_to_selection();
+                    shell
                 })
             },
         )
