@@ -81,12 +81,7 @@ impl DesktopShell {
             .h(px(height))
             .rounded_md()
             .object_fit(ObjectFit::Cover)
-            .with_loading(|| {
-                div()
-                    .size_full()
-                    .bg(rgb(0x111318))
-                    .into_any_element()
-            })
+            .with_loading(|| div().size_full().bg(rgb(0x111318)).into_any_element())
             .with_fallback(|| {
                 div()
                     .size_full()
@@ -540,8 +535,8 @@ impl Render for DesktopShell {
                                                             .text_xs()
                                                             .text_color(rgb(0x8d929c))
                                                             .child(format!(
-                                                                "{workplace} • {asset_count} asset(s)"
-                                                            )),
+                                                            "{workplace} • {asset_count} asset(s)"
+                                                        )),
                                                     ),
                                             )
                                             .child(self.grid(cx))
