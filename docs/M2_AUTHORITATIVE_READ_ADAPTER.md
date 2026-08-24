@@ -10,18 +10,22 @@ Canonical read path:
 GPUI presentation
   -> dextryx_frontend_api::CatalogReadApplication
   -> dextryx_core::CatalogReadRepository
-  -> authoritative durable-source adapter
+  -> ProjectionCatalogReadAdapter
+  -> projection supplied by the current durable-source boundary
 ```
 
-## First slice implemented
+## Implemented slices
 
 - split `CatalogReadRepository` from mutation-capable `CatalogRepository`;
 - make `CatalogRepository` extend the read contract rather than mixing reads and writes in one trait;
 - add `CatalogReadApplication<R>` to the frontend-neutral API;
+- add `AuthoritativeCatalogProjection` as a typed in-memory hand-off model;
+- add read-only `ProjectionCatalogReadAdapter` implementing `CatalogReadRepository`;
+- support projection replacement for explicit refresh without adding persistence semantics;
 - retain stable `WorkplaceDto`, `AssetSummaryDto`, linked/managed semantics, missing state, import sequence, and `AssetQuery` filtering;
-- add a contract test proving the read application can query Workplaces/assets using only the read boundary.
+- add contract tests for read-only queries, identity preservation, and managed effective-path behavior.
 
-This is intentionally a type-system boundary first. Production GPUI must not be wired to the synthetic repository as persistence authority.
+`AuthoritativeCatalogProjection` is deliberately **not** a storage/file format. Production GPUI must not persist it or promote the synthetic repository as persistence authority.
 
 ## Durable-source adapter rule
 
@@ -32,16 +36,30 @@ Flutter/Hive remains the current durable persistence authority until the storage
 - duplicating mutation/import persistence semantics;
 - letting read code mutate active Workplace, relink assets, or remove catalog records.
 
-Any interchange representation used while Hive remains authoritative must be treated as a transient read projection, not a second persistence authority. The durable adapter must map existing Workplace/asset identities and linked/managed paths exactly.
+The existing Flutter domain serialization is the mapping reference:
+
+- Workplace identity: `Workplace.id`;
+- Workplace display name: `Workplace.name`;
+- active Workplace: `currentWorkplaceId` from the existing settings repository;
+- Asset identity: `AssetRecord.id`;
+- Workplace ownership: `AssetRecord.workplaceId`;
+- source path: `AssetRecord.sourcePath`;
+- managed path: `AssetRecord.managedPath`;
+- storage mode: `AssetRecord.storageMode` (`linked` / `managed`);
+- missing state: `AssetRecord.missing`;
+- effective path semantics: managed path when present, otherwise source path.
+
+Any interchange mechanism used while Hive remains authoritative is a transient read projection only. It must never become a second source of truth.
 
 ## Next slice
 
-1. define the authoritative read-source projection contract around the existing Flutter repository model;
-2. implement the current durable-source adapter behind `CatalogReadRepository`;
-3. wire production GPUI startup/refresh to `CatalogReadApplication`;
-4. expose real Workplace list + active Workplace + filtered asset reads;
-5. add parity fixtures against the existing Flutter repository serialization;
-6. keep every mutation path deferred to M4.
+1. implement the current durable-source projection provider from existing Flutter repositories;
+2. refresh the projection atomically when authoritative Workplace/catalog state changes;
+3. provide the projection to the production GPUI read boundary without exposing Hive to GPUI;
+4. wire production GPUI startup/refresh to `CatalogReadApplication`;
+5. expose real Workplace list + active Workplace + filtered asset reads;
+6. add parity fixtures against the existing Flutter repository serialization;
+7. keep every mutation path deferred to M4.
 
 ## Acceptance gates
 
