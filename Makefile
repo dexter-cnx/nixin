@@ -25,11 +25,13 @@ W4_VALIDATION_SCRIPT := tool/w4-desktop-validation.sh
 GPUI_S4_VALIDATION_SCRIPT := tool/gpui-s4-validation.sh
 CI_FORMAT_SCRIPT := tool/ci-format-check.sh
 CI_RUST_FORMAT_SCRIPT := tool/ci-rust-format-check.sh
+FORMAT_SCRIPT := tool/format-all.sh
+PRE_PUSH_SCRIPT := tool/pre-push.sh
 DEVICE ?=
 
 .PHONY: help doctor show-config configure-identifiers setup setup-common setup-android setup-apple bootstrap \
-	pub-get format-check analyze test-fast flutter-test rust-fetch rust-format-check rust-clippy rust-check rust-test rust-build \
-	scripts-check ci-fast preflight test check validate \
+	pub-get format format-check analyze test-fast flutter-test rust-fetch rust-format-check rust-clippy rust-check rust-test rust-build \
+	scripts-check ci-fast preflight pre-push test check validate \
 	w4-validation-preflight w4-validation-automated gpui-s4-check gpui-s4-macos-bundle \
 	android-arm64 android-native macos-native ios-native apple-native \
 	run run-android run-macos run-ios ios-build-nosign \
@@ -91,6 +93,9 @@ setup-apple: ## Configure signing and install/check macOS+iOS Rust/Xcode tools
 pub-get: ## Run flutter pub get
 	$(FLUTTER) pub get
 
+format: ## Format Dart plus all Rust workspaces before local validation/push
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(FORMAT_SCRIPT)
+
 format-check: ## Check formatting of Dart files changed from the local main baseline
 	@bash $(CI_FORMAT_SCRIPT)
 
@@ -106,7 +111,7 @@ flutter-test: ## Run all standard Flutter tests
 rust-fetch: ## Download Rust dependencies without building
 	cd $(RUST_DIR) && $(CARGO) fetch
 
-rust-format-check: ## Check formatting of changed Rust source files
+rust-format-check: ## Check formatting of changed Rust source files across engine/shared/GPUI workspaces
 	@bash $(CI_RUST_FORMAT_SCRIPT)
 
 rust-clippy: ## Run strict Clippy while allowing only documented legacy FFI/dead-code baseline lints
@@ -128,14 +133,16 @@ ci-fast: pub-get scripts-check format-check analyze test-fast rust-format-check 
 	@echo
 	@echo "Fast CI preflight PASS"
 
-preflight: ci-fast ## Recommended command before pushing
+preflight: format ci-fast ## Format first, then run the recommended local pre-push checks
 
+pre-push: ## Format first; stop if formatting changed files; then run Fast CI
+	@FLUTTER_CMD="$(FLUTTER)" CARGO_CMD="$(CARGO)" bash $(PRE_PUSH_SCRIPT)
 
 test: rust-test flutter-test ## Run all Rust and Flutter tests
 
 check: rust-format-check rust-clippy rust-check analyze ## Run Rust + Flutter static checks
 
-validate: pub-get scripts-check format-check rust-format-check rust-clippy rust-check rust-test analyze flutter-test ## Full local validation gate
+validate: format pub-get scripts-check format-check rust-format-check rust-clippy rust-check rust-test analyze flutter-test ## Format first, then run full local validation gate
 	@echo
 	@echo "Nixin validation PASS"
 
