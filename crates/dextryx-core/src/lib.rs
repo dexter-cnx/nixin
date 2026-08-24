@@ -329,6 +329,9 @@ mod tests {
         let assets = adapter.assets("workplace-1").unwrap();
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].id, "asset-1");
-        assert_eq!(assets[0].effective_path(), Path::new("/managed/original.nef"));
+        assert_eq!(
+            assets[0].effective_path(),
+            Path::new("/managed/original.nef")
+        );
     }
 }
