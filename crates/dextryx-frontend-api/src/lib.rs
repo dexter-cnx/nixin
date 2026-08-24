@@ -187,10 +187,6 @@ where
     ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
         map_assets(self.repository.assets(workplace_id)?, query)
     }
-
-    pub fn into_repository(self) -> R {
-        self.repository
-    }
 }
 
 pub struct CatalogApplication<R> {
