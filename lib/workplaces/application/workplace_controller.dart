@@ -8,6 +8,7 @@ import '../data/hive/hive_workplace_repository.dart';
 import '../domain/repositories/asset_repository.dart';
 import '../domain/repositories/workplace_repository.dart';
 import '../domain/workplace.dart';
+import 'catalog_read_projection_writer.dart';
 
 class WorkplaceState {
   const WorkplaceState({
@@ -61,11 +62,20 @@ final assetRepositoryProvider = Provider<AssetRepository>((ref) {
   return HiveAssetRepository(ref.watch(assetsStoreProvider));
 });
 
+final catalogReadProjectionWriterProvider = Provider<CatalogReadProjectionWriter>((ref) {
+  return CatalogReadProjectionWriter(
+    workplaceRepository: ref.watch(workplaceRepositoryProvider),
+    assetRepository: ref.watch(assetRepositoryProvider),
+  );
+});
+
 final workplaceControllerProvider =
     StateNotifierProvider<WorkplaceController, WorkplaceState>((ref) {
+  final projectionWriter = ref.watch(catalogReadProjectionWriterProvider);
   return WorkplaceController(
     workplaceRepository: ref.watch(workplaceRepositoryProvider),
     assetRepository: ref.watch(assetRepositoryProvider),
+    refreshReadProjection: projectionWriter.refresh,
   );
 });
 
@@ -75,11 +85,13 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
     required AssetRepository assetRepository,
     DateTime Function()? now,
     String Function()? createId,
+    Future<void> Function()? refreshReadProjection,
     bool initializeImmediately = true,
   })  : _workplaceRepository = workplaceRepository,
         _assetRepository = assetRepository,
         _now = now ?? DateTime.now,
         _createId = createId ?? _defaultId,
+        _refreshReadProjection = refreshReadProjection,
         super(const WorkplaceState()) {
     if (initializeImmediately) unawaited(initialize());
   }
@@ -90,9 +102,15 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
   final AssetRepository _assetRepository;
   final DateTime Function() _now;
   final String Function() _createId;
+  final Future<void> Function()? _refreshReadProjection;
 
   static String _defaultId() =>
       'workplace-${DateTime.now().microsecondsSinceEpoch}';
+
+  Future<void> _refreshProjection() async {
+    final refresh = _refreshReadProjection;
+    if (refresh != null) await refresh();
+  }
 
   Future<void> initialize() async {
     try {
@@ -121,6 +139,7 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
         currentWorkplaceId: currentId,
         loading: false,
       );
+      await _refreshProjection();
     } catch (error) {
       state = state.copyWith(
         loading: false,
@@ -141,6 +160,7 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
     await _workplaceRepository.save(workplace);
     final workplaces = [...state.workplaces, workplace];
     state = state.copyWith(workplaces: workplaces, clearError: true);
+    await _refreshProjection();
     return workplace;
   }
 
@@ -150,6 +170,7 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
     }
     await _workplaceRepository.setCurrentWorkplaceId(id);
     state = state.copyWith(currentWorkplaceId: id, clearError: true);
+    await _refreshProjection();
   }
 
   Future<void> renameWorkplace(String id, String name) async {
@@ -165,6 +186,7 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
     await _workplaceRepository.save(updated);
     final workplaces = [...state.workplaces]..[index] = updated;
     state = state.copyWith(workplaces: workplaces, clearError: true);
+    await _refreshProjection();
   }
 
   Future<void> deleteWorkplace(String id) async {
@@ -193,6 +215,7 @@ class WorkplaceController extends StateNotifier<WorkplaceState> {
       currentWorkplaceId: currentId,
       clearError: true,
     );
+    await _refreshProjection();
   }
 
   String _normalizeName(String value) {
