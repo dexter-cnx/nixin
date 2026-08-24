@@ -181,8 +181,10 @@ mod tests {
     #[test]
     fn cancelled_import_selection_does_not_create_application_work() {
         let dialog = FakeDialog::default();
-        let mut state = DesktopAppState::default();
-        state.selected_import_paths = vec![PathBuf::from("/tmp/stale.jpg")];
+        let mut state = DesktopAppState {
+            selected_import_paths: vec![PathBuf::from("/tmp/stale.jpg")],
+            ..Default::default()
+        };
 
         state.begin_import(&dialog);
 
