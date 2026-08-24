@@ -31,6 +31,8 @@ fn std_filesystem_implements_basic_port_contract() {
     fs::write(&source, b"dextryx").unwrap();
 
     assert!(fs_port.exists(&source));
+    assert!(fs_port.is_file(&source).unwrap());
+    assert!(!fs_port.is_file(&root).unwrap());
     assert_eq!(fs_port.metadata_len(&source).unwrap(), 7);
     assert_eq!(fs_port.copy(&source, &copied).unwrap(), 7);
     fs_port.rename(&copied, &renamed).unwrap();
