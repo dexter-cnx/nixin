@@ -118,7 +118,11 @@ impl DesktopShell {
             ScrollDelta::Pixels(pixels) => {
                 let x: f32 = pixels.x.into();
                 let y: f32 = pixels.y.into();
-                if x.abs() > y.abs() { x } else { y }
+                if x.abs() > y.abs() {
+                    x
+                } else {
+                    y
+                }
             }
             ScrollDelta::Lines(lines) => {
                 let raw = if lines.x.abs() > lines.y.abs() {
@@ -144,8 +148,7 @@ impl DesktopShell {
             ScrollDelta::Pixels(pixels) => f32::from(pixels.y),
             ScrollDelta::Lines(lines) => lines.y * 48.0,
         };
-        self.grid_viewport
-            .scroll_by(delta, self.state.assets.len());
+        self.grid_viewport.scroll_by(delta, self.state.assets.len());
         cx.notify();
     }
 
@@ -190,8 +193,16 @@ impl DesktopShell {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(if selected { rgb(0xd4d7de) } else { rgb(0x434750) })
-                    .bg(if selected { rgb(0x343840) } else { rgb(0x25282e) })
+                    .border_color(if selected {
+                        rgb(0xd4d7de)
+                    } else {
+                        rgb(0x434750)
+                    })
+                    .bg(if selected {
+                        rgb(0x343840)
+                    } else {
+                        rgb(0x25282e)
+                    })
                     .cursor_pointer()
                     .flex()
                     .flex_col()
@@ -230,7 +241,10 @@ impl DesktopShell {
             .collect::<Vec<_>>();
         let selected_id = self.state.selected_asset_id.clone();
         let scroll_y = self.grid_viewport.scroll_y;
-        let mut canvas = div().relative().w(px(GRID_VIEW_WIDTH)).h(px(GRID_VIEW_HEIGHT));
+        let mut canvas = div()
+            .relative()
+            .w(px(GRID_VIEW_WIDTH))
+            .h(px(GRID_VIEW_HEIGHT));
 
         for (index, asset) in visible {
             let row = index / GRID_COLUMNS;
@@ -265,8 +279,16 @@ impl DesktopShell {
                     .p_3()
                     .rounded_md()
                     .border_1()
-                    .border_color(if selected { rgb(0xd4d7de) } else { rgb(0x343840) })
-                    .bg(if selected { rgb(0x343840) } else { rgb(0x202329) })
+                    .border_color(if selected {
+                        rgb(0xd4d7de)
+                    } else {
+                        rgb(0x343840)
+                    })
+                    .bg(if selected {
+                        rgb(0x343840)
+                    } else {
+                        rgb(0x202329)
+                    })
                     .cursor_pointer()
                     .flex()
                     .flex_col()
@@ -333,7 +355,12 @@ impl Render for DesktopShell {
                     .border_color(rgb(0x2b2e34))
                     .bg(rgb(0x191b1f))
                     .child("Dextryx Images")
-                    .child(div().text_sm().text_color(rgb(0x8d929c)).child(format!("M3 • {section}"))),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x8d929c))
+                            .child(format!("M3 • {section}")),
+                    ),
             )
             .child(
                 div()
@@ -350,12 +377,43 @@ impl Render for DesktopShell {
                             .border_color(rgb(0x2b2e34))
                             .bg(rgb(0x17191d))
                             .child(div().text_xs().text_color(rgb(0x8d929c)).child("WORKSPACE"))
-                            .child(Self::command_button("workspace-library", "Library", AppCommand::ShowLibrary, cx))
-                            .child(Self::command_button("workspace-develop", "Develop", AppCommand::ShowDevelop, cx))
-                            .child(div().mt_3().text_xs().text_color(rgb(0x8d929c)).child("CATALOG"))
-                            .child(Self::command_button("catalog-all", "All photos", AppCommand::ShowAllPhotos, cx))
-                            .child(Self::command_button("catalog-missing", "Missing", AppCommand::ShowMissing, cx))
-                            .child(Self::command_button("catalog-recent", "Recent imports", AppCommand::ShowRecentImports, cx))
+                            .child(Self::command_button(
+                                "workspace-library",
+                                "Library",
+                                AppCommand::ShowLibrary,
+                                cx,
+                            ))
+                            .child(Self::command_button(
+                                "workspace-develop",
+                                "Develop",
+                                AppCommand::ShowDevelop,
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .text_xs()
+                                    .text_color(rgb(0x8d929c))
+                                    .child("CATALOG"),
+                            )
+                            .child(Self::command_button(
+                                "catalog-all",
+                                "All photos",
+                                AppCommand::ShowAllPhotos,
+                                cx,
+                            ))
+                            .child(Self::command_button(
+                                "catalog-missing",
+                                "Missing",
+                                AppCommand::ShowMissing,
+                                cx,
+                            ))
+                            .child(Self::command_button(
+                                "catalog-recent",
+                                "Recent imports",
+                                AppCommand::ShowRecentImports,
+                                cx,
+                            ))
                             .child(Self::refresh_button(cx)),
                     )
                     .child(
@@ -374,8 +432,18 @@ impl Render for DesktopShell {
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x15171a))
                                     .child(Self::import_button(cx))
-                                    .child(div().text_sm().text_color(rgb(0x8d929c)).child(format!("Catalog: {query}")))
-                                    .child(div().text_sm().text_color(rgb(0x686d76)).child(format!("Selected for import: {import_count}"))),
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0x8d929c))
+                                            .child(format!("Catalog: {query}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0x686d76))
+                                            .child(format!("Selected for import: {import_count}")),
+                                    ),
                             )
                             .child(
                                 div()
@@ -403,10 +471,22 @@ impl Render for DesktopShell {
                                                     .items_center()
                                                     .justify_between()
                                                     .child(div().text_sm().child(selected_title))
-                                                    .child(div().text_xs().text_color(rgb(0x8d929c)).child(format!("{workplace} • {asset_count} asset(s)"))),
+                                                    .child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(rgb(0x8d929c))
+                                                            .child(format!(
+                                                            "{workplace} • {asset_count} asset(s)"
+                                                        )),
+                                                    ),
                                             )
                                             .child(self.grid(cx))
-                                            .child(div().text_xs().text_color(rgb(0x686d76)).child(status)),
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(rgb(0x686d76))
+                                                    .child(status),
+                                            ),
                                     ),
                             )
                             .child(
@@ -429,7 +509,15 @@ impl Render for DesktopShell {
                                             .child("Authoritative Filmstrip — scroll / trackpad")
                                             .child(format!("{asset_count} asset(s)")),
                                     )
-                                    .child(div().flex_1().px_3().flex().items_center().justify_center().child(self.filmstrip(cx))),
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .px_3()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(self.filmstrip(cx)),
+                                    ),
                             ),
                     ),
             )
