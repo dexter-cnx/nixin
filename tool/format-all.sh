@@ -29,7 +29,8 @@ echo "== Rust format: GPUI desktop =="
 "$CARGO_CMD" fmt --manifest-path experiments/gpui-desktop/Cargo.toml
 
 # main.rs is included from src/entry.rs and is not discovered by cargo fmt.
-# Keep it explicitly formatted because CI checks changed Rust files directly.
+# Keep this explicit rustfmt guard aligned with ci-rust-format-check.sh so
+# pre-push formatting cannot diverge from the CI changed-file format gate.
 "$RUSTFMT_CMD" --edition 2021 experiments/gpui-desktop/src/main.rs
 
 echo
