@@ -19,7 +19,9 @@ Branch: `agent/gpui-desktop-spike`
 - Operation reporting can be consumed by a plain Rust closure today, by GPUI presentation adapters later, or mapped to a Dart Stream/Future bridge without changing the application contract.
 - Added `crates/dextryx-platform` with frontend-neutral `FileDialogPort`, `FileDialogRequest`, `FileSystemPort`, and `StdFileSystem`.
 - Added platform contract tests covering dialog request shape plus basic filesystem operations without GPUI or Flutter.
-- Added GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`; `rfd` remains an implementation detail of the GPUI frontend.
+- Added GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`; upstream `rfd` is now named `rfd-backend` in the GPUI package so it is clearly an implementation detail.
+- Added a GPUI compatibility facade and explicit `src/entry.rs` binary entrypoint. The existing spike `main.rs` still contains its legacy `use rfd::FileDialog` syntax, but at compile time that name now resolves to the local facade, which delegates through `FileDialogPort -> RfdFileDialogAdapter -> rfd-backend`.
+- Added `crates/Cargo.toml` as the shared frontend-neutral Rust workspace for `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
 
 ## Current dependency direction
 
@@ -32,7 +34,8 @@ GPUI production dependency
 
 GPUI-local adapters
         |
-        +--> rfd / GPUI / native desktop APIs
+        +--> FileDialogPort -> RfdFileDialogAdapter -> rfd-backend
+        +--> GPUI / native desktop APIs
 ```
 
 A future Flutter frontend should enter at `dextryx-frontend-api` through an FFI translation crate and provide its own platform/file-picker adapters rather than calling GPUI adapters.
@@ -76,14 +79,15 @@ shared application/core
 
 The dialog-selection mechanism and filesystem implementation are replaceable adapters. Catalog/import semantics must remain outside those adapters.
 
+The current spike uses a compatibility entrypoint rather than rewriting the large experimental `main.rs` only to replace one import. This is transitional spike infrastructure; the production GPUI shell should import the neutral port/adapter explicitly instead of carrying the compatibility alias forward.
+
 ## Still pending for M0
 
 - Regenerate and commit `experiments/gpui-desktop/Cargo.lock` after the new local path crates are resolved; only then restore strict `--locked` S4 commands.
-- Wire the current GPUI `open_image()` path through `RfdFileDialogAdapter` instead of its existing direct `rfd::FileDialog` call. The adapter exists, but this call site has not yet been migrated.
 - Apply the runtime-neutral operation contract to the first real long-running slice rather than leaving it as contract-only infrastructure. Import is the preferred first candidate because production semantics already include progress/cancellation/recovery.
 - Route real import/thumbnail filesystem work through `FileSystemPort` as those slices move into shared Rust; do not merely wrap every `std::fs` call without preserving domain ownership.
 - Replace synthetic GPUI catalog data with a read-only authoritative catalog adapter in the later persistence milestone; do not connect GPUI directly to Hive.
-- Decide production workspace layout once the experimental crates are promoted; do not force a workspace reshuffle merely to satisfy M0 naming.
+- Validate the new GPUI entrypoint/compatibility facade through CI and remove the compatibility alias when the production GPUI shell replaces the spike entrypoint.
 
 ## M0 completion rule
 
