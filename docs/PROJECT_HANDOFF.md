@@ -74,35 +74,66 @@ The first production-neutral Rust boundaries now exist on this branch:
 experiments/gpui-desktop
         |
         +--> crates/dextryx-frontend-api --> crates/dextryx-core
+        |           |
+        |           +--> crates/dextryx-platform
         |
         +--> crates/dextryx-platform
 ```
 
-`dextryx-core` owns the extracted catalog/domain contract and semantics. `dextryx-frontend-api` owns frontend-facing DTOs, queries, mapped errors, application commands/events, and the runtime-neutral long-operation contract. `dextryx-platform` owns neutral platform/filesystem ports and a `std` filesystem implementation.
+`dextryx-core` owns extracted catalog/domain rules. `dextryx-frontend-api` owns frontend DTOs, commands/events, runtime-neutral long-operation contracts, and the first shared Import execution slice. `dextryx-platform` owns neutral platform/filesystem ports and a `std` filesystem implementation.
 
-A shared Rust workspace now exists at `crates/Cargo.toml` and contains `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
+A shared Rust workspace exists at `crates/Cargo.toml` containing `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
 
-Long-running operation infrastructure now includes:
+Long-running operation infrastructure includes:
 
 - stable `OperationId`;
 - `OperationKind` for Import / Thumbnail / DevelopPreview;
 - Started / Progress / ItemCompleted / Failed / Cancelled / Completed events;
-- `OperationEventSink` that can be implemented by a plain Rust closure or frontend adapter;
-- cooperative `CancellationToken` implemented only with Rust `std` primitives.
+- `OperationEventSink` usable by plain Rust closures or frontend adapters;
+- cooperative `CancellationToken` implemented with Rust `std` primitives only.
 
-Platform infrastructure now includes:
+Platform infrastructure includes:
 
 - `FileDialogRequest`;
 - `FileDialogPort`;
-- `FileSystemPort`;
+- `FileSystemPort` including file-type validation;
 - `StdFileSystem`;
-- GPUI-local `RfdFileDialogAdapter` under `experiments/gpui-desktop/src/file_dialog.rs`;
-- `rfd-backend` as an explicitly frontend-local implementation dependency;
-- an explicit GPUI `src/entry.rs` compatibility entrypoint that routes the legacy spike `rfd::FileDialog` name through a local facade and then through `FileDialogPort -> RfdFileDialogAdapter -> rfd-backend`.
+- GPUI-local `RfdFileDialogAdapter`;
+- `rfd-backend` as a frontend-local dependency;
+- a transitional GPUI compatibility entrypoint routing legacy picker syntax through `FileDialogPort`.
 
-The compatibility facade is transitional spike infrastructure. The future production GPUI shell should import the neutral port/adapter explicitly rather than preserve the legacy alias.
+## First real long-running shared slice — Import execution
 
-This contract deliberately does not expose `gpui::Task`, Tokio handles, Dart Futures/Streams, FFI-specific types, or `rfd` from shared crates. Actual Import/Thumbnail/Develop implementations still need to adopt the operation contract, and real Import/thumbnail filesystem mutations still need to adopt `FileSystemPort` before the platform portion of M0 is complete.
+`dextryx-frontend-api` now contains `execute_import()` with framework-neutral request/result/port types:
+
+```text
+ImportExecutionRequest
+        |
+        v
+execute_import()
+  + FileSystemPort
+  + ImportCatalogPort
+  + CancellationToken
+  + OperationEventSink
+        |
+        +--> ImportExecutionSummary
+```
+
+The slice mirrors safety behavior already present in the production Flutter ImportController without duplicating persistence authority:
+
+- linked and managed storage modes;
+- duplicate source skip through `ImportCatalogPort`;
+- source-file validation;
+- managed-copy staging using a temporary `.part` path;
+- final rename only after copy succeeds;
+- rollback of a newly copied managed original when catalog save fails;
+- cooperative cancellation before mutation and at managed-copy safe points;
+- progress/item/completed/failed/cancelled operation events;
+- mixed-success summary and recoverable all-failed terminal status.
+
+Contract tests cover duplicate prevention, managed-copy rollback, and cancellation-before-mutation using `StdFileSystem`.
+
+The existing Flutter `ImportController` remains the production authority for batch persistence, retry/recovery, preferences, Hive repositories, and current UI state. Rust does **not** yet create a second durable import batch format.
 
 ## Frontend-neutral core guardrails
 
@@ -111,8 +142,8 @@ The following are hard architecture rules for production migration:
 - no `gpui::Entity`, `Context`, `Window`, `Task`, action, subscription, or render type in shared core/application/platform contract crates;
 - GPUI owns view/window/focus/shortcut/presentation state only;
 - catalog identity and linked/managed semantics remain core rules;
-- import duplicate prevention/recovery remains core behavior;
-- cache validity/invalidation policy remains core behavior;
+- import duplicate prevention/recovery remains shared application/domain behavior;
+- cache validity/invalidation policy remains shared behavior;
 - image-processing semantics remain Rust engine/core behavior;
 - long-running operations expose runtime-neutral progress/results/events;
 - platform access is expressed through neutral ports and frontend/platform adapters;
@@ -123,8 +154,6 @@ The following are hard architecture rules for production migration:
 - do not create a second durable catalog format.
 
 ## Production crate boundary target
-
-Exact names may evolve, but production migration should converge toward responsibilities equivalent to:
 
 ```text
 crates/
@@ -141,34 +170,33 @@ apps/
   flutter/               optional future Flutter frontend
 ```
 
+Exact names may evolve; dependency direction must not.
+
 ## Promotion rule from GPUI experiment
-
-Do not port by copying business logic into GPUI widgets.
-
-For each vertical slice:
 
 ```text
 1. identify domain/application behavior
 2. move/implement it in frontend-neutral Rust
 3. add framework-independent tests
-4. expose it through the stable frontend/application API
+4. expose it through stable frontend/application API
 5. integrate that API into GPUI presentation state
-6. add Flutter/FFI mapping only if a Flutter frontend needs it
+6. add Flutter/FFI mapping only if needed
 ```
+
+Do not port by copying business logic into GPUI widgets.
 
 ## M0 — architecture foundation acceptance gate
 
-Before the production GPUI foundation can be called complete:
-
-- [x] GPUI dependencies exist only in frontend/app crates for the new shared Rust boundaries.
-- [x] Shared core/application/platform contract crates compile independently of GPUI by construction.
+- [x] GPUI dependencies exist only in frontend/app crates for new shared Rust boundaries.
+- [x] Shared core/application/platform crates compile independently of GPUI by construction.
 - [x] Extracted domain models contain no GPUI types.
-- [ ] Catalog/storage/image-processing rules are fully represented/testable through the new shared architecture without launching GPUI. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
+- [ ] Catalog/storage/image-processing rules are fully represented/testable through the shared architecture. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
 - [x] Frontend-facing commands/DTOs/events are framework-neutral.
-- [ ] Real long-running core operations expose runtime-neutral results/progress. The contract and cancellation mechanism exist; production Import/Thumbnail/Develop still need adoption.
-- [ ] Platform-specific functionality is fully behind adapters. File-dialog selection is now routed through `FileDialogPort`; real Import/thumbnail filesystem mutation paths still need `FileSystemPort` adoption.
-- [x] A future Flutter/FFI frontend can target the same frontend/application API without depending on GPUI.
-- [x] CI includes a transitive dependency-policy guard preventing GPUI/Flutter/FFI dependencies from entering protected core/application/platform crates.
+- [x] At least one real long-running shared operation uses runtime-neutral progress/cancellation: Import execution now does.
+- [ ] Platform-specific functionality is fully behind adapters. File-dialog and the new Import execution filesystem path are behind ports; folder scanning/thumbnail and other promoted slices still need migration.
+- [x] A future Flutter/FFI frontend can target the same frontend/application API without GPUI.
+- [x] CI includes a transitive dependency-policy guard preventing frontend-framework dependencies from entering protected shared crates.
+- [ ] GPUI/shared Cargo lockfiles are regenerated and strict `--locked` CI is restored after the new local crates settle.
 
 ## Migration queue
 
@@ -177,42 +205,32 @@ CURRENT   M0 frontend-neutral Rust architecture foundation
 NEXT      M1 production GPUI bootstrap + command/state shell
 THEN      M2 read-only authoritative Workplace/catalog adapter
 THEN      M3 real Grid/Filmstrip catalog browsing
-THEN      M4 import/catalog mutations
+THEN      M4 import/catalog mutations + authoritative import persistence adapter
 THEN      M5 Develop controls around existing Rust engine
 THEN      M6 desktop export/settings/polish
 THEN      M7 retire Flutter desktop only after parity/validation gates
 OPTIONAL  future Flutter frontend through FFI using the same Rust core
 ```
 
-The migration remains incremental. Existing Flutter production paths should remain buildable until corresponding GPUI behavior has been validated and authoritative storage migration is explicitly approved.
+The migration remains incremental. Existing Flutter production paths stay buildable until corresponding GPUI behavior is validated and authoritative storage migration is explicitly approved.
 
 ## Persistence boundary
 
-Production Flutter currently owns durable Workplaces persistence through repositories/adapters and Hive. The GPUI experiment currently proves only the native repository boundary.
-
-Production storage migration is a separate architectural milestone.
+Production Flutter currently owns durable Workplaces/import persistence through repositories/adapters and Hive. Production storage migration remains a separate milestone.
 
 Requirements:
 
 - exactly one authoritative durable catalog format;
 - no GPUI-specific persistence semantics;
 - no direct GPUI-to-Hive coupling;
-- storage implementation must remain usable from the frontend-neutral Rust application layer;
-- future Rust-native Dxtr_Box integration is compatible with this direction but must be evaluated as a storage milestone rather than smuggled into the UI migration.
-
-## Product responsibility
-
-Dextryx Images owns Workplaces, catalog identity, import/storage organization, thumbnail/preview browsing, Grid/Filmstrip selection, missing/relink workflows, catalog metadata, large-library UX and future external-edit orchestration.
-
-PixelCraft / Dextryx Pixels remains processing authority for its own product roadmap. Do not duplicate that roadmap here.
+- storage implementation usable from frontend-neutral Rust application code;
+- future Rust-native Dxtr_Box integration is evaluated as a storage milestone, not smuggled into UI migration.
 
 ## W4 physical validation track
 
-W4 implementation/code gates are complete, but the real desktop D1-D8 evidence remains separate and must not be claimed as passed without physical validation.
+W4 implementation/code gates are complete, but real desktop D1-D8 evidence remains outstanding and must not be claimed as passed without physical validation.
 
 Reference: `docs/W4_DESKTOP_VALIDATION.md`.
-
-This track must not block defining the new frontend-neutral architecture, but any eventual removal of the Flutter desktop path must preserve or revalidate the same catalog/storage safety behavior.
 
 ## Regression gates
 
@@ -251,15 +269,13 @@ DONE      lock GPUI as preferred desktop frontend direction
 DONE      define mandatory frontend-neutral dependency contract
 DONE      extract catalog/domain semantics into dextryx-core
 DONE      establish dextryx-frontend-api application boundary
-DONE      route GPUI boundary tests through frontend-api -> core
-DONE      add transitive architecture dependency guard in CI
 DONE      define runtime-neutral operation/progress/cancellation contract
 DONE      introduce dextryx-platform ports + StdFileSystem + GPUI rfd adapter
 DONE      route current GPUI file-picker runtime path through FileDialogPort
 DONE      establish shared frontend-neutral Rust workspace
-CURRENT   apply operation contract to the first real long-running slice
-NEXT      route real Import/thumbnail filesystem mutation paths through FileSystemPort
-NEXT      regenerate GPUI Cargo.lock and restore strict --locked CI
-NEXT      build production GPUI app shell only on stable frontend/application API
+DONE      implement first real Import execution slice on neutral ports/contracts
+CURRENT   validate shared Import/core/platform crates in CI and fix compile/contract issues
+NEXT      regenerate Cargo.lock(s) and restore strict --locked CI
+NEXT      begin M1 production GPUI app shell on stable frontend/application API
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
