@@ -1,8 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use dextryx_frontend_api::{
-    read_catalog_projection, AssetQuery, AssetSummaryDto, WorkplaceDto,
-};
+use dextryx_frontend_api::{read_catalog_projection, AssetQuery, AssetSummaryDto, WorkplaceDto};
 use dextryx_platform::{FileDialogPort, FileDialogRequest};
 
 const IMAGE_EXTENSIONS: &[&str] = &[
@@ -10,6 +8,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 ];
 const PROJECTION_FILENAME: &str = "catalog-read-projection-v1.tsv";
 const APPLICATION_SUPPORT_FOLDER: &str = "com.cnxdev.dextryx.images";
+const PROJECTION_PATH_ENV: &str = "DEXTRYX_CATALOG_PROJECTION_PATH";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceSection {
@@ -182,13 +181,37 @@ impl DesktopAppState {
 }
 
 fn default_projection_path() -> PathBuf {
+    if let Some(path) = std::env::var_os(PROJECTION_PATH_ENV) {
+        return PathBuf::from(path);
+    }
+
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    home.join("Library")
-        .join("Application Support")
+    projection_path_for_home(&home, cfg!(target_os = "macos"))
+}
+
+fn projection_path_for_home(home: &Path, use_flutter_sandbox: bool) -> PathBuf {
+    let support_path = |root: &Path| {
+        root.join("Library")
+            .join("Application Support")
+            .join(APPLICATION_SUPPORT_FOLDER)
+            .join(PROJECTION_FILENAME)
+    };
+
+    if !use_flutter_sandbox {
+        return support_path(home);
+    }
+
+    let container_suffix = PathBuf::from("Library")
+        .join("Containers")
         .join(APPLICATION_SUPPORT_FOLDER)
-        .join(PROJECTION_FILENAME)
+        .join("Data");
+    if home.ends_with(&container_suffix) {
+        return support_path(home);
+    }
+
+    support_path(&home.join(container_suffix))
 }
 
 #[cfg(test)]
@@ -295,5 +318,31 @@ mod tests {
         assert!(state.status.contains("1 asset(s)"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn macos_projection_path_targets_flutter_app_container() {
+        let path = projection_path_for_home(Path::new("/Users/dexter"), true);
+        assert_eq!(
+            path,
+            PathBuf::from(
+                "/Users/dexter/Library/Containers/com.cnxdev.dextryx.images/Data/Library/Application Support/com.cnxdev.dextryx.images/catalog-read-projection-v1.tsv"
+            )
+        );
+    }
+
+    #[test]
+    fn sandboxed_home_does_not_duplicate_flutter_container_path() {
+        let home = Path::new(
+            "/Users/dexter/Library/Containers/com.cnxdev.dextryx.images/Data",
+        );
+        let path = projection_path_for_home(home, true);
+        assert_eq!(
+            path,
+            home.join("Library")
+                .join("Application Support")
+                .join(APPLICATION_SUPPORT_FOLDER)
+                .join(PROJECTION_FILENAME)
+        );
     }
 }
