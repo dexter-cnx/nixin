@@ -1,6 +1,6 @@
 # M0 — Frontend-Neutral API Foundation
 
-Status: IN PROGRESS
+Status: VALIDATION GATE
 Branch: `agent/gpui-desktop-spike`
 
 ## Completed
@@ -11,13 +11,16 @@ Branch: `agent/gpui-desktop-spike`
 - Added frontend DTOs, queries, mapped errors, catalog commands/events, runtime-neutral operation events and cooperative cancellation.
 - Added `crates/dextryx-platform` with `FileDialogPort`, `FileDialogRequest`, `FileSystemPort`, and `StdFileSystem`.
 - Added GPUI-local `RfdFileDialogAdapter`; upstream `rfd` is a GPUI implementation detail only.
-- Added shared Rust workspace `crates/Cargo.toml`.
+- Added shared Rust workspace `crates/Cargo.toml` and committed `crates/Cargo.lock`.
 - Added `cargo metadata` dependency guard protecting `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform` from GPUI/Flutter/FFI dependencies.
 - Added framework-independent tests for core, frontend API, platform ports, operation events, and cancellation.
 - Added the first real long-running shared Rust slice: `execute_import()` in `dextryx-frontend-api`.
 - `execute_import()` consumes `FileSystemPort`, `ImportCatalogPort`, `CancellationToken`, and `OperationEventSink` rather than GPUI/Dart APIs.
-- Import execution currently covers linked/managed mode, duplicate skip, source-file validation, managed copy, temporary `.part` staging, rollback on catalog-save failure, progress events, failure summary, and cooperative cancellation cleanup.
-- Added import regression tests for duplicate prevention, managed-copy rollback, and cancellation-before-mutation.
+- Import execution covers linked/managed mode, duplicate skip, source-file validation, managed-copy staging, collision refusal, rollback on catalog-save failure, partial-copy cleanup, managed-root availability checks, progress events, failure summary, and cooperative cancellation cleanup.
+- Duplicate catalog lookup failures stop that item before filesystem/catalog mutation.
+- Added regression tests for duplicate prevention, catalog lookup failure, missing managed root, managed destination collision, partial-copy cleanup, managed-copy rollback, and cancellation-before-mutation.
+- Rust 1.98 format/clippy gates and the full repository CI currently pass on PR #21 before the final locked-S4 validation change.
+- `experiments/gpui-desktop/Cargo.lock` is committed and strict `--locked` commands are restored in GPUI S4 compatibility validation.
 
 ## Current dependency direction
 
@@ -61,10 +64,14 @@ execute_import()
         +--> ImportExecutionSummary
 ```
 
-This preserves the production safety rules already present in Dart:
+Safety rules now enforced by the shared slice:
 
 - duplicate sources are skipped rather than cataloged twice;
+- catalog lookup errors fail the item instead of being interpreted as "not duplicate";
+- a configured managed root must already exist and is never silently recreated;
+- existing managed destinations are never overwritten;
 - managed originals are staged before final placement;
+- failed or partial managed copies remove the `.part` artifact;
 - a newly copied managed original is deleted when catalog persistence fails;
 - cancellation does not intentionally leave a newly copied managed artifact behind;
 - mixed success/failure can complete with a summary, while an all-failed import emits terminal failure.
@@ -104,15 +111,29 @@ shared application/core
 
 The current spike still uses a compatibility facade around its large legacy `main.rs`; the production GPUI shell should use the neutral adapter explicitly.
 
-## Still pending for M0
+## M0 acceptance gate
 
-- Regenerate and commit `experiments/gpui-desktop/Cargo.lock`; then restore strict `--locked` S4 commands.
-- Validate the new shared import slice in CI on supported desktop runners.
-- Add a concrete adapter from the future authoritative Rust catalog/storage implementation to `ImportCatalogPort`; do not connect GPUI directly to Hive.
-- Extend filesystem migration to folder scanning/thumbnail work as those slices are promoted.
-- Decide whether import batch/retry persistence belongs in a future `dextryx-storage` crate or another neutral persistence crate during M2/M4; do not create a second durable format.
-- Remove the transitional GPUI file-dialog compatibility alias when the production GPUI shell replaces the spike entrypoint.
+M0 is scoped to proving the frontend-neutral architecture foundation, not completing the later storage/thumbnail/image-engine migrations.
 
-## M0 completion rule
+- [x] Shared catalog/domain behavior is independently testable without GPUI.
+- [x] Frontend-facing commands/DTOs/events are framework-neutral.
+- [x] Platform access used by the promoted file-dialog/import slice is behind replaceable ports/adapters.
+- [x] At least one real long-running operation uses runtime-neutral progress/cancellation.
+- [x] The same application API can serve GPUI and a future Flutter/FFI frontend without redesigning the core.
+- [x] CI enforces the transitive dependency boundary for protected shared crates.
+- [x] Shared and GPUI Cargo lockfiles are committed.
+- [ ] Strict `--locked` S4 Windows/Linux validation passes after restoration of the lock gate.
 
-M0 is complete only when shared catalog/application behavior is independently testable, protected from frontend-framework dependencies, platform access is behind replaceable ports, at least one real long-running operation uses the neutral operation contract, and the same API can serve GPUI plus a future Flutter/FFI frontend without redesigning the core.
+Once the final locked S4 validation is green, M0 is complete and M1 can begin.
+
+## Deferred migration work — not M0 blockers
+
+- Add a concrete adapter from the future authoritative Rust catalog/storage implementation to `ImportCatalogPort`; do not connect GPUI directly to Hive. Target: M2/M4.
+- Extend filesystem/platform migration to folder scanning and thumbnail work when those slices are promoted. Target: M3/M4.
+- Decide placement of authoritative import batch/retry persistence in a future neutral storage crate. Target: M2/M4.
+- Remove the transitional GPUI file-dialog compatibility alias when the production GPUI shell replaces the spike entrypoint. Target: M1.
+- Extract additional image-processing/storage/thumbnail crates only as their production slices are promoted; they are not required to prove M0 architecture viability.
+
+## M1 entry condition
+
+Begin the production GPUI application shell only after the strict locked S4 gate is green. M1 should consume the stable frontend/application API and neutral platform ports rather than copying business logic from the experiment.
