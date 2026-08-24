@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: gpui-production-${{ github.ref }}
@@ -40,8 +40,6 @@ jobs:
         working-directory: apps/desktop-gpui
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feature/m1-gpui-production-shell
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -52,25 +50,11 @@ jobs:
             crates/dextryx-core -> target
             crates/dextryx-frontend-api -> target
             crates/dextryx-platform -> target
-      - name: Generate lockfile
-        run: cargo generate-lockfile
-      - name: Commit generated lockfile
-        working-directory: .
-        shell: bash
-        run: |
-          if git diff --quiet -- apps/desktop-gpui/Cargo.lock && git ls-files --error-unmatch apps/desktop-gpui/Cargo.lock >/dev/null 2>&1; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f apps/desktop-gpui/Cargo.lock
-          git commit -m "chore: pin GPUI production dependencies"
-          git push origin HEAD:feature/m1-gpui-production-shell
       - name: Format
         run: cargo fmt -- --check
       - name: Unit tests
-        run: cargo test
+        run: cargo test --locked
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Debug build
-        run: cargo build
+        run: cargo build --locked
