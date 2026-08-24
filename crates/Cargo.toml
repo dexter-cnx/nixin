@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "dextryx-core",
+    "dextryx-frontend-api",
+    "dextryx-platform",
+]
+resolver = "2"

@@ -1,6 +1,6 @@
 # Dextryx Images
 
-**Dextryx Images** (`Dxtr Imgs`) is a Flutter + Rust desktop-first photo catalog and image workflow application.
+**Dextryx Images** (`Dxtr Imgs`) is a desktop-first photo catalog and image workflow application built around a shared Rust core.
 
 Repository: `dexter-cnx/nixin`
 
@@ -12,40 +12,21 @@ com.cnxdev.dextryx.images
 
 ## Current direction
 
-The active product phase is **Workplaces and asset/catalog management**. Existing Studio/preview processing remains a compatibility layer while catalog/import becomes the application authority.
+The preferred desktop direction is now **Rust + GPUI**, validated through the native desktop spike. Flutter remains an existing frontend and a supported future frontend option, but product/domain logic must not become coupled to GPUI.
 
-Roadmap:
+The architectural target is:
 
 ```text
-DONE     W1 Workplace Core foundation
-CURRENT  W2 Import System + live Workplace wiring
-NEXT     W3 Workplace Browser + Filmstrip
-THEN     W4 Desktop Catalog Hardening
-FUTURE   PixelCraft external-editor contract
+Rust core
+  ├─ GPUI desktop frontend
+  ├─ optional Flutter frontend through FFI
+  ├─ CLI / tests / automation
+  └─ one authoritative storage/catalog implementation
 ```
 
-## Current W2 branch
+The current GPUI experiment lives on `agent/gpui-desktop-spike`. GPUI is treated as presentation/application-shell technology, not as the owner of catalog, storage, import, thumbnail, metadata, or image-processing semantics.
 
-`feature/workplaces-import` wires the W1 Workplace foundation into the live Studio UI and introduces the first durable import pipeline.
-
-Implemented in the branch:
-
-- real live consumption of `workplaceControllerProvider`
-- automatic `My workplace` initialization when the Studio UI mounts on a fresh catalog
-- Workplace switch/create/rename/delete controls
-- primary multi-select Import
-- folder import with recursive discovery by default
-- current-folder-only folder import option
-- supported RAW/raster filtering
-- persisted `ImportBatch`
-- import progress/cancellation state
-- baseline duplicate prevention by normalized source path within the active Workplace
-- linked/add mode
-- desktop managed/copy mode
-- remembered storage mode and managed destination
-- safe per-file failure accounting
-- imported asset persistence to the active Workplace
-- latest imported asset handed to the existing Studio preview/Develop path
+See `docs/FRONTEND_NEUTRAL_CORE.md` for the mandatory dependency rules and migration gate.
 
 ## Product responsibility
 
@@ -65,42 +46,63 @@ large-library UX
 external-edit orchestration
 ```
 
-PixelCraft / Dextryx Pixels owns editing/image-processing semantics. Do not copy PixelCraft UX or processing milestones into this repository.
+PixelCraft / Dextryx Pixels remains processing authority for its product roadmap. Do not duplicate that roadmap here.
 
 ## Architecture
 
-```text
-Flutter UI
-  ├─ Workplaces / Import
-  │    ├─ WorkplaceController
-  │    ├─ ImportController
-  │    ├─ WorkplaceRepository
-  │    ├─ AssetRepository
-  │    ├─ ImportRepository
-  │    └─ Hive persistence
-  │
-  └─ Studio compatibility
-       ├─ StudioController
-       ├─ StudioEngine
-       └─ RawEngine / Dart FFI
-                ↓
-             Rust core
-```
-
-Hive boxes:
+Target dependency direction:
 
 ```text
-studio_settings
-workplaces
-assets
-import_batches
+GPUI desktop ──────────────┐
+                          │
+Flutter -> FFI ───────────┼──> frontend/application API ──> Rust core
+                          │                               ├─ Workplaces/catalog
+CLI/tests ────────────────┘                               ├─ import orchestration
+                                                          ├─ storage contracts
+                                                          ├─ thumbnail/cache policy
+                                                          ├─ metadata
+                                                          └─ image engine
 ```
+
+Core dependencies must never point back to GPUI, Flutter, Dart, or FFI bindings.
+
+Current production Flutter persistence still exists through its Workplaces repositories/Hive adapters. Production persistence migration is intentionally deferred until one authoritative Rust-side storage/catalog architecture is selected.
+
+## GPUI desktop spike status
+
+The spike has demonstrated on macOS:
+
+- native GPUI window/rendering;
+- direct Rust-to-Rust image-engine use;
+- image viewport interaction;
+- 5,000-asset Filmstrip-style virtualization with bounded thumbnail work;
+- framework-neutral catalog repository semantics;
+- linked/managed path behavior, relink and catalog-only removal contracts.
+
+The spike must not connect directly to Hive or create a second durable catalog format.
+
+## Frontend-neutral core rule
+
+Any functionality promoted from the experiment must follow this order:
+
+```text
+1. identify domain/application behavior
+2. place it in frontend-neutral Rust
+3. add framework-independent tests
+4. expose it through a stable application/frontend API
+5. integrate that API into GPUI presentation state
+6. add Flutter/FFI mapping only if a Flutter frontend needs it
+```
+
+GPUI-specific types such as `gpui::Entity`, `Context`, `Window`, `Task`, actions and render elements are forbidden in shared core crates.
+
+A future Flutter bridge should translate neutral Rust commands/DTOs/events into Dart Futures/Streams without redesigning the Rust core around Dart.
 
 ## Import storage modes
 
 **Linked / Add** catalogs the original where it already lives.
 
-**Managed / Copy** copies the original under a user-selected managed root using a stable asset-ID filename while keeping `sourcePath` and `managedPath` separate.
+**Managed / Copy** copies the original under a managed root while keeping source and managed paths distinct.
 
 Catalog removal and physical file deletion are separate concepts. Deleting a Workplace/catalog record must not silently delete original files.
 
@@ -116,7 +118,7 @@ ARW CR2 CR3 NEF DNG RAF ORF
 
 Common raster formats are also accepted by the current import/preview path.
 
-Real sensor decode, demosaic/debayer, linear RAW processing and camera color pipeline work remain explicitly deferred during W2–W4.
+Real sensor decode, demosaic/debayer, linear RAW processing and camera color pipeline work remain explicitly deferred while the desktop/core architecture is being stabilized.
 
 ## Existing processing compatibility
 
@@ -129,47 +131,34 @@ The current Rust/Studio path already provides:
 - `.cube` LUT application
 - JPEG export
 
-These are regression gates, not the current roadmap focus.
+These remain regression gates rather than the current migration focus.
 
 ## Setup
 
-Prerequisites:
+Existing Flutter/Rust production prerequisites remain unchanged. The GPUI experiment additionally requires a Rust toolchain and native desktop toolchain suitable for the pinned GPUI revision.
 
-- Flutter SDK
-- Rust toolchain (`cargo`, `rustc`, `rustup`)
-- Android SDK/NDK for Android native builds
-- Xcode + command line tools for macOS/iOS builds
-
-```bash
-make setup
-```
-
-## Validation
+Production validation:
 
 ```bash
 make validate
 ```
 
-Equivalent core commands:
+GPUI spike validation is documented in:
 
-```bash
-flutter pub get
-flutter analyze
-flutter test
-
-cd rust
-cargo check
-cargo test
+```text
+docs/GPUI_DESKTOP_SPIKE.md
+docs/GPUI_ARCHITECTURE_REVIEW.md
+docs/GPUI_S4_COMPATIBILITY.md
 ```
-
-For W2, manually verify multi-select import, recursive folder import, linked mode, managed mode, cancellation, Workplace persistence/CRUD, restart behavior, and existing RAW/raster preview + Develop/Mask/LUT/JPEG export.
 
 ## Documentation
 
 ```text
-docs/PROJECT_HANDOFF.md       canonical current status/queue
-docs/WORKPLACES_HANDOFF.md    detailed Workplaces/import design
-docs/CODE_WALKTHROUGH.md      current code orientation
-docs/DEXTRYX_IDENTITY.md      naming and identifiers
-docs/W2_IMPORT_IMPLEMENTATION.md branch implementation note
+docs/PROJECT_HANDOFF.md             canonical production status / queue
+docs/FRONTEND_NEUTRAL_CORE.md       mandatory Rust-core/frontend dependency contract
+docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI migration decision and evidence
+docs/GPUI_DESKTOP_SPIKE.md          desktop spike implementation / validation
+docs/GPUI_S4_COMPATIBILITY.md       packaging/platform compatibility gate
+docs/CODE_WALKTHROUGH.md            current production code ownership/data flow
+docs/DEXTRYX_IDENTITY.md            naming and identifiers
 ```

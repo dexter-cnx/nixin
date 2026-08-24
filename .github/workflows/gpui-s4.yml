@@ -1,0 +1,124 @@
+name: GPUI S4 Compatibility
+
+on:
+  push:
+    branches:
+      - agent/gpui-desktop-spike
+    paths:
+      - 'experiments/gpui-desktop/**'
+      - 'crates/dextryx-core/**'
+      - 'crates/dextryx-frontend-api/**'
+      - 'crates/dextryx-platform/**'
+      - 'rust/**'
+      - 'tool/gpui-s4-validation.sh'
+      - 'tool/check-rust-core-dependencies.py'
+      - '.github/workflows/gpui-s4.yml'
+      - 'docs/GPUI_S4_COMPATIBILITY.md'
+      - 'docs/FRONTEND_NEUTRAL_CORE.md'
+      - 'docs/M0_FRONTEND_API_FOUNDATION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpui-s4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows compile
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: experiments/gpui-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            experiments/gpui-desktop -> target
+            crates/dextryx-core -> target
+            crates/dextryx-frontend-api -> target
+            crates/dextryx-platform -> target
+            rust -> target
+      - name: Core dependency boundary
+        working-directory: .
+        run: python tool/check-rust-core-dependencies.py
+      - name: Shared core contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-core
+      - name: Frontend application API contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-frontend-api
+      - name: Platform contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-platform
+      - name: GPUI frontend boundary
+        run: cargo test --locked --test catalog_boundary
+      - name: Release compile
+        run: cargo build --locked --release
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'target/release/dextryx-gpui-spike.exe')) {
+            throw 'GPUI Windows release executable was not produced'
+          }
+
+  linux:
+    name: Linux compile (Wayland + X11)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: experiments/gpui-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            experiments/gpui-desktop -> target
+            crates/dextryx-core -> target
+            crates/dextryx-frontend-api -> target
+            crates/dextryx-platform -> target
+            rust -> target
+      - name: Core dependency boundary
+        working-directory: .
+        run: python3 tool/check-rust-core-dependencies.py
+      - name: Install GPUI Linux native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libfontconfig-dev \
+            libglib2.0-dev \
+            libssl-dev \
+            libva-dev \
+            libvulkan1 \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            pkg-config \
+            xdg-desktop-portal
+      - name: Shared core contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-core
+      - name: Frontend application API contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-frontend-api
+      - name: Platform contract
+        working-directory: crates
+        run: cargo test --locked -p dextryx-platform
+      - name: GPUI frontend boundary
+        run: cargo test --locked --test catalog_boundary
+      - name: Release compile with desktop backends
+        run: cargo build --locked --release --features gpui_platform/wayland,gpui_platform/x11
+      - name: Verify executable
+        run: test -x target/release/dextryx-gpui-spike

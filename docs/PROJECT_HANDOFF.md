@@ -9,182 +9,203 @@
 - Canonical application/bundle ID: `com.cnxdev.dextryx.images`
 - Repository remains `dexter-cnx/nixin`
 - Studio workspace UI-01 through UI-15: complete
-- **W1 Workplace Core: merged**
-- **W2 Import System + live Workplace wiring: merged**
-- **W3 Workplace Browser + Filmstrip: merged in PR #11**
-- **W4-A missing/relink/catalog-removal hardening: merged in PR #12**
-- **W4-B1 managed/import recovery: merged in PR #13**
-- **W4-B2 thumbnail/cache + large-catalog hardening: merged in PR #14**
-- W4-B2 merge commit on `main`: `f05a11590ad21320ebe02d2d7be55c990cea9fe0`
-- Current focused engineering branch: `agent/full-validation-pr-trigger`
-- Current engineering task: **CI feedback-time optimization with PR-based full validation; no runtime/product changes**
-- W4 desktop physical validation remains a separate product-validation blocker.
-- Detailed W4 guide: `docs/W4_DESKTOP_CATALOG_HARDENING.md`
-- Desktop validation checklist: `docs/W4_DESKTOP_VALIDATION.md`
-- CI architecture: `docs/CI_ARCHITECTURE.md`
-- Real RAW demosaic/debayer and other new image-processing work remain deferred.
+- W1 Workplace Core: complete
+- W2 Import System + live Workplace wiring: complete
+- W3 Workplace Browser + Filmstrip: complete
+- W4-A missing/relink/catalog-removal hardening: complete
+- W4-B1 managed/import recovery: complete
+- W4-B2 thumbnail/cache + large-catalog hardening: complete
+- W4 desktop physical/manual D1-D8 validation remains outstanding as a separate validation track.
+- New image-processing / real sensor RAW demosaic work remains deferred.
+- **M0 frontend-neutral Rust architecture foundation: COMPLETE.**
+- **M1 production GPUI bootstrap + command/state shell: CURRENT.**
 
-## Product responsibility
+## Current architectural direction
 
-Dextryx Images owns Workplaces, catalog identity, import/storage organization, thumbnail/preview browsing, Grid/Filmstrip selection, missing/relink workflows, catalog metadata, large-library UX and future external-edit orchestration.
+Proceed with **GPUI as the preferred native desktop frontend** while keeping the authoritative Rust core frontend-neutral.
 
-PixelCraft / Dextryx Pixels remains processing authority. Do not duplicate its processing roadmap here.
+GPUI is a presentation/application-shell technology. It must not own domain, catalog, storage, import, thumbnail/cache, metadata, or image-processing semantics.
 
-## Completed — W1 through W4-B2 code
+Flutter remains a viable future frontend through an FFI boundary. The same Rust core/application API must remain reusable from GPUI, Flutter, CLI/tests, and future consumers.
 
-W1 established Workplace/AssetRecord persistence and lifecycle.
-
-W2 added live Workplace wiring plus multi-file/folder Import, linked/managed storage, ImportBatch persistence, duplicate prevention, progress and cancellation.
-
-W3 added the persisted Workplace Grid, `AssetBrowserController`, one ordered asset list, one `selectedAssetId`, Grid ↔ Filmstrip synchronization, basic sorting and preview boundary.
-
-W4-A added asynchronous missing-file detection, disconnected-volume behavior, single-file/folder relink, managed-copy filename relink correctness, availability-scan race protection and catalog-only removal.
-
-W4-B1 added validated managed destinations, collision-safe/atomic managed copies, cleanup after copy/catalog failures, restart-safe ImportBatch restoration/retry, original-Workplace retry gating and preservation of user-selected storage preferences.
-
-W4-B2 added catalog-level raster thumbnail caching and representative large-catalog profile gates:
-
-- existing persisted `thumbnailPath` / `previewPath` take precedence;
-- raster thumbnail generation is lazy and isolated from RAW processing ownership;
-- RAW assets do not enter the raster source decoder path;
-- raster decode/resize runs through `compute(...)`;
-- distinct thumbnail generation is concurrency-bounded, while duplicate requests share one in-flight Future;
-- generated cache keys include stable asset identity plus persisted version and current source file metadata (`mtime` + size), so externally changed/replaced sources invalidate stale cache entries;
-- generated JPEG cache entries are decode-validated before reuse; corrupt entries are removed/regenerated;
-- writes use `.partial` -> rename and cache maintenance is best-effort/non-fatal;
-- pruning defaults to 2,048 files / 512 MiB;
-- 5,000-asset fixtures cover Workplace load/sort and availability scans;
-- availability concurrency is bounded at 32 and persistence write amplification is regression-tested.
-
-## Current — CI feedback optimization
-
-CI work is isolated from product/runtime behavior. The current personal-account-compatible architecture is:
+Canonical dependency contract:
 
 ```text
-Detect changes
-    -> Fast CI
-        -> affected Flutter/Rust/platform jobs
-            -> PR CI required
+GPUI desktop ──────────────┐
+                          │
+Flutter -> FFI ───────────┼──> frontend/application API ──> Rust core
+                          │                               ├─ Workplaces/catalog
+CLI/tests ────────────────┘                               ├─ import orchestration
+                                                          ├─ storage contracts
+                                                          ├─ thumbnail/cache policy
+                                                          ├─ metadata
+                                                          └─ image engine
 
-ready pull request targeting main
-    -> Full validation preflight
-        -> all Flutter/Rust/platform gates
-            -> Merge gate
+frontends/platform hosts ──> platform ports/adapters
 ```
 
-`tool/ci-detect-changes.sh` is the single change-domain classifier. PR CI uses job-level conditions rather than whole-workflow path filtering, so intentionally skipped heavy jobs do not leave the stable required aggregate check pending.
+Dependencies point inward. Protected shared crates must never depend on GPUI, Flutter, Dart, FFI bindings, or frontend-only adapters.
 
-`Full validation` runs on non-draft pull requests targeting `main` and can also be run manually. Draft pull requests intentionally defer the expensive full matrix; marking a PR ready triggers validation. New commits cancel obsolete in-progress full-validation runs for the same PR.
+Full rules: `docs/FRONTEND_NEUTRAL_CORE.md`.
 
-Local developer pre-push command:
+## M0 completion evidence
+
+M0 established the first production-neutral Rust boundaries:
 
 ```text
-make preflight
+experiments/gpui-desktop
+        |
+        +--> crates/dextryx-frontend-api --> crates/dextryx-core
+        |           |
+        |           +--> crates/dextryx-platform
+        |
+        +--> crates/dextryx-platform
 ```
 
-Full details and domain-to-job behavior are documented in `docs/CI_ARCHITECTURE.md`.
+Completed M0 capabilities:
 
-Important branch-protection follow-up: this repository is currently under a personal GitHub account, so Merge Queue is not available. Protected `main` should require `PR CI required` and `Merge gate`, and **Require branches to be up to date before merging** should be enabled. `Merge gate` must report on normal ready pull requests rather than depending on merge-group events. The connected GitHub App cannot inspect or modify `main` branch protection, so these repository settings must be verified separately by a repository administrator.
+- `dextryx-core` owns extracted catalog/domain rules;
+- `dextryx-frontend-api` owns stable frontend DTOs, commands/events, operation contracts, cancellation, and shared Import execution;
+- `dextryx-platform` owns file-dialog/filesystem ports and `StdFileSystem`;
+- shared workspace `crates/Cargo.toml` with committed `crates/Cargo.lock`;
+- GPUI experiment has committed `experiments/gpui-desktop/Cargo.lock`;
+- transitive dependency-policy guard prevents GPUI/Flutter/FFI dependencies entering protected shared crates;
+- neutral `OperationEventSink` + `CancellationToken` support long-running operations without GPUI/Dart runtime types;
+- GPUI-local `RfdFileDialogAdapter` implements `FileDialogPort`;
+- shared Import execution enforces linked/managed semantics, duplicate prevention, managed-root availability, destination collision refusal, `.part` staging/cleanup, rollback, cancellation, and progress/failure events;
+- regression tests cover duplicate lookup failure, missing managed root, destination collision, partial-copy cleanup, rollback, and cancellation-before-mutation;
+- Rust 1.98 format/clippy gates pass;
+- strict Cargo `--locked` validation restored for shared + GPUI workspaces;
+- PR #21 acceptance validation: `CI #430` and `Full validation #46` green;
+- strict locked GPUI S4 Windows/Linux validation passed, closing the final M0 gate.
 
-## W4 desktop physical validation
+Reference: `docs/M0_FRONTEND_API_FOUNDATION.md`.
 
-The remaining W4 blocker is real desktop evidence, not additional image-processing work.
+## GPUI spike role
 
-`docs/W4_DESKTOP_VALIDATION.md` defines D1–D8 physical/manual gates for:
+`experiments/gpui-desktop` remains architecture evidence, not production persistence authority.
 
-- linked external-volume disconnect/reconnect;
-- managed destination missing before import;
-- managed destination disappearing during import;
-- replacement managed destination;
-- restart recovery of persisted running/failed batches;
-- thumbnail cache corruption/recovery and RAW boundary;
-- representative large-catalog interaction;
-- catalog-only removal safety.
+Validated spike evidence includes:
 
-Current validation status remains **NOT VALIDATED** until those gates are run on a real desktop filesystem.
+- native GPUI desktop application on macOS;
+- direct Rust-to-Rust image-engine path;
+- viewport pan/zoom;
+- 5,000-asset virtualized Filmstrip/catalog-like behavior;
+- bounded thumbnail/cache work;
+- framework-neutral catalog contract;
+- stable identity across filters;
+- linked/managed effective-path semantics;
+- relink preserving identity;
+- catalog-only removal;
+- active Workplace state outside GPUI domain state.
 
-### Validation tooling
+Do not promote spike business logic by copying it into production GPUI widgets. Promote through the shared Rust API.
 
-`tool/w4-desktop-validation.sh` and Make targets provide reproducible evidence capture:
+## M1 — production GPUI bootstrap + command/state shell
+
+M1 starts now. Its purpose is to create the real desktop GPUI application shell on top of the M0 contracts without introducing a second persistence authority.
+
+### M1 scope
+
+- create a production GPUI app location separate from the experiment, targeting `apps/desktop_gpui` unless repository constraints require an equivalent path;
+- wire the shell to `dextryx-frontend-api` and `dextryx-platform`;
+- define GPUI-only presentation state for window/layout/focus/shortcuts;
+- establish app commands/actions that translate into neutral frontend/application calls;
+- use `FileDialogPort` explicitly; remove dependence on the transitional compatibility facade for production code;
+- provide initial Workplace/catalog shell state using neutral DTOs/contracts only;
+- preserve current image-engine call boundaries without new RAW/demosaic work;
+- add production-shell tests where possible without requiring a graphical session;
+- keep Flutter desktop buildable throughout M1.
+
+### M1 non-goals
+
+- no authoritative catalog storage migration yet;
+- no direct GPUI-to-Hive coupling;
+- no new durable catalog/import-batch format;
+- no full Grid/Filmstrip migration yet (M3);
+- no production import mutation/persistence migration yet (M4);
+- no new Develop/RAW processing work yet (M5+);
+- do not retire Flutter desktop in M1.
+
+### M1 acceptance gate
+
+- production GPUI app shell compiles on the supported macOS-first path;
+- production shell depends inward on shared frontend/core/platform crates;
+- no GPUI types enter protected shared crates;
+- app command/state boundary is explicit and testable;
+- production file-dialog path uses `FileDialogPort` directly;
+- existing PR/CI architecture guards remain green;
+- no second persistence authority is introduced.
+
+## Migration queue
 
 ```text
-make w4-validation-preflight
-make w4-validation-automated
+DONE      M0 frontend-neutral Rust architecture foundation
+CURRENT   M1 production GPUI bootstrap + command/state shell
+NEXT      M2 read-only authoritative Workplace/catalog adapter
+THEN      M3 real Grid/Filmstrip catalog browsing
+THEN      M4 import/catalog mutations + authoritative import persistence adapter
+THEN      M5 Develop controls around existing Rust engine
+THEN      M6 desktop export/settings/polish
+THEN      M7 retire Flutter desktop only after parity/validation gates
+OPTIONAL  future Flutter frontend through FFI using the same Rust core
+PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
 
-They record the current commit/branch, dirty-state, OS/toolchain/device information and disk state. The automated mode additionally runs Flutter analysis, focused W4 Workplaces tests, Rust check/test and writes logs beneath `build/w4-validation/<timestamp>/`.
+## Persistence boundary
 
-The tooling does not mark D1–D8 PASS by itself; removable-volume/UI gates still require observed physical evidence.
+Production Flutter currently remains the durable Workplaces/import persistence authority through repositories/adapters and Hive.
 
-## W4 guardrails
+Requirements for later storage migration:
 
-- catalog removal and physical deletion are separate operations;
-- linked originals are never silently moved or deleted;
-- missing/disconnected linked assets stay cataloged;
-- a missing managed mount/root must not be silently recreated at the same path;
-- managed copy must not overwrite an existing file;
-- failed catalog writes must not leave newly copied managed originals orphaned;
-- import retry must preserve catalog identity/duplicate safety and original storage semantics;
-- thumbnail generation must not introduce RAW development/processing ownership into Workplaces;
-- no synchronous source decode or filesystem existence probe inside Grid tile build;
-- cache corruption/failure is recoverable and must not fail the catalog;
-- no broad state-management rewrite solely for W4;
-- no new RAW/image-processing scope.
+- exactly one authoritative durable catalog format;
+- no GPUI-specific persistence semantics;
+- no direct GPUI-to-Hive coupling;
+- storage implementation usable from frontend-neutral Rust application code;
+- future Rust-native Dxtr_Box integration is evaluated as a storage milestone, not embedded into UI migration.
 
 ## Regression gates
 
-Every Workplaces/catalog PR must preserve:
+GPUI migration must preserve existing capabilities until explicitly replaced or deferred:
 
 - embedded RAW preview behavior;
 - raster preview;
 - Develop adjustments;
 - Subject/Sky masks;
 - LUT;
-- JPEG export.
-
-Recommended local gate before pushing:
-
-```text
-make preflight
-```
-
-Broader local gate:
-
-```text
-make validate
-```
-
-W4-B2 additionally includes `test/workplaces/catalog_profile_test.dart` and thumbnail-cache regression tests.
+- JPEG export;
+- Workplace/catalog identity and persistence semantics;
+- linked/managed safety;
+- missing/relink behavior;
+- import recovery and duplicate safety;
+- thumbnail/cache safety.
 
 ## Documentation map
 
 ```text
-docs/PROJECT_HANDOFF.md                    canonical project status / execution queue
-docs/CODE_WALKTHROUGH.md                   current code ownership and data flow
-docs/CI_ARCHITECTURE.md                    fast/affected/full CI contract
-docs/W4_DESKTOP_CATALOG_HARDENING.md       W4 implementation/recovery/acceptance guide
-docs/W4_DESKTOP_VALIDATION.md              W4 physical desktop validation checklist
-tool/ci-detect-changes.sh                   centralized CI change-domain classifier
-tool/w4-desktop-validation.sh               environment/evidence + focused automated runner
+docs/PROJECT_HANDOFF.md             canonical current status / execution queue
+docs/FRONTEND_NEUTRAL_CORE.md       mandatory frontend-neutral Rust core contract
+docs/M0_FRONTEND_API_FOUNDATION.md  completed M0 foundation and evidence
+docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI architecture evidence / migration decision
+docs/GPUI_DESKTOP_SPIKE.md          experiment implementation and validation
+docs/GPUI_S4_COMPATIBILITY.md       compatibility/platform gate
+docs/CODE_WALKTHROUGH.md            production code ownership / data flow
+docs/W4_DESKTOP_VALIDATION.md       outstanding physical W4 validation
+docs/CI_ARCHITECTURE.md             CI contract
 ```
-
-## W4 completion boundary
-
-Code/review/CI for W4-B2 are complete. W4 as a milestone is complete only after desktop/manual D1–D8 gates are recorded PASS, or a gate is explicitly approved/documented as deferred with rationale.
-
-Do not claim physical external-volume gates passed without real desktop evidence.
-
-## Future — PixelCraft external-editor integration
-
-Only after catalog workflows stabilize. Dextryx Images remains catalog authority; PixelCraft remains processing authority. Future integration should exchange stable asset/edit references rather than duplicate processing internals.
 
 ## Immediate execution order
 
 ```text
-DONE      W4-A  PR #12 missing/relink/catalog-removal hardening
-DONE      W4-B1 PR #13 managed destination/copy + import-batch recovery
-DONE      W4-B2 PR #14 thumbnail/cache + large-catalog profile gates
-CURRENT   PR #17 PR-based full-validation / merge-gate alignment
+DONE      M0 dependency contract / shared crates / neutral operations
+DONE      M0 Import execution safety + regression tests
+DONE      M0 Rust 1.98 format/clippy + PR review fixes
+DONE      M0 shared + GPUI Cargo lockfiles and strict --locked validation
+DONE      M0 PR validation green
+CURRENT   design and bootstrap the production M1 GPUI app shell
+NEXT      wire neutral command/state + direct FileDialogPort usage
+NEXT      add non-graphical M1 shell contract tests and CI coverage
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
-FUTURE    PixelCraft external-editor contract
 ```
+
+PR #21 remains open and must not be merged until explicitly requested.
