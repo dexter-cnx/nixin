@@ -8,8 +8,8 @@ use std::sync::{
 };
 
 use dextryx_core::{
-    filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogRepository,
-    CatalogRepositoryError, WorkplaceSummary,
+    filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogReadRepository,
+    CatalogRepository, CatalogRepositoryError, WorkplaceSummary,
 };
 
 pub type OperationId = String;
@@ -158,13 +158,18 @@ impl CancellationToken {
     }
 }
 
-pub struct CatalogApplication<R> {
+/// Read-only application service for authoritative Workplace/catalog data.
+///
+/// M2 production frontends depend on this service so the read path cannot gain
+/// catalog mutation authority accidentally. The concrete durable adapter sits
+/// behind `CatalogReadRepository`.
+pub struct CatalogReadApplication<R> {
     repository: R,
 }
 
-impl<R> CatalogApplication<R>
+impl<R> CatalogReadApplication<R>
 where
-    R: CatalogRepository,
+    R: CatalogReadRepository,
 {
     pub fn new(repository: R) -> Self {
         Self { repository }
@@ -195,6 +200,35 @@ where
             .into_iter()
             .map(map_asset)
             .collect())
+    }
+
+    pub fn into_repository(self) -> R {
+        self.repository
+    }
+}
+
+pub struct CatalogApplication<R> {
+    repository: R,
+}
+
+impl<R> CatalogApplication<R>
+where
+    R: CatalogRepository,
+{
+    pub fn new(repository: R) -> Self {
+        Self { repository }
+    }
+
+    pub fn list_workplaces(&self) -> Vec<WorkplaceDto> {
+        CatalogReadApplication::new(&self.repository).list_workplaces()
+    }
+
+    pub fn list_assets(
+        &self,
+        workplace_id: &str,
+        query: AssetQuery,
+    ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
+        CatalogReadApplication::new(&self.repository).list_assets(workplace_id, query)
     }
 
     pub fn set_active_workplace(
@@ -235,6 +269,23 @@ where
     }
 }
 
+impl<T> CatalogReadRepository for &T
+where
+    T: CatalogReadRepository,
+{
+    fn workplaces(&self) -> Vec<WorkplaceSummary> {
+        (*self).workplaces()
+    }
+
+    fn active_workplace_id(&self) -> Option<&str> {
+        (*self).active_workplace_id()
+    }
+
+    fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
+        (*self).assets(workplace_id)
+    }
+}
+
 fn map_workplace(workplace: WorkplaceSummary, active: Option<&str>) -> WorkplaceDto {
     WorkplaceDto {
         is_active: active == Some(workplace.id.as_str()),
@@ -257,5 +308,28 @@ fn map_asset(asset: CatalogAsset) -> AssetSummaryDto {
         storage,
         missing: asset.missing,
         import_sequence: asset.import_sequence,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dextryx_core::SyntheticCatalogRepository;
+
+    #[test]
+    fn read_application_exposes_authoritative_queries_without_mutation_api() {
+        let app = CatalogReadApplication::new(SyntheticCatalogRepository::new(32));
+        let workplaces = app.list_workplaces();
+        let active = workplaces
+            .iter()
+            .find(|workplace| workplace.is_active)
+            .expect("synthetic adapter should have an active workplace");
+
+        let missing = app
+            .list_assets(&active.id, AssetQuery::Missing)
+            .expect("active workplace should be readable");
+
+        assert!(!missing.is_empty());
+        assert!(missing.iter().all(|asset| asset.missing));
     }
 }
