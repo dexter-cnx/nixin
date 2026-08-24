@@ -48,18 +48,18 @@ jobs:
         working-directory: .
         run: python tool/check-rust-core-dependencies.py
       - name: Shared core contract
-        working-directory: crates/dextryx-core
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-core
       - name: Frontend application API contract
-        working-directory: crates/dextryx-frontend-api
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-frontend-api
       - name: Platform contract
-        working-directory: crates/dextryx-platform
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-platform
       - name: GPUI frontend boundary
-        run: cargo test --test catalog_boundary
+        run: cargo test --locked --test catalog_boundary
       - name: Release compile
-        run: cargo build --release
+        run: cargo build --locked --release
       - name: Verify executable
         shell: pwsh
         run: |
@@ -108,17 +108,17 @@ jobs:
             pkg-config \
             xdg-desktop-portal
       - name: Shared core contract
-        working-directory: crates/dextryx-core
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-core
       - name: Frontend application API contract
-        working-directory: crates/dextryx-frontend-api
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-frontend-api
       - name: Platform contract
-        working-directory: crates/dextryx-platform
-        run: cargo test
+        working-directory: crates
+        run: cargo test --locked -p dextryx-platform
       - name: GPUI frontend boundary
-        run: cargo test --test catalog_boundary
+        run: cargo test --locked --test catalog_boundary
       - name: Release compile with desktop backends
-        run: cargo build --release --features gpui_platform/wayland,gpui_platform/x11
+        run: cargo build --locked --release --features gpui_platform/wayland,gpui_platform/x11
       - name: Verify executable
         run: test -x target/release/dextryx-gpui-spike
