@@ -20,6 +20,7 @@ rust_paths=(
   'rust/*.rs'
   'crates/**/*.rs'
   'experiments/gpui-desktop/**/*.rs'
+  'apps/desktop-gpui/**/*.rs'
 )
 
 changed_files="$({
