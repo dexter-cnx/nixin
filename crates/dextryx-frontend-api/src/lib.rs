@@ -177,11 +177,7 @@ where
 
     pub fn list_workplaces(&self) -> Vec<WorkplaceDto> {
         let active = self.repository.active_workplace_id();
-        self.repository
-            .workplaces()
-            .into_iter()
-            .map(|workplace| map_workplace(workplace, active))
-            .collect()
+        map_workplaces(self.repository.workplaces(), active)
     }
 
     pub fn list_assets(
@@ -189,17 +185,7 @@ where
         workplace_id: &str,
         query: AssetQuery,
     ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
-        let assets = self.repository.assets(workplace_id)?;
-        let filter = match query {
-            AssetQuery::All => CatalogFilter::AllPhotos,
-            AssetQuery::Missing => CatalogFilter::Missing,
-            AssetQuery::Recent { limit } => CatalogFilter::RecentImports { limit },
-        };
-
-        Ok(filter_assets(assets, filter)
-            .into_iter()
-            .map(map_asset)
-            .collect())
+        map_assets(self.repository.assets(workplace_id)?, query)
     }
 
     pub fn into_repository(self) -> R {
@@ -220,7 +206,8 @@ where
     }
 
     pub fn list_workplaces(&self) -> Vec<WorkplaceDto> {
-        CatalogReadApplication::new(&self.repository).list_workplaces()
+        let active = self.repository.active_workplace_id();
+        map_workplaces(self.repository.workplaces(), active)
     }
 
     pub fn list_assets(
@@ -228,7 +215,7 @@ where
         workplace_id: &str,
         query: AssetQuery,
     ) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
-        CatalogReadApplication::new(&self.repository).list_assets(workplace_id, query)
+        map_assets(self.repository.assets(workplace_id)?, query)
     }
 
     pub fn set_active_workplace(
@@ -269,21 +256,27 @@ where
     }
 }
 
-impl<T> CatalogReadRepository for &T
-where
-    T: CatalogReadRepository,
-{
-    fn workplaces(&self) -> Vec<WorkplaceSummary> {
-        (*self).workplaces()
-    }
+fn map_workplaces(workplaces: Vec<WorkplaceSummary>, active: Option<&str>) -> Vec<WorkplaceDto> {
+    workplaces
+        .into_iter()
+        .map(|workplace| map_workplace(workplace, active))
+        .collect()
+}
 
-    fn active_workplace_id(&self) -> Option<&str> {
-        (*self).active_workplace_id()
-    }
+fn map_assets(
+    assets: Vec<CatalogAsset>,
+    query: AssetQuery,
+) -> Result<Vec<AssetSummaryDto>, FrontendApiError> {
+    let filter = match query {
+        AssetQuery::All => CatalogFilter::AllPhotos,
+        AssetQuery::Missing => CatalogFilter::Missing,
+        AssetQuery::Recent { limit } => CatalogFilter::RecentImports { limit },
+    };
 
-    fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
-        (*self).assets(workplace_id)
-    }
+    Ok(filter_assets(assets, filter)
+        .into_iter()
+        .map(map_asset)
+        .collect())
 }
 
 fn map_workplace(workplace: WorkplaceSummary, active: Option<&str>) -> WorkplaceDto {
