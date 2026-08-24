@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use dextryx_platform::{FileDialogPort, FileDialogRequest};
-use rfd::FileDialog;
+use rfd_backend::FileDialog;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RfdFileDialogAdapter;
