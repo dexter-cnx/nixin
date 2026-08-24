@@ -1,20 +1,23 @@
 mod app_state;
 mod file_dialog;
 mod grid;
+mod thumbnail;
 
 use app_state::{
     AppCommand, DesktopAppState, FILMSTRIP_ITEM_WIDTH, FILMSTRIP_STRIDE, FILMSTRIP_VIEW_WIDTH,
 };
+use dextryx_frontend_api::AssetSummaryDto;
 use file_dialog::RfdFileDialogAdapter;
 use gpui::{
-    div, prelude::*, px, rgb, size, App, Bounds, Context, Render, ScrollDelta, ScrollWheelEvent,
-    Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, AnyElement, App, Bounds, Context, ObjectFit, Render,
+    ScrollDelta, ScrollWheelEvent, StyledImage, Window, WindowBounds, WindowOptions,
 };
 use gpui_platform::application;
 use grid::{
     GridViewport, GRID_COLUMNS, GRID_GAP, GRID_ITEM_HEIGHT, GRID_ITEM_WIDTH, GRID_ROW_STRIDE,
     GRID_VIEW_HEIGHT,
 };
+use thumbnail::ThumbnailWorkingSet;
 
 const GRID_VIEW_WIDTH: f32 = 800.0;
 
@@ -22,6 +25,7 @@ struct DesktopShell {
     state: DesktopAppState,
     file_dialog: RfdFileDialogAdapter,
     grid_viewport: GridViewport,
+    thumbnail_working_set: ThumbnailWorkingSet,
 }
 
 impl DesktopShell {
@@ -41,6 +45,61 @@ impl DesktopShell {
         };
         self.grid_viewport
             .ensure_index_visible(index, self.state.assets.len());
+    }
+
+    fn sync_thumbnail_working_set(&mut self) {
+        self.thumbnail_working_set.sync(
+            &self.state.assets,
+            self.grid_viewport.visible_range(self.state.assets.len()),
+            self.state.filmstrip_visible_range(),
+            self.state.selected_asset_id.as_deref(),
+        );
+    }
+
+    fn thumbnail_tile(&self, asset: &AssetSummaryDto, height: f32) -> AnyElement {
+        let placeholder = || {
+            div()
+                .w_full()
+                .h(px(height))
+                .rounded_md()
+                .bg(rgb(0x111318))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_xs()
+                .text_color(rgb(0x686d76))
+                .child(if asset.missing { "missing" } else { "preview" })
+                .into_any_element()
+        };
+
+        let Some(path) = self.thumbnail_working_set.thumbnail_path(asset) else {
+            return placeholder();
+        };
+
+        img(path)
+            .w_full()
+            .h(px(height))
+            .rounded_md()
+            .object_fit(ObjectFit::Cover)
+            .with_loading(|| {
+                div()
+                    .size_full()
+                    .bg(rgb(0x111318))
+                    .into_any_element()
+            })
+            .with_fallback(|| {
+                div()
+                    .size_full()
+                    .bg(rgb(0x111318))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_xs()
+                    .text_color(rgb(0x686d76))
+                    .child("preview")
+                    .into_any_element()
+            })
+            .into_any_element()
     }
 
     fn command_button(
@@ -181,6 +240,7 @@ impl DesktopShell {
             } else {
                 storage.to_string()
             };
+            let thumbnail = self.thumbnail_tile(&asset, 38.0);
 
             canvas = canvas.child(
                 div()
@@ -206,8 +266,8 @@ impl DesktopShell {
                     .cursor_pointer()
                     .flex()
                     .flex_col()
-                    .justify_center()
                     .gap_1()
+                    .child(thumbnail)
                     .child(
                         div()
                             .text_xs()
@@ -267,6 +327,7 @@ impl DesktopShell {
                     dextryx_frontend_api::AssetStorageDto::Managed => "managed".to_string(),
                 }
             };
+            let thumbnail = self.thumbnail_tile(&asset, 58.0);
 
             canvas = canvas.child(
                 div()
@@ -292,7 +353,8 @@ impl DesktopShell {
                     .cursor_pointer()
                     .flex()
                     .flex_col()
-                    .justify_between()
+                    .gap_2()
+                    .child(thumbnail)
                     .child(
                         div()
                             .text_sm()
@@ -320,6 +382,8 @@ impl DesktopShell {
 
 impl Render for DesktopShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_thumbnail_working_set();
+
         let section = self.state.section_label();
         let query = self.state.query_label();
         let status = self.state.status.clone();
@@ -476,8 +540,8 @@ impl Render for DesktopShell {
                                                             .text_xs()
                                                             .text_color(rgb(0x8d929c))
                                                             .child(format!(
-                                                            "{workplace} • {asset_count} asset(s)"
-                                                        )),
+                                                                "{workplace} • {asset_count} asset(s)"
+                                                            )),
                                                     ),
                                             )
                                             .child(self.grid(cx))
@@ -506,7 +570,7 @@ impl Render for DesktopShell {
                                             .justify_between()
                                             .text_sm()
                                             .text_color(rgb(0x8d929c))
-                                            .child("Authoritative Filmstrip — scroll / trackpad")
+                                            .child("Authoritative Filmstrip — bounded thumbnails")
                                             .child(format!("{asset_count} asset(s)")),
                                     )
                                     .child(
@@ -540,6 +604,7 @@ fn main() {
                         state,
                         file_dialog: RfdFileDialogAdapter,
                         grid_viewport: GridViewport::default(),
+                        thumbnail_working_set: ThumbnailWorkingSet::default(),
                     };
                     shell.sync_grid_to_selection();
                     shell
