@@ -31,8 +31,8 @@ impl GridViewport {
         let first_row = (self.scroll_y / GRID_ROW_STRIDE).floor() as usize;
         let visible_rows = (GRID_VIEW_HEIGHT / GRID_ROW_STRIDE).ceil() as usize + 1;
         let start_row = first_row.saturating_sub(GRID_OVERSCAN_ROWS);
-        let end_row = (first_row + visible_rows + GRID_OVERSCAN_ROWS)
-            .min(asset_count.div_ceil(GRID_COLUMNS));
+        let end_row =
+            (first_row + visible_rows + GRID_OVERSCAN_ROWS).min(asset_count.div_ceil(GRID_COLUMNS));
         let start = start_row * GRID_COLUMNS;
         let end = (end_row * GRID_COLUMNS).min(asset_count);
         start..end
