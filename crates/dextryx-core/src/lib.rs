@@ -46,15 +46,23 @@ pub enum CatalogRepositoryError {
     UnknownAsset(AssetId),
 }
 
-/// Frontend-neutral catalog boundary.
+/// Read-only, frontend-neutral catalog boundary.
 ///
-/// GPUI, Flutter/FFI, CLI tools, and tests must depend on this contract rather
-/// than concrete persistence or UI framework types.
-pub trait CatalogRepository {
+/// Production frontends should depend on this contract for authoritative
+/// Workplace/catalog reads. It deliberately exposes no persistence mutations.
+pub trait CatalogReadRepository {
     fn workplaces(&self) -> Vec<WorkplaceSummary>;
     fn active_workplace_id(&self) -> Option<&str>;
-    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError>;
     fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError>;
+}
+
+/// Frontend-neutral catalog mutation boundary.
+///
+/// Mutation-capable application services depend on this extension. Keeping it
+/// separate from `CatalogReadRepository` lets read-only frontends and adapters
+/// compile without acquiring write authority.
+pub trait CatalogRepository: CatalogReadRepository {
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError>;
     fn relink_asset(
         &mut self,
         asset_id: &str,
@@ -153,27 +161,13 @@ impl SyntheticCatalogRepository {
     }
 }
 
-impl CatalogRepository for SyntheticCatalogRepository {
+impl CatalogReadRepository for SyntheticCatalogRepository {
     fn workplaces(&self) -> Vec<WorkplaceSummary> {
         self.workplaces.clone()
     }
 
     fn active_workplace_id(&self) -> Option<&str> {
         self.active_workplace_id.as_deref()
-    }
-
-    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError> {
-        if !self
-            .workplaces
-            .iter()
-            .any(|workplace| workplace.id == workplace_id)
-        {
-            return Err(CatalogRepositoryError::UnknownWorkplace(
-                workplace_id.to_string(),
-            ));
-        }
-        self.active_workplace_id = Some(workplace_id.to_string());
-        Ok(())
     }
 
     fn assets(&self, workplace_id: &str) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
@@ -195,6 +189,22 @@ impl CatalogRepository for SyntheticCatalogRepository {
             .collect();
         assets.sort_by_key(|asset| asset.import_sequence);
         Ok(assets)
+    }
+}
+
+impl CatalogRepository for SyntheticCatalogRepository {
+    fn set_active_workplace(&mut self, workplace_id: &str) -> Result<(), CatalogRepositoryError> {
+        if !self
+            .workplaces
+            .iter()
+            .any(|workplace| workplace.id == workplace_id)
+        {
+            return Err(CatalogRepositoryError::UnknownWorkplace(
+                workplace_id.to_string(),
+            ));
+        }
+        self.active_workplace_id = Some(workplace_id.to_string());
+        Ok(())
     }
 
     fn relink_asset(
