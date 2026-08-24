@@ -1,6 +1,8 @@
 mod app_state;
+mod file_dialog;
 
 use app_state::{AppCommand, DesktopAppState};
+use file_dialog::RfdFileDialogAdapter;
 use gpui::{
     div, prelude::*, px, rgb, size, App, Bounds, Context, Render, Window, WindowBounds,
     WindowOptions,
@@ -9,6 +11,7 @@ use gpui_platform::application;
 
 struct DesktopShell {
     state: DesktopAppState,
+    file_dialog: RfdFileDialogAdapter,
 }
 
 impl DesktopShell {
@@ -35,6 +38,25 @@ impl DesktopShell {
                 cx.notify();
             }))
     }
+
+    fn import_button(cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("import")
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0x3c414a))
+            .bg(rgb(0x24272d))
+            .text_sm()
+            .cursor_pointer()
+            .child("Import")
+            .active(|this| this.opacity(0.75))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.state.begin_import(&this.file_dialog);
+                cx.notify();
+            }))
+    }
 }
 
 impl Render for DesktopShell {
@@ -42,6 +64,7 @@ impl Render for DesktopShell {
         let section = self.state.section_label();
         let query = self.state.query_label();
         let status = self.state.status.clone();
+        let import_count = self.state.selected_import_paths.len();
 
         div()
             .flex()
@@ -140,17 +163,18 @@ impl Render for DesktopShell {
                                     .border_b_1()
                                     .border_color(rgb(0x2b2e34))
                                     .bg(rgb(0x15171a))
-                                    .child(Self::command_button(
-                                        "import",
-                                        "Import",
-                                        AppCommand::BeginImport,
-                                        cx,
-                                    ))
+                                    .child(Self::import_button(cx))
                                     .child(
                                         div()
                                             .text_sm()
                                             .text_color(rgb(0x8d929c))
                                             .child(format!("Catalog: {query}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0x686d76))
+                                            .child(format!("Selected for import: {import_count}")),
                                     ),
                             )
                             .child(
@@ -207,6 +231,7 @@ fn main() {
             |_window, cx| {
                 cx.new(|_cx| DesktopShell {
                     state: DesktopAppState::default(),
+                    file_dialog: RfdFileDialogAdapter,
                 })
             },
         )
