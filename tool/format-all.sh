@@ -6,6 +6,7 @@ cd "$ROOT"
 
 FLUTTER_CMD="${FLUTTER_CMD:-flutter}"
 CARGO_CMD="${CARGO_CMD:-cargo}"
+RUSTFMT_CMD="${RUSTFMT_CMD:-rustfmt}"
 
 echo "== Dart format =="
 if command -v "$FLUTTER_CMD" >/dev/null 2>&1; then
@@ -26,6 +27,10 @@ echo "== Rust format: shared crates =="
 echo
 echo "== Rust format: GPUI desktop =="
 "$CARGO_CMD" fmt --manifest-path experiments/gpui-desktop/Cargo.toml
+
+# main.rs is included from src/entry.rs and is not discovered by cargo fmt.
+# Keep it explicitly formatted because CI checks changed Rust files directly.
+"$RUSTFMT_CMD" --edition 2021 experiments/gpui-desktop/src/main.rs
 
 echo
 echo "Formatting complete."
