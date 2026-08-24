@@ -82,7 +82,7 @@ experiments/gpui-desktop
 
 `dextryx-core` owns extracted catalog/domain rules. `dextryx-frontend-api` owns frontend DTOs, commands/events, runtime-neutral long-operation contracts, and the first shared Import execution slice. `dextryx-platform` owns neutral platform/filesystem ports and a `std` filesystem implementation.
 
-A shared Rust workspace exists at `crates/Cargo.toml` containing `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`.
+A shared Rust workspace exists at `crates/Cargo.toml` containing `dextryx-core`, `dextryx-frontend-api`, and `dextryx-platform`. Both the shared workspace and GPUI experiment have committed Cargo lockfiles.
 
 Long-running operation infrastructure includes:
 
@@ -123,15 +123,19 @@ The slice mirrors safety behavior already present in the production Flutter Impo
 
 - linked and managed storage modes;
 - duplicate source skip through `ImportCatalogPort`;
+- catalog lookup errors fail the item before mutation;
 - source-file validation;
+- managed roots must already exist and are not silently recreated;
 - managed-copy staging using a temporary `.part` path;
+- existing managed destinations are never overwritten;
+- partial-copy failures clean up staging artifacts;
 - final rename only after copy succeeds;
 - rollback of a newly copied managed original when catalog save fails;
 - cooperative cancellation before mutation and at managed-copy safe points;
 - progress/item/completed/failed/cancelled operation events;
 - mixed-success summary and recoverable all-failed terminal status.
 
-Contract tests cover duplicate prevention, managed-copy rollback, and cancellation-before-mutation using `StdFileSystem`.
+Contract tests cover duplicate prevention, catalog lookup failure, missing managed root, destination collision, partial-copy cleanup, managed-copy rollback, and cancellation-before-mutation.
 
 The existing Flutter `ImportController` remains the production authority for batch persistence, retry/recovery, preferences, Hive repositories, and current UI state. Rust does **not** yet create a second durable import batch format.
 
@@ -187,21 +191,25 @@ Do not port by copying business logic into GPUI widgets.
 
 ## M0 — architecture foundation acceptance gate
 
+M0 is intentionally limited to proving the frontend-neutral foundation. Full production storage/thumbnail/image-engine migration belongs to later milestones.
+
 - [x] GPUI dependencies exist only in frontend/app crates for new shared Rust boundaries.
 - [x] Shared core/application/platform crates compile independently of GPUI by construction.
 - [x] Extracted domain models contain no GPUI types.
-- [ ] Catalog/storage/image-processing rules are fully represented/testable through the shared architecture. Catalog is extracted; authoritative storage and remaining operations are not yet migrated.
 - [x] Frontend-facing commands/DTOs/events are framework-neutral.
-- [x] At least one real long-running shared operation uses runtime-neutral progress/cancellation: Import execution now does.
-- [ ] Platform-specific functionality is fully behind adapters. File-dialog and the new Import execution filesystem path are behind ports; folder scanning/thumbnail and other promoted slices still need migration.
+- [x] At least one real long-running shared operation uses runtime-neutral progress/cancellation: Import execution.
+- [x] Promoted file-dialog/import filesystem access is behind neutral ports/adapters.
 - [x] A future Flutter/FFI frontend can target the same frontend/application API without GPUI.
 - [x] CI includes a transitive dependency-policy guard preventing frontend-framework dependencies from entering protected shared crates.
-- [ ] GPUI/shared Cargo lockfiles are regenerated and strict `--locked` CI is restored after the new local crates settle.
+- [x] Shared and GPUI Cargo lockfiles are committed.
+- [ ] Strict `--locked` GPUI S4 Windows/Linux validation passes after restoration of the lock gate.
+
+The remaining authoritative storage adapter, folder scan/thumbnail migration, and additional image-engine extraction are explicitly M2-M5 work and are not M0 blockers.
 
 ## Migration queue
 
 ```text
-CURRENT   M0 frontend-neutral Rust architecture foundation
+CURRENT   M0 final strict --locked S4 validation
 NEXT      M1 production GPUI bootstrap + command/state shell
 THEN      M2 read-only authoritative Workplace/catalog adapter
 THEN      M3 real Grid/Filmstrip catalog browsing
@@ -274,8 +282,9 @@ DONE      introduce dextryx-platform ports + StdFileSystem + GPUI rfd adapter
 DONE      route current GPUI file-picker runtime path through FileDialogPort
 DONE      establish shared frontend-neutral Rust workspace
 DONE      implement first real Import execution slice on neutral ports/contracts
-CURRENT   validate shared Import/core/platform crates in CI and fix compile/contract issues
-NEXT      regenerate Cargo.lock(s) and restore strict --locked CI
-NEXT      begin M1 production GPUI app shell on stable frontend/application API
+DONE      validate shared Import/core/platform crates in CI and fix compile/contract/review issues
+DONE      commit shared + GPUI Cargo lockfiles
+CURRENT   pass strict --locked GPUI S4 Windows/Linux validation
+NEXT      mark M0 complete and begin M1 production GPUI app shell
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
