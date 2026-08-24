@@ -94,16 +94,11 @@ impl Render for DesktopShell {
         let asset_rows = self.state.assets.iter().take(8).fold(
             div().flex().flex_col().gap_1(),
             |list, asset| {
-                list.child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0xb8bcc6))
-                        .child(format!(
-                            "{}  •  {}",
-                            asset.id,
-                            asset.effective_path.display()
-                        )),
-                )
+                list.child(div().text_sm().text_color(rgb(0xb8bcc6)).child(format!(
+                    "{}  •  {}",
+                    asset.id,
+                    asset.effective_path.display()
+                )))
             },
         );
 
