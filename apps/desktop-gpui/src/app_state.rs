@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use dextryx_frontend_api::{read_catalog_projection, AssetQuery, AssetSummaryDto, WorkplaceDto};
@@ -9,6 +10,11 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 const PROJECTION_FILENAME: &str = "catalog-read-projection-v1.tsv";
 const APPLICATION_SUPPORT_FOLDER: &str = "com.cnxdev.dextryx.images";
 const PROJECTION_PATH_ENV: &str = "DEXTRYX_CATALOG_PROJECTION_PATH";
+pub const FILMSTRIP_VIEW_WIDTH: f32 = 900.0;
+pub const FILMSTRIP_ITEM_WIDTH: f32 = 116.0;
+pub const FILMSTRIP_GAP: f32 = 8.0;
+pub const FILMSTRIP_STRIDE: f32 = FILMSTRIP_ITEM_WIDTH + FILMSTRIP_GAP;
+pub const FILMSTRIP_OVERSCAN: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceSection {
@@ -26,7 +32,7 @@ pub enum AppCommand {
     BeginImport,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct DesktopAppState {
     pub section: WorkspaceSection,
     pub asset_query: AssetQuery,
@@ -35,6 +41,8 @@ pub struct DesktopAppState {
     pub workplaces: Vec<WorkplaceDto>,
     pub active_workplace_id: Option<String>,
     pub assets: Vec<AssetSummaryDto>,
+    pub selected_asset_id: Option<String>,
+    pub filmstrip_scroll_x: f32,
     projection_path: PathBuf,
 }
 
@@ -50,10 +58,12 @@ impl DesktopAppState {
             section: WorkspaceSection::Library,
             asset_query: AssetQuery::All,
             selected_import_paths: Vec::new(),
-            status: "M2 catalog projection not loaded".to_string(),
+            status: "M3 catalog browser not loaded".to_string(),
             workplaces: Vec::new(),
             active_workplace_id: None,
             assets: Vec::new(),
+            selected_asset_id: None,
+            filmstrip_scroll_x: 0.0,
             projection_path,
         }
     }
@@ -91,12 +101,15 @@ impl DesktopAppState {
     }
 
     pub fn refresh_catalog(&mut self) {
+        let previous_selection = self.selected_asset_id.clone();
         let app = match read_catalog_projection(&self.projection_path) {
             Ok(app) => app,
             Err(error) => {
                 self.workplaces.clear();
                 self.active_workplace_id = None;
                 self.assets.clear();
+                self.selected_asset_id = None;
+                self.filmstrip_scroll_x = 0.0;
                 self.status = format!("Catalog projection unavailable: {error:?}");
                 return;
             }
@@ -116,16 +129,27 @@ impl DesktopAppState {
 
         match assets {
             Ok(assets) => {
-                let count = assets.as_ref().map_or(0, Vec::len);
+                let assets = assets.unwrap_or_default();
+                let count = assets.len();
+                let selected_asset_id = previous_selection
+                    .filter(|selected| assets.iter().any(|asset| asset.id == *selected))
+                    .or_else(|| assets.first().map(|asset| asset.id.clone()));
+
                 self.workplaces = workplaces;
                 self.active_workplace_id = active_workplace_id;
-                self.assets = assets.unwrap_or_default();
+                self.assets = assets;
+                self.selected_asset_id = selected_asset_id;
+                self.filmstrip_scroll_x = self
+                    .filmstrip_scroll_x
+                    .clamp(0.0, self.max_filmstrip_scroll());
                 self.status = format!("Authoritative catalog read: {count} asset(s)");
             }
             Err(error) => {
                 self.workplaces = workplaces;
                 self.active_workplace_id = active_workplace_id;
                 self.assets.clear();
+                self.selected_asset_id = None;
+                self.filmstrip_scroll_x = 0.0;
                 self.status = format!("Catalog read failed: {error:?}");
             }
         }
@@ -154,6 +178,43 @@ impl DesktopAppState {
         let count = paths.len();
         self.selected_import_paths = paths;
         self.status = format!("Import selection: {count} item(s) ready for application execution");
+    }
+
+    pub fn select_asset(&mut self, asset_id: &str) -> bool {
+        if !self.assets.iter().any(|asset| asset.id == asset_id) {
+            return false;
+        }
+
+        self.selected_asset_id = Some(asset_id.to_string());
+        self.status = format!("Selected asset: {asset_id}");
+        true
+    }
+
+    pub fn selected_asset(&self) -> Option<&AssetSummaryDto> {
+        let selected_id = self.selected_asset_id.as_deref()?;
+        self.assets.iter().find(|asset| asset.id == selected_id)
+    }
+
+    pub fn max_filmstrip_scroll(&self) -> f32 {
+        (self.assets.len() as f32 * FILMSTRIP_STRIDE - FILMSTRIP_VIEW_WIDTH).max(0.0)
+    }
+
+    pub fn scroll_filmstrip(&mut self, delta: f32) {
+        self.filmstrip_scroll_x =
+            (self.filmstrip_scroll_x - delta).clamp(0.0, self.max_filmstrip_scroll());
+    }
+
+    pub fn filmstrip_visible_range(&self) -> Range<usize> {
+        let count = self.assets.len();
+        if count == 0 {
+            return 0..0;
+        }
+
+        let first = (self.filmstrip_scroll_x / FILMSTRIP_STRIDE).floor() as usize;
+        let visible_count = (FILMSTRIP_VIEW_WIDTH / FILMSTRIP_STRIDE).ceil() as usize + 1;
+        let start = first.saturating_sub(FILMSTRIP_OVERSCAN);
+        let end = (first + visible_count + FILMSTRIP_OVERSCAN).min(count);
+        start..end
     }
 
     pub fn section_label(&self) -> &'static str {
@@ -294,7 +355,7 @@ mod tests {
     #[test]
     fn refresh_catalog_loads_authoritative_projection_through_frontend_api() {
         let path = std::env::temp_dir().join(format!(
-            "nixin-m2-projection-{}-{}.tsv",
+            "nixin-m3-projection-{}-{}.tsv",
             std::process::id(),
             std::thread::current().name().unwrap_or("test")
         ));
@@ -305,6 +366,7 @@ mod tests {
                 "ACTIVE\tworkplace-1\n",
                 "WORKPLACE\tworkplace-1\tMy workplace\n",
                 "ASSET\tasset-1\tworkplace-1\t/external/a.nef\t\tlinked\t0\t1\n",
+                "ASSET\tasset-2\tworkplace-1\t/external/b.jpg\t\tlinked\t0\t2\n",
             ),
         )
         .unwrap();
@@ -313,11 +375,57 @@ mod tests {
         state.refresh_catalog();
 
         assert_eq!(state.active_workplace_name(), Some("My workplace"));
-        assert_eq!(state.assets.len(), 1);
-        assert_eq!(state.assets[0].id, "asset-1");
-        assert!(state.status.contains("1 asset(s)"));
+        assert_eq!(state.assets.len(), 2);
+        assert_eq!(state.selected_asset_id.as_deref(), Some("asset-1"));
+        assert!(state.status.contains("2 asset(s)"));
+
+        assert!(state.select_asset("asset-2"));
+        state.refresh_catalog();
+        assert_eq!(state.selected_asset_id.as_deref(), Some("asset-2"));
 
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn filmstrip_virtualization_bounds_visible_assets() {
+        let mut state = DesktopAppState::default();
+        state.assets = (0..5_000)
+            .map(|index| AssetSummaryDto {
+                id: format!("asset-{index}"),
+                workplace_id: "workplace-1".to_string(),
+                effective_path: PathBuf::from(format!("/tmp/{index}.jpg")),
+                storage: dextryx_frontend_api::AssetStorageDto::Linked,
+                missing: false,
+                import_sequence: index as u64,
+            })
+            .collect();
+
+        let first = state.filmstrip_visible_range();
+        assert!(first.len() < 20);
+        assert_eq!(first.start, 0);
+
+        state.scroll_filmstrip(-25_000.0);
+        let scrolled = state.filmstrip_visible_range();
+        assert!(scrolled.len() < 20);
+        assert!(scrolled.start > 0);
+        assert!(state.filmstrip_scroll_x <= state.max_filmstrip_scroll());
+    }
+
+    #[test]
+    fn selection_rejects_unknown_asset_ids() {
+        let mut state = DesktopAppState::default();
+        state.assets = vec![AssetSummaryDto {
+            id: "asset-1".to_string(),
+            workplace_id: "workplace-1".to_string(),
+            effective_path: PathBuf::from("/tmp/a.jpg"),
+            storage: dextryx_frontend_api::AssetStorageDto::Linked,
+            missing: false,
+            import_sequence: 1,
+        }];
+
+        assert!(state.select_asset("asset-1"));
+        assert!(!state.select_asset("asset-404"));
+        assert_eq!(state.selected_asset_id.as_deref(), Some("asset-1"));
     }
 
     #[test]
