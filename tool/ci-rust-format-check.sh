@@ -15,10 +15,17 @@ if [[ -z "$BASE_SHA" ]]; then
   fi
 fi
 
+rust_paths=(
+  'rust/**/*.rs'
+  'rust/*.rs'
+  'crates/**/*.rs'
+  'experiments/gpui-desktop/**/*.rs'
+)
+
 changed_files="$({
-  git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- 'rust/**/*.rs' 'rust/*.rs'
-  git diff --name-only --diff-filter=ACMR -- 'rust/**/*.rs' 'rust/*.rs'
-  git diff --cached --name-only --diff-filter=ACMR -- 'rust/**/*.rs' 'rust/*.rs'
+  git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- "${rust_paths[@]}"
+  git diff --name-only --diff-filter=ACMR -- "${rust_paths[@]}"
+  git diff --cached --name-only --diff-filter=ACMR -- "${rust_paths[@]}"
 } | sort -u)"
 
 files=()
