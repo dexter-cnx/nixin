@@ -18,8 +18,9 @@
 - W4 desktop physical/manual D1-D8 validation remains outstanding as a separate validation track.
 - New image-processing / real sensor RAW demosaic work remains deferred.
 - **M0 frontend-neutral Rust architecture foundation: COMPLETE and merged via PR #21.**
-- **M1 production GPUI bootstrap + command/state shell: CURRENT.**
-- Active M1 branch: `feature/m1-gpui-production-shell`.
+- **M1 production GPUI bootstrap + command/state shell: COMPLETE on PR #22.**
+- **M2 read-only authoritative Workplace/catalog adapter: NEXT after M1 merge.**
+- Active branch: `feature/m1-gpui-production-shell`.
 
 ## Current architectural direction
 
@@ -98,19 +99,23 @@ Production app path:
 apps/desktop-gpui/
 ```
 
-Current M1 implementation:
+Completed M1 implementation:
 
 - production Cargo package `dextryx-desktop` pinned to the proven GPUI/Zed revision;
 - direct dependencies on `dextryx-frontend-api` and `dextryx-platform`;
 - plain-Rust `DesktopAppState` + `AppCommand` in `src/app_state.rs` with no GPUI types;
 - catalog navigation reuses `dextryx_frontend_api::AssetQuery`;
 - initial GPUI Library/Develop shell in `src/main.rs`;
-- Import UI exists only as a command placeholder; no GPUI-owned import logic was introduced;
+- production `RfdFileDialogAdapter` implements `FileDialogPort` directly;
+- Import selection is mockable/testable and does not duplicate shared import mutation/persistence semantics;
+- cancelled selection clears stale frontend-local selected paths;
+- production code does not depend on the experiment crate or transitional file-dialog compatibility facade;
 - `make format` and changed-file Rust formatting cover `apps/desktop-gpui`;
 - `.github/workflows/gpui-production.yml` validates format, unit tests, Clippy, and macOS build;
+- final validated head `cae235416ba0a160b0e8220847dd96b7cd20b4ca` passed `CI #440`, `GPUI Production Shell #14`, and `Full validation #55`;
 - detailed status: `docs/M1_GPUI_PRODUCTION_SHELL.md`.
 
-### M1 non-goals
+### M1 non-goals retained
 
 - no authoritative catalog storage migration yet;
 - no direct GPUI-to-Hive coupling;
@@ -122,19 +127,42 @@ Current M1 implementation:
 
 ### M1 acceptance gate
 
-- production GPUI app shell compiles on the supported macOS-first path;
-- production shell depends inward on shared frontend/core/platform crates;
-- no GPUI types enter protected shared crates;
-- app command/state boundary is explicit and testable;
-- production file-dialog path uses `FileDialogPort` directly;
-- existing PR/CI architecture guards remain green;
-- no second persistence authority is introduced.
+- [x] production GPUI app shell compiles on the supported macOS-first path;
+- [x] production shell depends inward on shared frontend/core/platform crates;
+- [x] no GPUI types enter protected shared crates;
+- [x] app command/state boundary is explicit and testable;
+- [x] production file-dialog path uses `FileDialogPort` directly;
+- [x] existing PR/CI architecture guards remain green;
+- [x] no second persistence authority is introduced.
+
+## M2 — read-only authoritative Workplace/catalog adapter
+
+M2 is the next implementation milestone after PR #22 is merged.
+
+Goal:
+
+- expose the authoritative Workplace/catalog read model through a frontend-neutral adapter;
+- preserve stable asset identity and linked/managed semantics;
+- let production GPUI query real Workplaces/assets without direct Hive access;
+- keep reads framework-neutral so a future Flutter frontend can reuse the same application API;
+- do not introduce catalog mutation or import persistence in M2.
+
+Expected path:
+
+```text
+GPUI presentation
+  -> dextryx-frontend-api read application service
+  -> authoritative catalog adapter
+  -> current durable catalog source
+```
+
+The adapter boundary must be designed so the current durable source can later be replaced by Rust-native storage without changing GPUI domain semantics.
 
 ## Migration queue
 
 ```text
 DONE      M0 frontend-neutral Rust architecture foundation
-CURRENT   M1 production GPUI bootstrap + command/state shell
+DONE      M1 production GPUI bootstrap + command/state shell
 NEXT      M2 read-only authoritative Workplace/catalog adapter
 THEN      M3 real Grid/Filmstrip catalog browsing
 THEN      M4 import/catalog mutations + authoritative import persistence adapter
@@ -167,7 +195,7 @@ GPUI migration must preserve embedded RAW preview behavior, raster preview, Deve
 docs/PROJECT_HANDOFF.md             canonical current status / execution queue
 docs/FRONTEND_NEUTRAL_CORE.md       mandatory frontend-neutral Rust core contract
 docs/M0_FRONTEND_API_FOUNDATION.md  completed M0 foundation and evidence
-docs/M1_GPUI_PRODUCTION_SHELL.md    current M1 implementation and acceptance gates
+docs/M1_GPUI_PRODUCTION_SHELL.md    completed M1 implementation and acceptance evidence
 docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI architecture evidence / migration decision
 docs/GPUI_DESKTOP_SPIKE.md          experiment implementation and validation
 docs/GPUI_S4_COMPATIBILITY.md       compatibility/platform gate
@@ -185,8 +213,11 @@ DONE      bootstrap apps/desktop-gpui production crate
 DONE      add plain-Rust DesktopAppState/AppCommand boundary
 DONE      add initial GPUI Library/Develop shell
 DONE      add format + macOS production-shell CI coverage
-CURRENT   validate M1 shell on PR CI and fix compile/format/clippy issues
-NEXT      wire Import through FileDialogPort + frontend application boundary
-NEXT      remove production dependence on any spike compatibility facade
+DONE      wire production Import selection through FileDialogPort
+DONE      remove production dependence on spike compatibility facade
+DONE      validate M1 on CI #440 / GPUI Production Shell #14 / Full validation #55
+CURRENT   merge PR #22 after final docs-only checks are green
+NEXT      branch M2 from merged main
+NEXT      implement read-only authoritative Workplace/catalog adapter
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
