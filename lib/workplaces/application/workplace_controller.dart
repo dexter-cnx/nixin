@@ -62,7 +62,8 @@ final assetRepositoryProvider = Provider<AssetRepository>((ref) {
   return HiveAssetRepository(ref.watch(assetsStoreProvider));
 });
 
-final catalogReadProjectionWriterProvider = Provider<CatalogReadProjectionWriter>((ref) {
+final catalogReadProjectionWriterProvider =
+    Provider<CatalogReadProjectionWriter>((ref) {
   return CatalogReadProjectionWriter(
     workplaceRepository: ref.watch(workplaceRepositoryProvider),
     assetRepository: ref.watch(assetRepositoryProvider),
