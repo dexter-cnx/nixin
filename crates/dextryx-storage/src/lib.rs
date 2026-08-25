@@ -1,9 +1,11 @@
 mod cutover;
 mod fault_injection;
 mod file_candidate;
+mod replacement;
 pub use cutover::*;
 pub use fault_injection::*;
 pub use file_candidate::*;
+pub use replacement::*;
 
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
