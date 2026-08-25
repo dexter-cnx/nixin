@@ -1,5 +1,8 @@
 use super::{validate_catalog_projection, CatalogInvariantError};
-use crate::{AuthoritativeCatalogProjection, CatalogReadRepository, CatalogRepositoryError};
+use crate::{
+    AuthoritativeCatalogProjection, CatalogAsset, CatalogReadRepository, CatalogRepositoryError,
+    ProjectionCatalogReadAdapter, SyntheticCatalogRepository,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogSnapshotError {
@@ -7,33 +10,53 @@ pub enum CatalogSnapshotError {
     Invariant(CatalogInvariantError),
 }
 
-/// Materialize one complete catalog snapshot through the authoritative read port.
+/// Qualification-only extension that must enumerate every persisted asset,
+/// including records whose Workplace relationship is corrupt.
+///
+/// There is intentionally no blanket or default implementation. Production
+/// persistence candidates must explicitly prove that their full-store scan is
+/// independent of the valid Workplace list before they can be qualified for
+/// durable-authority cutover.
+pub trait CatalogSnapshotRepository: CatalogReadRepository {
+    fn all_assets_for_snapshot(&self) -> Result<Vec<CatalogAsset>, CatalogRepositoryError>;
+}
+
+impl CatalogSnapshotRepository for ProjectionCatalogReadAdapter {
+    fn all_assets_for_snapshot(&self) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
+        Ok(self.projection().assets.clone())
+    }
+}
+
+/// Synthetic repository support is retained only for architecture tests.
+/// Production candidates must provide an explicit full-store implementation.
+impl CatalogSnapshotRepository for SyntheticCatalogRepository {
+    fn all_assets_for_snapshot(&self) -> Result<Vec<CatalogAsset>, CatalogRepositoryError> {
+        let mut assets = Vec::new();
+        for workplace in self.workplaces() {
+            assets.extend(self.assets(&workplace.id)?);
+        }
+        Ok(assets)
+    }
+}
+
+/// Materialize one complete catalog snapshot through the qualification port.
 ///
 /// Candidate persistence adapters must be able to produce a valid snapshot
-/// before and after mutations. This keeps migration/cutover qualification on
-/// the same frontend-neutral contracts used by production reads.
+/// before and after mutations. Asset enumeration is deliberately independent
+/// of the valid Workplace list so dangling relationships cannot disappear from
+/// the migration/cutover qualification gate.
 pub fn snapshot_catalog_repository<R>(
     repository: &R,
 ) -> Result<AuthoritativeCatalogProjection, CatalogSnapshotError>
 where
-    R: CatalogReadRepository + ?Sized,
+    R: CatalogSnapshotRepository + ?Sized,
 {
-    let workplaces = repository.workplaces();
-    let active_workplace_id = repository.active_workplace_id().map(str::to_string);
-    let mut assets = Vec::new();
-
-    for workplace in &workplaces {
-        assets.extend(
-            repository
-                .assets(&workplace.id)
-                .map_err(CatalogSnapshotError::Repository)?,
-        );
-    }
-
     let projection = AuthoritativeCatalogProjection {
-        workplaces,
-        active_workplace_id,
-        assets,
+        workplaces: repository.workplaces(),
+        active_workplace_id: repository.active_workplace_id().map(str::to_string),
+        assets: repository
+            .all_assets_for_snapshot()
+            .map_err(CatalogSnapshotError::Repository)?,
     };
     validate_catalog_projection(&projection).map_err(CatalogSnapshotError::Invariant)?;
     Ok(projection)
@@ -45,8 +68,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        AuthoritativeCatalogPersistence, CatalogMutation, CatalogMutationResult,
-        SyntheticCatalogRepository,
+        AssetStorageMode, AuthoritativeCatalogPersistence, CatalogMutation, CatalogMutationResult,
+        WorkplaceSummary,
     };
 
     #[test]
@@ -99,5 +122,35 @@ mod tests {
             .assets
             .iter()
             .all(|asset| asset.id != "asset-000001"));
+    }
+
+    #[test]
+    fn qualification_rejects_orphan_asset_hidden_from_workplace_queries() {
+        let repository = ProjectionCatalogReadAdapter::new(AuthoritativeCatalogProjection {
+            workplaces: vec![WorkplaceSummary {
+                id: "workplace-1".to_string(),
+                name: "My workplace".to_string(),
+            }],
+            active_workplace_id: Some("workplace-1".to_string()),
+            assets: vec![CatalogAsset {
+                id: "orphan-asset".to_string(),
+                workplace_id: "missing-workplace".to_string(),
+                source_path: PathBuf::from("/external/orphan.jpg"),
+                managed_path: None,
+                storage_mode: AssetStorageMode::Linked,
+                missing: false,
+                import_sequence: 1,
+            }],
+        });
+
+        assert_eq!(
+            snapshot_catalog_repository(&repository),
+            Err(CatalogSnapshotError::Invariant(
+                CatalogInvariantError::AssetReferencesUnknownWorkplace {
+                    asset_id: "orphan-asset".to_string(),
+                    workplace_id: "missing-workplace".to_string(),
+                }
+            ))
+        );
     }
 }
