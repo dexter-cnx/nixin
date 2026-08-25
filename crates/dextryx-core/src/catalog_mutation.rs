@@ -162,7 +162,9 @@ mod tests {
 
         assert_eq!(
             validate_catalog_projection(&projection),
-            Err(CatalogInvariantError::DuplicateAssetId("asset-1".to_string()))
+            Err(CatalogInvariantError::DuplicateAssetId(
+                "asset-1".to_string()
+            ))
         );
     }
 
