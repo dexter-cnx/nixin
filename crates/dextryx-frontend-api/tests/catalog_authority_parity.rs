@@ -118,7 +118,10 @@ fn candidate_storage_preserves_parity_and_mutation_semantics() {
 
     let after = snapshot_catalog_repository(&store).expect("post-mutation snapshot must qualify");
     assert_eq!(after.active_workplace_id.as_deref(), Some("workplace-my"));
-    assert!(after.assets.iter().all(|asset| asset.id != "asset-linked-a"));
+    assert!(after
+        .assets
+        .iter()
+        .all(|asset| asset.id != "asset-linked-a"));
     let relinked = after
         .assets
         .iter()
