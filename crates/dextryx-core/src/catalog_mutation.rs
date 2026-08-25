@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    AssetId, CatalogAsset, CatalogReadRepository, CatalogRepository, CatalogRepositoryError,
+    AssetId, CatalogAsset, CatalogReadRepository, CatalogRepositoryError, SyntheticCatalogRepository,
     WorkplaceId,
 };
 
@@ -28,9 +28,10 @@ pub enum CatalogMutationResult {
 
 /// Authoritative mutation port below the frontend/application layer.
 ///
-/// Implementations must apply a mutation to the single durable catalog authority
-/// and expose the resulting state through `CatalogReadRepository`. A projection,
-/// cache, or GPUI-local store must never implement this trait as a second writer.
+/// Implementations must be explicitly authorized. Projection, cache, and
+/// frontend-local stores must never gain this trait through a blanket impl.
+/// The same adapter must expose post-mutation state through
+/// `CatalogReadRepository` so read-after-write observes one authority.
 pub trait AuthoritativeCatalogPersistence: CatalogReadRepository {
     fn apply_mutation(
         &mut self,
@@ -38,28 +39,29 @@ pub trait AuthoritativeCatalogPersistence: CatalogReadRepository {
     ) -> Result<CatalogMutationResult, CatalogRepositoryError>;
 }
 
-impl<T> AuthoritativeCatalogPersistence for T
-where
-    T: CatalogRepository,
-{
+/// Explicit test/contract implementation only.
+///
+/// Production persistence adapters must opt in with their own explicit
+/// implementation when the durable-authority cutover is approved.
+impl AuthoritativeCatalogPersistence for SyntheticCatalogRepository {
     fn apply_mutation(
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
         match mutation {
             CatalogMutation::SetActiveWorkplace { workplace_id } => {
-                self.set_active_workplace(&workplace_id)?;
+                crate::CatalogRepository::set_active_workplace(self, &workplace_id)?;
                 Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
             }
             CatalogMutation::RelinkAsset {
                 asset_id,
                 replacement_path,
             } => {
-                self.relink_asset(&asset_id, replacement_path)?;
+                crate::CatalogRepository::relink_asset(self, &asset_id, replacement_path)?;
                 Ok(CatalogMutationResult::AssetRelinked { asset_id })
             }
             CatalogMutation::RemoveFromCatalog { asset_id } => {
-                let asset = self.remove_from_catalog(&asset_id)?;
+                let asset = crate::CatalogRepository::remove_from_catalog(self, &asset_id)?;
                 Ok(CatalogMutationResult::AssetRemovedFromCatalog { asset })
             }
         }
@@ -69,7 +71,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SyntheticCatalogRepository;
 
     #[test]
     fn mutations_are_visible_through_the_same_authoritative_read_port() {
