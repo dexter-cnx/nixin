@@ -5,8 +5,9 @@ pub use file_candidate::*;
 
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
-    CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationResult,
-    CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository, WorkplaceSummary,
+    CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationError,
+    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
+    CatalogSnapshotRepository, WorkplaceSummary,
 };
 
 /// Non-durable M4 qualification adapter.
@@ -36,6 +37,55 @@ impl CandidateCatalogStore {
             .iter_mut()
             .find(|asset| asset.id == asset_id)
             .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.to_string()))
+    }
+
+    /// Qualification-only semantic mutation helper.
+    ///
+    /// This does not claim durable-authority behavior and therefore reports only
+    /// repository/domain failures. The authoritative trait wrapper below lifts
+    /// those failures into `CatalogMutationError`.
+    pub fn apply_qualification_mutation(
+        &mut self,
+        mutation: CatalogMutation,
+    ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
+        match mutation {
+            CatalogMutation::SetActiveWorkplace { workplace_id } => {
+                if !self
+                    .projection
+                    .workplaces
+                    .iter()
+                    .any(|workplace| workplace.id == workplace_id)
+                {
+                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id));
+                }
+                self.projection.active_workplace_id = Some(workplace_id.clone());
+                Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
+            }
+            CatalogMutation::RelinkAsset {
+                asset_id,
+                replacement_path,
+            } => {
+                let asset = self.asset_mut(&asset_id)?;
+                match asset.storage_mode {
+                    dextryx_core::AssetStorageMode::Linked => asset.source_path = replacement_path,
+                    dextryx_core::AssetStorageMode::Managed => {
+                        asset.managed_path = Some(replacement_path)
+                    }
+                }
+                asset.missing = false;
+                Ok(CatalogMutationResult::AssetRelinked { asset_id })
+            }
+            CatalogMutation::RemoveFromCatalog { asset_id } => {
+                let index = self
+                    .projection
+                    .assets
+                    .iter()
+                    .position(|asset| asset.id == asset_id)
+                    .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.clone()))?;
+                let asset = self.projection.assets.remove(index);
+                Ok(CatalogMutationResult::AssetRemovedFromCatalog { asset })
+            }
+        }
     }
 }
 
@@ -86,45 +136,9 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
     fn apply_mutation(
         &mut self,
         mutation: CatalogMutation,
-    ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
-        match mutation {
-            CatalogMutation::SetActiveWorkplace { workplace_id } => {
-                if !self
-                    .projection
-                    .workplaces
-                    .iter()
-                    .any(|workplace| workplace.id == workplace_id)
-                {
-                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id));
-                }
-                self.projection.active_workplace_id = Some(workplace_id.clone());
-                Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
-            }
-            CatalogMutation::RelinkAsset {
-                asset_id,
-                replacement_path,
-            } => {
-                let asset = self.asset_mut(&asset_id)?;
-                match asset.storage_mode {
-                    dextryx_core::AssetStorageMode::Linked => asset.source_path = replacement_path,
-                    dextryx_core::AssetStorageMode::Managed => {
-                        asset.managed_path = Some(replacement_path)
-                    }
-                }
-                asset.missing = false;
-                Ok(CatalogMutationResult::AssetRelinked { asset_id })
-            }
-            CatalogMutation::RemoveFromCatalog { asset_id } => {
-                let index = self
-                    .projection
-                    .assets
-                    .iter()
-                    .position(|asset| asset.id == asset_id)
-                    .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.clone()))?;
-                let asset = self.projection.assets.remove(index);
-                Ok(CatalogMutationResult::AssetRemovedFromCatalog { asset })
-            }
-        }
+    ) -> Result<CatalogMutationResult, CatalogMutationError> {
+        self.apply_qualification_mutation(mutation)
+            .map_err(Into::into)
     }
 }
 
@@ -158,5 +172,31 @@ mod tests {
             CandidateCatalogStore::from_projection(projection),
             Err(CatalogInvariantError::AssetReferencesUnknownWorkplace { .. })
         ));
+    }
+
+    #[test]
+    fn concrete_store_apply_mutation_uses_typed_authoritative_contract() {
+        let mut store = CandidateCatalogStore::from_projection(AuthoritativeCatalogProjection {
+            workplaces: vec![WorkplaceSummary {
+                id: "workplace-1".to_string(),
+                name: "My workplace".to_string(),
+            }],
+            active_workplace_id: Some("workplace-1".to_string()),
+            assets: Vec::new(),
+        })
+        .unwrap();
+
+        let error = store
+            .apply_mutation(CatalogMutation::SetActiveWorkplace {
+                workplace_id: "missing".to_string(),
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            CatalogMutationError::Repository(CatalogRepositoryError::UnknownWorkplace(
+                "missing".to_string()
+            ))
+        );
     }
 }

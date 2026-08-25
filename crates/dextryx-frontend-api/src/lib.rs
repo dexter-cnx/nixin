@@ -11,8 +11,8 @@ use std::sync::{
 
 use dextryx_core::{
     filter_assets, AssetStorageMode, AuthoritativeCatalogPersistence, CatalogAsset, CatalogFilter,
-    CatalogMutation, CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
-    WorkplaceSummary,
+    CatalogMutation, CatalogMutationError, CatalogMutationResult, CatalogReadRepository,
+    CatalogRepositoryError, WorkplaceSummary,
 };
 
 pub type OperationId = String;
@@ -51,6 +51,7 @@ pub enum AssetQuery {
 pub enum FrontendApiError {
     UnknownWorkplace(String),
     UnknownAsset(String),
+    Persistence(String),
 }
 
 impl From<CatalogRepositoryError> for FrontendApiError {
@@ -58,6 +59,15 @@ impl From<CatalogRepositoryError> for FrontendApiError {
         match value {
             CatalogRepositoryError::UnknownWorkplace(id) => Self::UnknownWorkplace(id),
             CatalogRepositoryError::UnknownAsset(id) => Self::UnknownAsset(id),
+        }
+    }
+}
+
+impl From<CatalogMutationError> for FrontendApiError {
+    fn from(value: CatalogMutationError) -> Self {
+        match value {
+            CatalogMutationError::Repository(error) => error.into(),
+            CatalogMutationError::Persistence(message) => Self::Persistence(message),
         }
     }
 }
@@ -337,6 +347,14 @@ fn map_asset(asset: CatalogAsset) -> AssetSummaryDto {
 mod tests {
     use super::*;
     use dextryx_core::SyntheticCatalogRepository;
+
+    #[test]
+    fn mutation_persistence_error_maps_without_becoming_domain_error() {
+        assert_eq!(
+            FrontendApiError::from(CatalogMutationError::Persistence("disk full".to_string())),
+            FrontendApiError::Persistence("disk full".to_string())
+        );
+    }
 
     #[test]
     fn read_application_exposes_authoritative_queries_without_mutation_api() {
