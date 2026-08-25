@@ -2,7 +2,7 @@ use std::ops::Range;
 
 pub const GRID_COLUMNS: usize = 4;
 pub const GRID_ITEM_WIDTH: f32 = 184.0;
-pub const GRID_ITEM_HEIGHT: f32 = 104.0;
+pub const GRID_ITEM_HEIGHT: f32 = 132.0;
 pub const GRID_GAP: f32 = 12.0;
 pub const GRID_ROW_STRIDE: f32 = GRID_ITEM_HEIGHT + GRID_GAP;
 pub const GRID_VIEW_HEIGHT: f32 = 348.0;
