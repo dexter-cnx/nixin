@@ -351,9 +351,7 @@ mod tests {
     #[test]
     fn mutation_persistence_error_maps_without_becoming_domain_error() {
         assert_eq!(
-            FrontendApiError::from(CatalogMutationError::Persistence(
-                "disk full".to_string()
-            )),
+            FrontendApiError::from(CatalogMutationError::Persistence("disk full".to_string())),
             FrontendApiError::Persistence("disk full".to_string())
         );
     }
