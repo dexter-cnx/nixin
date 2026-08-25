@@ -20,9 +20,9 @@
 - **M0 frontend-neutral Rust architecture foundation: COMPLETE, merged via PR #21.**
 - **M1 production GPUI bootstrap + command/state shell: COMPLETE, merged via PR #22.**
 - **M2 read-only authoritative Workplace/catalog adapter: COMPLETE, merged via PR #23 and PR #24.**
-- **M3 real Grid/Filmstrip catalog browsing: COMPLETE, merged via PR #25, PR #26 and PR #27.**
-- **M4 GPUI import/catalog mutations + authoritative persistence adapter: NEXT.**
-- Active closeout branch: `feature/m3-closeout-evidence`.
+- **M3 real Grid/Filmstrip catalog browsing: COMPLETE, merged through PR #27; closeout evidence is in PR #28.**
+- **M4 import/catalog mutations + authoritative persistence adapter: NEXT.**
+- Active branch: `feature/m3-closeout-evidence`.
 
 ## Current architectural direction
 
@@ -125,7 +125,8 @@ Flutter/Hive durable catalog authority
   -> CatalogReadApplication
   -> DesktopAppState authoritative DTOs
   -> virtualized GPUI Grid + Filmstrip
-  -> bounded disposable raster thumbnail cache
+  -> bounded in-memory thumbnail working set
+  -> disposable system-temp raster thumbnail files
 ```
 
 Completed M3 capabilities:
@@ -144,41 +145,35 @@ Completed M3 capabilities:
 - no GPUI-specific durable catalog or thumbnail authority was introduced;
 - no GPUI-to-Hive dependency was introduced.
 
+Important M3 limitation:
+
+- the 64-ID cap bounds the active in-memory working set only;
+- generated PNG files currently accumulate under `temp_dir()/dextryx-images/thumbnails-v1`;
+- there is no GPUI-side disk-cache entry/byte pruning yet, and old size/mtime-keyed versions are not eagerly deleted;
+- this cache is disposable and non-authoritative, but filesystem-pressure eviction remains an explicit follow-up before calling GPUI thumbnail storage globally bounded.
+
 PR #27 final exact head `6b7e797db1b9e82079578e2b9cbcb02873cf2ddc` passed:
 
 - CI #483
 - GPUI Production Shell #55
 - Full validation #93
 
-PR #27 squash-merged to `main` as `ada6a813e7fadb7c458db0f9984e38c00e4e4c86`.
-
 Reference: `docs/M3_CATALOG_BROWSING.md`.
 
-## M4 — GPUI import/catalog mutations + authoritative persistence adapter
+## M4 — import/catalog mutations + authoritative persistence adapter
 
-M4 is the next implementation milestone.
+M4 is the next implementation milestone after M3 closeout merges.
 
-Goal:
+Required direction:
 
-- move GPUI beyond read-only projection browsing without creating a second durable catalog;
-- expose frontend-neutral mutation application services for import and catalog operations;
-- preserve current linked/managed semantics, duplicate safety, staging/rollback, missing/relink and catalog-only removal rules;
-- introduce exactly one authoritative persistence boundary usable from Rust without GPUI coupling;
-- keep Flutter/Hive authoritative until the replacement adapter is explicitly validated and cut over;
-- avoid image-processing/RAW scope in M4.
+1. define frontend-neutral mutation commands/results for Workplace/catalog operations;
+2. define an authoritative persistence port below the application layer;
+3. preserve exactly one durable catalog authority during transition;
+4. wire GPUI import/catalog commands through shared application logic, never directly to Hive;
+5. add mutation projection refresh/consistency tests;
+6. only cut durable authority away from Flutter/Hive in an explicit persistence migration slice.
 
-Recommended M4 slice order:
-
-1. define mutation commands/results in `dextryx-frontend-api` without GPUI types;
-2. add authoritative persistence port/adapter contract around existing catalog semantics;
-3. wire GPUI Import command to shared Rust import orchestration, initially against a test/in-memory authority;
-4. implement linked import persistence path;
-5. implement managed import persistence path with staging/rollback parity;
-6. add relink and catalog-only removal mutations;
-7. validate cross-frontend/catalog parity before any durable-authority cutover;
-8. document migration/cutover and rollback plan.
-
-Do **not** make GPUI write the existing TSV read projection as an authority. The projection remains disposable read transport only.
+M4 also owns the GPUI thumbnail-cache filesystem-pressure follow-up: add bounded disk eviction/pruning (entry and/or byte limits), stale-version cleanup, and tests without turning the thumbnail cache into durable authority.
 
 ## Migration queue
 
@@ -187,7 +182,7 @@ DONE      M0 frontend-neutral Rust architecture foundation
 DONE      M1 production GPUI bootstrap + command/state shell
 DONE      M2 read-only authoritative Workplace/catalog adapter
 DONE      M3 real Grid/Filmstrip catalog browsing
-CURRENT   M4 import/catalog mutations + authoritative persistence adapter
+NEXT      M4 import/catalog mutations + authoritative persistence adapter
 THEN      M5 Develop controls around existing Rust engine
 THEN      M6 desktop export/settings/polish
 THEN      M7 retire Flutter desktop only after parity/validation gates
@@ -214,27 +209,29 @@ GPUI migration must preserve embedded RAW preview behavior, raster preview, Deve
 ## Documentation map
 
 ```text
-docs/PROJECT_HANDOFF.md               canonical current status / execution queue
-docs/FRONTEND_NEUTRAL_CORE.md         mandatory frontend-neutral Rust core contract
-docs/M0_FRONTEND_API_FOUNDATION.md    completed M0 foundation and evidence
-docs/M1_GPUI_PRODUCTION_SHELL.md      completed M1 implementation and acceptance evidence
+docs/PROJECT_HANDOFF.md             canonical current status / execution queue
+docs/FRONTEND_NEUTRAL_CORE.md       mandatory frontend-neutral Rust core contract
+docs/M0_FRONTEND_API_FOUNDATION.md  completed M0 foundation and evidence
+docs/M1_GPUI_PRODUCTION_SHELL.md    completed M1 implementation and acceptance evidence
 docs/M2_AUTHORITATIVE_READ_ADAPTER.md completed M2 read-path design/evidence
-docs/M3_CATALOG_BROWSING.md           completed M3 browser design/acceptance evidence
-docs/GPUI_ARCHITECTURE_REVIEW.md      GPUI architecture evidence / migration decision
-docs/GPUI_DESKTOP_SPIKE.md            experiment implementation and validation
-docs/GPUI_S4_COMPATIBILITY.md         compatibility/platform gate
-docs/CODE_WALKTHROUGH.md              production code ownership / data flow
-docs/W4_DESKTOP_VALIDATION.md         outstanding physical W4 validation
-docs/CI_ARCHITECTURE.md               CI contract
+docs/M3_CATALOG_BROWSING.md         completed M3 browser implementation/evidence + deferred disk-cache pruning
+docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI architecture evidence / migration decision
+docs/GPUI_DESKTOP_SPIKE.md          experiment implementation and validation
+docs/GPUI_S4_COMPATIBILITY.md       compatibility/platform gate
+docs/CODE_WALKTHROUGH.md            production code ownership / data flow
+docs/W4_DESKTOP_VALIDATION.md       outstanding physical W4 validation
+docs/CI_ARCHITECTURE.md             CI contract
 ```
 
 ## Immediate execution order
 
 ```text
-DONE      merge M3 PR #27 into main
-CURRENT   close M3 documentation/evidence on feature/m3-closeout-evidence
-NEXT      merge M3 closeout PR after green CI/review
-NEXT      branch M4 mutation/persistence foundation from merged main
-NEXT      define frontend-neutral mutation API + persistence port
+DONE      merge M2 PR #24 into main
+DONE      M3 Filmstrip / Grid / shared selection / pixel-bounded thumbnail source
+CURRENT   merge M3 closeout evidence PR #28
+NEXT      branch M4 mutation API + persistence port foundation
+NEXT      GPUI import/catalog command wiring
+NEXT      GPUI thumbnail disk-cache eviction/pruning hardening
+NEXT      authoritative persistence cutover only after dual-authority risks are eliminated
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
