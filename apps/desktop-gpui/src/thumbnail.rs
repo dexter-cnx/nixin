@@ -10,7 +10,7 @@ use dextryx_frontend_api::AssetSummaryDto;
 use image::ImageFormat;
 
 pub const MAX_THUMBNAIL_WORKING_SET: usize = 64;
-const MAX_THUMBNAILS_GENERATED_PER_SYNC: usize = 2;
+const MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC: usize = 2;
 const THUMBNAIL_MAX_WIDTH: u32 = 320;
 const THUMBNAIL_MAX_HEIGHT: u32 = 200;
 
@@ -51,17 +51,19 @@ impl ThumbnailWorkingSet {
             }
         }
 
-        let mut generated = 0;
+        let mut attempts = 0;
         for asset_id in ordered_ids {
-            if generated >= MAX_THUMBNAILS_GENERATED_PER_SYNC {
+            if attempts >= MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC {
                 break;
             }
             let Some(asset) = assets.iter().find(|asset| asset.id == asset_id) else {
                 continue;
             };
-            if prepare_thumbnail(asset).unwrap_or(false) {
-                generated += 1;
+            if asset.missing || !is_supported_raster(asset) || thumbnail_exists(asset) {
+                continue;
             }
+            attempts += 1;
+            let _ = prepare_thumbnail(asset);
         }
     }
 
@@ -96,20 +98,16 @@ fn is_supported_raster(asset: &AssetSummaryDto) -> bool {
         .is_some_and(|extension| SUPPORTED_RASTER_EXTENSIONS.contains(&extension.as_str()))
 }
 
-fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<bool, String> {
-    if asset.missing || !is_supported_raster(asset) {
-        return Ok(false);
-    }
+fn thumbnail_exists(asset: &AssetSummaryDto) -> bool {
+    cache_path(asset).is_some_and(|path| path.is_file())
+}
 
+fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<(), String> {
     let Some(cache_path) = cache_path(asset) else {
-        return Ok(false);
+        return Ok(());
     };
-    if cache_path.is_file() {
-        return Ok(false);
-    }
-
     let Some(parent) = cache_path.parent() else {
-        return Ok(false);
+        return Ok(());
     };
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
 
@@ -120,7 +118,7 @@ fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<bool, String> {
         .save_with_format(&partial, ImageFormat::Png)
         .map_err(|error| error.to_string())?;
     fs::rename(&partial, &cache_path).map_err(|error| error.to_string())?;
-    Ok(true)
+    Ok(())
 }
 
 fn cache_path(asset: &AssetSummaryDto) -> Option<PathBuf> {
