@@ -1,3 +1,6 @@
+mod cutover;
+pub use cutover::*;
+
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
     CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationResult,
