@@ -5,8 +5,9 @@ pub use file_candidate::*;
 
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
-    CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationResult,
-    CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository, WorkplaceSummary,
+    CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationError,
+    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository,
+    WorkplaceSummary,
 };
 
 /// Non-durable M4 qualification adapter.
@@ -86,7 +87,7 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
     fn apply_mutation(
         &mut self,
         mutation: CatalogMutation,
-    ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
+    ) -> Result<CatalogMutationResult, CatalogMutationError> {
         match mutation {
             CatalogMutation::SetActiveWorkplace { workplace_id } => {
                 if !self
@@ -95,7 +96,7 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
                     .iter()
                     .any(|workplace| workplace.id == workplace_id)
                 {
-                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id));
+                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id).into());
                 }
                 self.projection.active_workplace_id = Some(workplace_id.clone());
                 Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
