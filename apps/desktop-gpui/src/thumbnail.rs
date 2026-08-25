@@ -73,10 +73,12 @@ impl ThumbnailWorkingSet {
         }
 
         if generated_any || !self.cache_maintenance_done {
+            let protected_paths = self.active_thumbnail_paths(assets);
             let _ = prune_thumbnail_cache(
                 &cache_root(),
                 MAX_THUMBNAIL_CACHE_ENTRIES,
                 MAX_THUMBNAIL_CACHE_BYTES,
+                &protected_paths,
             );
             self.cache_maintenance_done = true;
         }
@@ -101,6 +103,15 @@ impl ThumbnailWorkingSet {
             return false;
         }
         self.asset_ids.insert(asset_id.to_string())
+    }
+
+    fn active_thumbnail_paths(&self, assets: &[AssetSummaryDto]) -> HashSet<PathBuf> {
+        assets
+            .iter()
+            .filter(|asset| self.asset_ids.contains(&asset.id))
+            .filter_map(cache_path)
+            .filter(|path| path.is_file())
+            .collect()
     }
 }
 
@@ -211,7 +222,8 @@ fn remove_stale_versions(
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !name.starts_with(&prefix) || path.file_name() == keep_name || name.contains(".partial.") {
+        if !name.starts_with(&prefix) || path.file_name() == keep_name || name.contains(".partial.")
+        {
             continue;
         }
         let _ = fs::remove_file(path);
@@ -230,6 +242,7 @@ fn prune_thumbnail_cache(
     directory: &Path,
     max_entries: usize,
     max_bytes: u64,
+    protected_paths: &HashSet<PathBuf>,
 ) -> std::io::Result<()> {
     if !directory.is_dir() {
         return Ok(());
@@ -274,6 +287,9 @@ fn prune_thumbnail_cache(
     for entry in entries {
         if entry_count <= max_entries && byte_count <= max_bytes {
             break;
+        }
+        if protected_paths.contains(&entry.path) {
+            continue;
         }
         if fs::remove_file(&entry.path).is_ok() {
             entry_count = entry_count.saturating_sub(1);
@@ -377,11 +393,15 @@ mod tests {
     fn prune_enforces_entry_and_byte_limits() {
         let directory = temp_test_dir("prune");
         for index in 0..5 {
-            fs::write(directory.join(format!("{index}.png")), vec![index as u8; 16]).unwrap();
+            fs::write(
+                directory.join(format!("{index}.png")),
+                vec![index as u8; 16],
+            )
+            .unwrap();
         }
         fs::write(directory.join("ignored.partial.png"), vec![0_u8; 128]).unwrap();
 
-        prune_thumbnail_cache(&directory, 3, 48).unwrap();
+        prune_thumbnail_cache(&directory, 3, 48, &HashSet::new()).unwrap();
 
         let regular_count = fs::read_dir(&directory)
             .unwrap()
@@ -395,6 +415,22 @@ mod tests {
             .count();
         assert_eq!(regular_count, 3);
         assert!(directory.join("ignored.partial.png").is_file());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn prune_keeps_protected_active_thumbnail() {
+        let directory = temp_test_dir("protected");
+        let protected = directory.join("active.png");
+        let evictable = directory.join("evictable.png");
+        fs::write(&protected, vec![1_u8; 16]).unwrap();
+        fs::write(&evictable, vec![2_u8; 16]).unwrap();
+
+        let protected_paths = HashSet::from([protected.clone()]);
+        prune_thumbnail_cache(&directory, 1, 16, &protected_paths).unwrap();
+
+        assert!(protected.is_file());
+        assert!(!evictable.exists());
         let _ = fs::remove_dir_all(directory);
     }
 }
