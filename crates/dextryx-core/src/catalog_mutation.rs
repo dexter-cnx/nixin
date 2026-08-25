@@ -1,3 +1,7 @@
+#[path = "catalog_snapshot.rs"]
+mod catalog_snapshot;
+pub use catalog_snapshot::*;
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 
