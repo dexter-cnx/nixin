@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
     CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationResult,
@@ -127,6 +125,8 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use dextryx_core::{AssetStorageMode, WorkplaceSummary};
 
