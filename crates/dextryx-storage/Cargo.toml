@@ -6,6 +6,3 @@ publish = false
 
 [dependencies]
 dextryx-core = { path = "../dextryx-core" }
-
-[dev-dependencies]
-dextryx-frontend-api = { path = "../dextryx-frontend-api" }
