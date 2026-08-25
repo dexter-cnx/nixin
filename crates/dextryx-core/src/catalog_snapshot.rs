@@ -79,7 +79,10 @@ mod tests {
             .iter()
             .find(|asset| asset.id == "asset-000000")
             .unwrap();
-        assert_eq!(relinked.effective_path(), Path::new("/replacement/image.jpg"));
+        assert_eq!(
+            relinked.effective_path(),
+            Path::new("/replacement/image.jpg")
+        );
         assert!(!relinked.missing);
 
         let removed = repository
