@@ -235,7 +235,7 @@ impl DesktopShell {
             } else {
                 storage.to_string()
             };
-            let thumbnail = self.thumbnail_tile(&asset, 38.0);
+            let thumbnail = self.thumbnail_tile(&asset, 22.0);
 
             canvas = canvas.child(
                 div()
