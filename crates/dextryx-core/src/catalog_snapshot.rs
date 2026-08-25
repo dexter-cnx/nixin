@@ -1,6 +1,10 @@
+use super::{
+    validate_catalog_projection, AuthoritativeCatalogPersistence, CatalogInvariantError,
+    CatalogMutation, CatalogMutationResult,
+};
 use crate::{
-    validate_catalog_projection, AuthoritativeCatalogProjection, CatalogInvariantError,
-    CatalogReadRepository, CatalogRepositoryError,
+    AuthoritativeCatalogProjection, CatalogReadRepository, CatalogRepositoryError,
+    SyntheticCatalogRepository,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,13 +47,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::*;
-    use crate::{
-        AuthoritativeCatalogPersistence, CatalogMutation, CatalogMutationResult,
-        SyntheticCatalogRepository,
-    };
 
     #[test]
     fn synthetic_authority_qualifies_before_and_after_mutations() {
@@ -81,7 +81,7 @@ mod tests {
             .iter()
             .find(|asset| asset.id == "asset-000000")
             .unwrap();
-        assert_eq!(relinked.effective_path(), PathBuf::from("/replacement/image.jpg"));
+        assert_eq!(relinked.effective_path(), Path::new("/replacement/image.jpg"));
         assert!(!relinked.missing);
 
         let removed = repository
