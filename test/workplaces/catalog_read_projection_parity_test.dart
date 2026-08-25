@@ -8,25 +8,28 @@ import 'package:nixin_studio_v8/workplaces/domain/repositories/workplace_reposit
 import 'package:nixin_studio_v8/workplaces/domain/workplace.dart';
 
 void main() {
-  test('Hive-authority semantics serialize to shared Rust parity fixture', () async {
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'dextryx-catalog-parity-',
-    );
-    addTearDown(() => tempDirectory.delete(recursive: true));
+  test(
+    'Hive-authority semantics serialize to shared Rust parity fixture',
+    () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'dextryx-catalog-parity-',
+      );
+      addTearDown(() => tempDirectory.delete(recursive: true));
 
-    final writer = CatalogReadProjectionWriter(
-      workplaceRepository: _WorkplaceFixtureRepository(),
-      assetRepository: _AssetFixtureRepository(),
-      projectionFile: File('${tempDirectory.path}/projection.tsv'),
-    );
+      final writer = CatalogReadProjectionWriter(
+        workplaceRepository: _WorkplaceFixtureRepository(),
+        assetRepository: _AssetFixtureRepository(),
+        projectionFile: File('${tempDirectory.path}/projection.tsv'),
+      );
 
-    final output = await writer.refresh();
-    final expected = await File(
-      'test/fixtures/catalog_authority_parity_v1.tsv',
-    ).readAsString();
+      final output = await writer.refresh();
+      final expected = await File(
+        'test/fixtures/catalog_authority_parity_v1.tsv',
+      ).readAsString();
 
-    expect(await output.readAsString(), expected);
-  });
+      expect(await output.readAsString(), expected);
+    },
+  );
 }
 
 final class _WorkplaceFixtureRepository implements WorkplaceRepository {
@@ -50,10 +53,8 @@ final class _WorkplaceFixtureRepository implements WorkplaceRepository {
   Future<List<Workplace>> getAll() async => workplaces;
 
   @override
-  Future<Workplace?> getById(String id) async => _firstWhereOrNull(
-        workplaces,
-        (workplace) => workplace.id == id,
-      );
+  Future<Workplace?> getById(String id) async =>
+      _firstWhereOrNull(workplaces, (workplace) => workplace.id == id);
 
   @override
   Future<String?> getCurrentWorkplaceId() async => 'workplace-travel';
@@ -116,10 +117,8 @@ final class _AssetFixtureRepository implements AssetRepository {
       .toList(growable: false);
 
   @override
-  Future<AssetRecord?> getById(String id) async => _firstWhereOrNull(
-        assets,
-        (asset) => asset.id == id,
-      );
+  Future<AssetRecord?> getById(String id) async =>
+      _firstWhereOrNull(assets, (asset) => asset.id == id);
 
   @override
   Future<void> delete(String id) async {}
