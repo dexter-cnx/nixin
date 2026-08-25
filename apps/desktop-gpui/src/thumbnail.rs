@@ -14,9 +14,8 @@ const MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC: usize = 2;
 const THUMBNAIL_MAX_WIDTH: u32 = 320;
 const THUMBNAIL_MAX_HEIGHT: u32 = 200;
 
-const SUPPORTED_RASTER_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp",
-];
+const SUPPORTED_RASTER_EXTENSIONS: &[&str] =
+    &["jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp"];
 
 #[derive(Clone, Debug, Default)]
 pub struct ThumbnailWorkingSet {
