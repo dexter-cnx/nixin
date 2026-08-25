@@ -190,10 +190,18 @@ where
     let (temp, mut file) = create_temp_snapshot_file(path)?;
     check_fault(injector, PersistenceFaultPoint::AfterTempCreate)?;
 
-    file.write_all(&bytes).map_err(io_error)?;
+    if let Err(error) = file.write_all(&bytes) {
+        drop(file);
+        let _ = fs::remove_file(&temp);
+        return Err(io_error(error));
+    }
     check_fault(injector, PersistenceFaultPoint::AfterSnapshotWrite)?;
     check_fault(injector, PersistenceFaultPoint::BeforeFileSync)?;
-    file.sync_all().map_err(io_error)?;
+    if let Err(error) = file.sync_all() {
+        drop(file);
+        let _ = fs::remove_file(&temp);
+        return Err(io_error(error));
+    }
     check_fault(injector, PersistenceFaultPoint::AfterFileSync)?;
     drop(file);
 
@@ -202,10 +210,16 @@ where
     // the next M4 slice can replace it with a qualified atomic/recovery strategy.
     check_fault(injector, PersistenceFaultPoint::BeforeDestinationReplace)?;
     if path.exists() {
-        fs::remove_file(path).map_err(io_error)?;
+        if let Err(error) = fs::remove_file(path) {
+            let _ = fs::remove_file(&temp);
+            return Err(io_error(error));
+        }
         check_fault(injector, PersistenceFaultPoint::AfterDestinationRemoved)?;
     }
-    fs::rename(&temp, path).map_err(io_error)?;
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(io_error(error));
+    }
     check_fault(injector, PersistenceFaultPoint::AfterDestinationRename)?;
     Ok(())
 }
