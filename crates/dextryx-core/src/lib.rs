@@ -1,3 +1,6 @@
+mod catalog_mutation;
+pub use catalog_mutation::*;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

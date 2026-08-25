@@ -10,8 +10,9 @@ use std::sync::{
 };
 
 use dextryx_core::{
-    filter_assets, AssetStorageMode, CatalogAsset, CatalogFilter, CatalogReadRepository,
-    CatalogRepository, CatalogRepositoryError, WorkplaceSummary,
+    filter_assets, AssetStorageMode, AuthoritativeCatalogPersistence, CatalogAsset, CatalogFilter,
+    CatalogMutation, CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
+    WorkplaceSummary,
 };
 
 pub type OperationId = String;
@@ -191,13 +192,16 @@ where
     }
 }
 
+/// Mutation-capable application service backed by the single authoritative
+/// catalog persistence port. Frontends receive DTOs/events only; they never
+/// acquire direct storage authority.
 pub struct CatalogApplication<R> {
     repository: R,
 }
 
 impl<R> CatalogApplication<R>
 where
-    R: CatalogRepository,
+    R: AuthoritativeCatalogPersistence,
 {
     pub fn new(repository: R) -> Self {
         Self { repository }
@@ -220,10 +224,12 @@ where
         &mut self,
         workplace_id: &str,
     ) -> Result<FrontendEvent, FrontendApiError> {
-        self.repository.set_active_workplace(workplace_id)?;
-        Ok(FrontendEvent::ActiveWorkplaceChanged {
-            workplace_id: workplace_id.to_string(),
-        })
+        let result = self
+            .repository
+            .apply_mutation(CatalogMutation::SetActiveWorkplace {
+                workplace_id: workplace_id.to_string(),
+            })?;
+        Ok(map_mutation_event(result))
     }
 
     pub fn relink_asset(
@@ -231,26 +237,51 @@ where
         asset_id: &str,
         replacement_path: PathBuf,
     ) -> Result<FrontendEvent, FrontendApiError> {
-        self.repository.relink_asset(asset_id, replacement_path)?;
-        Ok(FrontendEvent::AssetRelinked {
-            asset_id: asset_id.to_string(),
-        })
+        let result = self
+            .repository
+            .apply_mutation(CatalogMutation::RelinkAsset {
+                asset_id: asset_id.to_string(),
+                replacement_path,
+            })?;
+        Ok(map_mutation_event(result))
     }
 
     pub fn remove_from_catalog(
         &mut self,
         asset_id: &str,
     ) -> Result<(AssetSummaryDto, FrontendEvent), FrontendApiError> {
-        let removed = self.repository.remove_from_catalog(asset_id)?;
-        let dto = map_asset(removed);
-        let event = FrontendEvent::AssetRemovedFromCatalog {
-            asset_id: asset_id.to_string(),
-        };
-        Ok((dto, event))
+        let result = self
+            .repository
+            .apply_mutation(CatalogMutation::RemoveFromCatalog {
+                asset_id: asset_id.to_string(),
+            })?;
+        match result {
+            CatalogMutationResult::AssetRemovedFromCatalog { asset } => {
+                let event = FrontendEvent::AssetRemovedFromCatalog {
+                    asset_id: asset.id.clone(),
+                };
+                Ok((map_asset(asset), event))
+            }
+            other => unreachable!("remove mutation returned unexpected result: {other:?}"),
+        }
     }
 
     pub fn into_repository(self) -> R {
         self.repository
+    }
+}
+
+fn map_mutation_event(result: CatalogMutationResult) -> FrontendEvent {
+    match result {
+        CatalogMutationResult::ActiveWorkplaceChanged { workplace_id } => {
+            FrontendEvent::ActiveWorkplaceChanged { workplace_id }
+        }
+        CatalogMutationResult::AssetRelinked { asset_id } => {
+            FrontendEvent::AssetRelinked { asset_id }
+        }
+        CatalogMutationResult::AssetRemovedFromCatalog { asset } => {
+            FrontendEvent::AssetRemovedFromCatalog { asset_id: asset.id }
+        }
     }
 }
 
@@ -322,5 +353,24 @@ mod tests {
 
         assert!(!missing.is_empty());
         assert!(missing.iter().all(|asset| asset.missing));
+    }
+
+    #[test]
+    fn mutation_application_reads_back_authoritative_state_after_write() {
+        let mut app = CatalogApplication::new(SyntheticCatalogRepository::new(4));
+
+        let event = app
+            .set_active_workplace("workplace-secondary")
+            .expect("mutation should succeed");
+        assert_eq!(
+            event,
+            FrontendEvent::ActiveWorkplaceChanged {
+                workplace_id: "workplace-secondary".to_string(),
+            }
+        );
+        assert!(app
+            .list_workplaces()
+            .iter()
+            .any(|workplace| workplace.id == "workplace-secondary" && workplace.is_active));
     }
 }
