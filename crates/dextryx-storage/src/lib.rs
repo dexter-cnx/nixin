@@ -44,7 +44,7 @@ impl CandidateCatalogStore {
     /// This does not claim durable-authority behavior and therefore reports only
     /// repository/domain failures. The authoritative trait wrapper below lifts
     /// those failures into `CatalogMutationError`.
-    pub fn apply_mutation(
+    pub fn apply_qualification_mutation(
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
@@ -137,7 +137,7 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, CatalogMutationError> {
-        CandidateCatalogStore::apply_mutation(self, mutation).map_err(Into::into)
+        self.apply_qualification_mutation(mutation).map_err(Into::into)
     }
 }
 
@@ -171,5 +171,31 @@ mod tests {
             CandidateCatalogStore::from_projection(projection),
             Err(CatalogInvariantError::AssetReferencesUnknownWorkplace { .. })
         ));
+    }
+
+    #[test]
+    fn concrete_store_apply_mutation_uses_typed_authoritative_contract() {
+        let mut store = CandidateCatalogStore::from_projection(AuthoritativeCatalogProjection {
+            workplaces: vec![WorkplaceSummary {
+                id: "workplace-1".to_string(),
+                name: "My workplace".to_string(),
+            }],
+            active_workplace_id: Some("workplace-1".to_string()),
+            assets: Vec::new(),
+        })
+        .unwrap();
+
+        let error = store
+            .apply_mutation(CatalogMutation::SetActiveWorkplace {
+                workplace_id: "missing".to_string(),
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            CatalogMutationError::Repository(CatalogRepositoryError::UnknownWorkplace(
+                "missing".to_string()
+            ))
+        );
     }
 }
