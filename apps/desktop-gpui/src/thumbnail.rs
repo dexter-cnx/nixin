@@ -1,14 +1,21 @@
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::fs;
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 use dextryx_frontend_api::AssetSummaryDto;
+use image::ImageFormat;
 
 pub const MAX_THUMBNAIL_WORKING_SET: usize = 64;
+const MAX_THUMBNAILS_GENERATED_PER_SYNC: usize = 2;
+const THUMBNAIL_MAX_WIDTH: u32 = 320;
+const THUMBNAIL_MAX_HEIGHT: u32 = 200;
 
 const SUPPORTED_RASTER_EXTENSIONS: &[&str] = &[
-    "avif", "jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "tga", "dds", "bmp", "ico", "hdr",
-    "exr", "pbm", "pam", "ppm", "pgm", "ff", "farbfeld", "qoi", "svg",
+    "jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp",
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -25,9 +32,12 @@ impl ThumbnailWorkingSet {
         selected_asset_id: Option<&str>,
     ) {
         self.asset_ids.clear();
+        let mut ordered_ids = Vec::new();
 
         if let Some(selected_asset_id) = selected_asset_id {
-            self.insert(selected_asset_id);
+            if self.insert(selected_asset_id) {
+                ordered_ids.push(selected_asset_id.to_string());
+            }
         }
 
         for index in grid_range.chain(filmstrip_range) {
@@ -35,26 +45,33 @@ impl ThumbnailWorkingSet {
                 break;
             }
             if let Some(asset) = assets.get(index) {
-                self.insert(&asset.id);
+                if self.insert(&asset.id) {
+                    ordered_ids.push(asset.id.clone());
+                }
+            }
+        }
+
+        let mut generated = 0;
+        for asset_id in ordered_ids {
+            if generated >= MAX_THUMBNAILS_GENERATED_PER_SYNC {
+                break;
+            }
+            let Some(asset) = assets.iter().find(|asset| asset.id == asset_id) else {
+                continue;
+            };
+            if prepare_thumbnail(asset).unwrap_or(false) {
+                generated += 1;
             }
         }
     }
 
     pub fn thumbnail_path(&self, asset: &AssetSummaryDto) -> Option<PathBuf> {
-        if asset.missing || !self.asset_ids.contains(&asset.id) {
+        if asset.missing || !self.asset_ids.contains(&asset.id) || !is_supported_raster(asset) {
             return None;
         }
 
-        let extension = asset
-            .effective_path
-            .extension()
-            .and_then(|extension| extension.to_str())?
-            .to_ascii_lowercase();
-        if !SUPPORTED_RASTER_EXTENSIONS.contains(&extension.as_str()) {
-            return None;
-        }
-
-        Some(asset.effective_path.clone())
+        let path = cache_path(asset)?;
+        path.is_file().then_some(path)
     }
 
     #[cfg(test)]
@@ -62,11 +79,76 @@ impl ThumbnailWorkingSet {
         self.asset_ids.len()
     }
 
-    fn insert(&mut self, asset_id: &str) {
-        if self.asset_ids.len() < MAX_THUMBNAIL_WORKING_SET {
-            self.asset_ids.insert(asset_id.to_string());
+    fn insert(&mut self, asset_id: &str) -> bool {
+        if self.asset_ids.len() >= MAX_THUMBNAIL_WORKING_SET {
+            return false;
+        }
+        self.asset_ids.insert(asset_id.to_string())
+    }
+}
+
+fn is_supported_raster(asset: &AssetSummaryDto) -> bool {
+    asset
+        .effective_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .is_some_and(|extension| SUPPORTED_RASTER_EXTENSIONS.contains(&extension.as_str()))
+}
+
+fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<bool, String> {
+    if asset.missing || !is_supported_raster(asset) {
+        return Ok(false);
+    }
+
+    let Some(cache_path) = cache_path(asset) else {
+        return Ok(false);
+    };
+    if cache_path.is_file() {
+        return Ok(false);
+    }
+
+    let Some(parent) = cache_path.parent() else {
+        return Ok(false);
+    };
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+
+    let image = image::open(&asset.effective_path).map_err(|error| error.to_string())?;
+    let thumbnail = image.thumbnail(THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT);
+    let partial = cache_path.with_extension("partial.png");
+    thumbnail
+        .save_with_format(&partial, ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    fs::rename(&partial, &cache_path).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+fn cache_path(asset: &AssetSummaryDto) -> Option<PathBuf> {
+    if !is_supported_raster(asset) {
+        return None;
+    }
+
+    let metadata = fs::metadata(&asset.effective_path).ok();
+    let mut hasher = DefaultHasher::new();
+    asset.effective_path.hash(&mut hasher);
+    if let Some(metadata) = metadata {
+        metadata.len().hash(&mut hasher);
+        if let Ok(modified) = metadata.modified() {
+            modified
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                .hash(&mut hasher);
         }
     }
+    let key = hasher.finish();
+
+    Some(
+        std::env::temp_dir()
+            .join("dextryx-images")
+            .join("thumbnails-v1")
+            .join(format!("{key:016x}.png")),
+    )
 }
 
 #[cfg(test)]
@@ -95,25 +177,26 @@ mod tests {
         working_set.sync(&assets, 0..100, 100..150, Some("asset-199"));
 
         assert_eq!(working_set.len(), MAX_THUMBNAIL_WORKING_SET);
-        assert!(working_set.thumbnail_path(&assets[199]).is_some());
+        assert!(working_set.asset_ids.contains("asset-199"));
     }
 
     #[test]
-    fn raster_assets_are_loadable_but_raw_and_missing_assets_fall_back() {
-        let raster = asset(1, "jpg");
+    fn raw_and_missing_assets_never_get_thumbnail_paths() {
         let raw = asset(2, "nef");
         let mut missing = asset(3, "png");
         missing.missing = true;
-        let assets = vec![raster.clone(), raw.clone(), missing.clone()];
+        let assets = vec![raw.clone(), missing.clone()];
         let mut working_set = ThumbnailWorkingSet::default();
 
-        working_set.sync(&assets, 0..3, 0..0, None);
+        working_set.sync(&assets, 0..2, 0..0, None);
 
-        assert_eq!(
-            working_set.thumbnail_path(&raster),
-            Some(raster.effective_path)
-        );
         assert!(working_set.thumbnail_path(&raw).is_none());
         assert!(working_set.thumbnail_path(&missing).is_none());
+    }
+
+    #[test]
+    fn cache_path_is_stable_for_same_asset() {
+        let raster = asset(1, "jpg");
+        assert_eq!(cache_path(&raster), cache_path(&raster));
     }
 }
