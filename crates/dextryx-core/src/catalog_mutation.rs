@@ -1,8 +1,9 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::{
-    AssetId, CatalogAsset, CatalogReadRepository, CatalogRepositoryError,
-    SyntheticCatalogRepository, WorkplaceId,
+    AssetId, AuthoritativeCatalogProjection, CatalogAsset, CatalogReadRepository,
+    CatalogRepositoryError, SyntheticCatalogRepository, WorkplaceId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +25,55 @@ pub enum CatalogMutationResult {
     ActiveWorkplaceChanged { workplace_id: WorkplaceId },
     AssetRelinked { asset_id: AssetId },
     AssetRemovedFromCatalog { asset: CatalogAsset },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CatalogInvariantError {
+    DuplicateWorkplaceId(WorkplaceId),
+    DuplicateAssetId(AssetId),
+    UnknownActiveWorkplace(WorkplaceId),
+    AssetReferencesUnknownWorkplace {
+        asset_id: AssetId,
+        workplace_id: WorkplaceId,
+    },
+}
+
+/// Validate invariants that every authoritative catalog implementation and
+/// migration snapshot must satisfy before it can become the durable source.
+pub fn validate_catalog_projection(
+    projection: &AuthoritativeCatalogProjection,
+) -> Result<(), CatalogInvariantError> {
+    let mut workplace_ids = HashSet::with_capacity(projection.workplaces.len());
+    for workplace in &projection.workplaces {
+        if !workplace_ids.insert(workplace.id.as_str()) {
+            return Err(CatalogInvariantError::DuplicateWorkplaceId(
+                workplace.id.clone(),
+            ));
+        }
+    }
+
+    if let Some(active_workplace_id) = projection.active_workplace_id.as_deref() {
+        if !workplace_ids.contains(active_workplace_id) {
+            return Err(CatalogInvariantError::UnknownActiveWorkplace(
+                active_workplace_id.to_string(),
+            ));
+        }
+    }
+
+    let mut asset_ids = HashSet::with_capacity(projection.assets.len());
+    for asset in &projection.assets {
+        if !asset_ids.insert(asset.id.as_str()) {
+            return Err(CatalogInvariantError::DuplicateAssetId(asset.id.clone()));
+        }
+        if !workplace_ids.contains(asset.workplace_id.as_str()) {
+            return Err(CatalogInvariantError::AssetReferencesUnknownWorkplace {
+                asset_id: asset.id.clone(),
+                workplace_id: asset.workplace_id.clone(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Authoritative mutation port below the frontend/application layer.
@@ -71,6 +121,77 @@ impl AuthoritativeCatalogPersistence for SyntheticCatalogRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AssetStorageMode, WorkplaceSummary};
+
+    fn valid_projection() -> AuthoritativeCatalogProjection {
+        AuthoritativeCatalogProjection {
+            workplaces: vec![WorkplaceSummary {
+                id: "workplace-1".to_string(),
+                name: "My workplace".to_string(),
+            }],
+            active_workplace_id: Some("workplace-1".to_string()),
+            assets: vec![CatalogAsset {
+                id: "asset-1".to_string(),
+                workplace_id: "workplace-1".to_string(),
+                source_path: PathBuf::from("/external/image.jpg"),
+                managed_path: None,
+                storage_mode: AssetStorageMode::Linked,
+                missing: false,
+                import_sequence: 1,
+            }],
+        }
+    }
+
+    #[test]
+    fn authoritative_projection_rejects_duplicate_workplace_ids() {
+        let mut projection = valid_projection();
+        projection.workplaces.push(projection.workplaces[0].clone());
+
+        assert_eq!(
+            validate_catalog_projection(&projection),
+            Err(CatalogInvariantError::DuplicateWorkplaceId(
+                "workplace-1".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn authoritative_projection_rejects_duplicate_asset_ids() {
+        let mut projection = valid_projection();
+        projection.assets.push(projection.assets[0].clone());
+
+        assert_eq!(
+            validate_catalog_projection(&projection),
+            Err(CatalogInvariantError::DuplicateAssetId("asset-1".to_string()))
+        );
+    }
+
+    #[test]
+    fn authoritative_projection_rejects_unknown_active_workplace() {
+        let mut projection = valid_projection();
+        projection.active_workplace_id = Some("missing-workplace".to_string());
+
+        assert_eq!(
+            validate_catalog_projection(&projection),
+            Err(CatalogInvariantError::UnknownActiveWorkplace(
+                "missing-workplace".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn authoritative_projection_rejects_asset_with_unknown_workplace() {
+        let mut projection = valid_projection();
+        projection.assets[0].workplace_id = "missing-workplace".to_string();
+
+        assert_eq!(
+            validate_catalog_projection(&projection),
+            Err(CatalogInvariantError::AssetReferencesUnknownWorkplace {
+                asset_id: "asset-1".to_string(),
+                workplace_id: "missing-workplace".to_string(),
+            })
+        );
+    }
 
     #[test]
     fn mutations_are_visible_through_the_same_authoritative_read_port() {
