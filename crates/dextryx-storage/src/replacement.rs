@@ -1,6 +1,10 @@
 use std::fs;
 use std::path::Path;
 
+use dextryx_core::CatalogMutationError;
+
+use crate::{PersistenceFaultInjector, PersistenceFaultPoint};
+
 /// Replace one snapshot destination with a prepared temporary file.
 ///
 /// On Unix targets, `rename` replaces an existing destination within the same
@@ -27,6 +31,27 @@ pub fn replace_snapshot(_temp: &Path, _destination: &Path) -> std::io::Result<()
     ))
 }
 
+/// Fault-aware qualification wrapper around the replacement primitive.
+///
+/// A fault before replacement must leave the existing destination untouched.
+/// A fault after replacement deliberately reports failure while leaving the new
+/// complete destination visible, matching the observable state after an abrupt
+/// interruption at that checkpoint.
+pub fn replace_snapshot_with_faults<I>(
+    temp: &Path,
+    destination: &Path,
+    injector: &mut I,
+) -> Result<(), CatalogMutationError>
+where
+    I: PersistenceFaultInjector,
+{
+    injector.check(PersistenceFaultPoint::BeforeDestinationReplace)?;
+    replace_snapshot(temp, destination)
+        .map_err(|error| CatalogMutationError::Persistence(error.to_string()))?;
+    injector.check(PersistenceFaultPoint::AfterDestinationReplace)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -34,6 +59,19 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    struct FailAt(PersistenceFaultPoint);
+
+    impl PersistenceFaultInjector for FailAt {
+        fn check(&mut self, point: PersistenceFaultPoint) -> Result<(), CatalogMutationError> {
+            if point == self.0 {
+                return Err(CatalogMutationError::Persistence(format!(
+                    "injected fault at {point:?}"
+                )));
+            }
+            Ok(())
+        }
+    }
 
     fn temp_dir(test_name: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -74,6 +112,46 @@ mod tests {
 
         assert!(replace_snapshot(&missing_temp, &destination).is_err());
         assert_eq!(fs::read(&destination).unwrap(), b"old");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fault_before_replacement_preserves_old_complete_destination() {
+        let dir = temp_dir("fault-before");
+        fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("catalog.snapshot");
+        let temp = dir.join("catalog.snapshot.next");
+        fs::write(&destination, b"old").unwrap();
+        fs::write(&temp, b"new").unwrap();
+        let mut injector = FailAt(PersistenceFaultPoint::BeforeDestinationReplace);
+
+        assert!(matches!(
+            replace_snapshot_with_faults(&temp, &destination, &mut injector),
+            Err(CatalogMutationError::Persistence(_))
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), b"old");
+        assert_eq!(fs::read(&temp).unwrap(), b"new");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fault_after_replacement_exposes_new_complete_destination() {
+        let dir = temp_dir("fault-after");
+        fs::create_dir_all(&dir).unwrap();
+        let destination = dir.join("catalog.snapshot");
+        let temp = dir.join("catalog.snapshot.next");
+        fs::write(&destination, b"old").unwrap();
+        fs::write(&temp, b"new").unwrap();
+        let mut injector = FailAt(PersistenceFaultPoint::AfterDestinationReplace);
+
+        assert!(matches!(
+            replace_snapshot_with_faults(&temp, &destination, &mut injector),
+            Err(CatalogMutationError::Persistence(_))
+        ));
+        assert_eq!(fs::read(&destination).unwrap(), b"new");
+        assert!(!temp.exists());
         let _ = fs::remove_dir_all(dir);
     }
 }
