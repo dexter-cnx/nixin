@@ -149,8 +149,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust -> target
-      - run: cargo test --locked
+          workspaces: |
+            rust -> target
+            crates/dextryx-frontend-api -> target
+      - name: Raw engine tests
+        run: cargo test --locked
+      - name: Frontend API parity tests
+        working-directory: crates/dextryx-frontend-api
+        run: cargo test
 
   android-build:
     name: Android build
