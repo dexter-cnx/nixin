@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    AssetId, CatalogAsset, CatalogReadRepository, CatalogRepositoryError, SyntheticCatalogRepository,
-    WorkplaceId,
+    AssetId, CatalogAsset, CatalogReadRepository, CatalogRepositoryError,
+    SyntheticCatalogRepository, WorkplaceId,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
