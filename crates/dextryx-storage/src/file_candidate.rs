@@ -245,10 +245,7 @@ fn create_temp_snapshot_file(path: &Path) -> Result<(PathBuf, File), DiskCandida
     ))
 }
 
-fn check_fault<I>(
-    injector: &mut I,
-    point: PersistenceFaultPoint,
-) -> Result<(), DiskCandidateError>
+fn check_fault<I>(injector: &mut I, point: PersistenceFaultPoint) -> Result<(), DiskCandidateError>
 where
     I: PersistenceFaultInjector,
 {
@@ -631,8 +628,7 @@ mod tests {
             PersistenceFaultPoint::BeforeDestinationReplace,
         ] {
             let path = temp_snapshot_path("fault-before-remove");
-            let mut store =
-                DiskCandidateCatalogStore::create(&path, fixture_projection()).unwrap();
+            let mut store = DiskCandidateCatalogStore::create(&path, fixture_projection()).unwrap();
             let mut injector = FailAt(point);
 
             let error = store
