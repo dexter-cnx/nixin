@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 #[cfg(target_os = "macos")]
@@ -14,6 +14,8 @@ use dextryx_frontend_api::AssetSummaryDto;
 pub const MAX_THUMBNAIL_WORKING_SET: usize = 64;
 const MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC: usize = 2;
 const THUMBNAIL_MAX_EDGE: u32 = 320;
+const MAX_THUMBNAIL_CACHE_ENTRIES: usize = 2_048;
+const MAX_THUMBNAIL_CACHE_BYTES: u64 = 512 * 1024 * 1024;
 
 const SUPPORTED_RASTER_EXTENSIONS: &[&str] =
     &["jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp"];
@@ -21,6 +23,7 @@ const SUPPORTED_RASTER_EXTENSIONS: &[&str] =
 #[derive(Clone, Debug, Default)]
 pub struct ThumbnailWorkingSet {
     asset_ids: HashSet<String>,
+    cache_maintenance_done: bool,
 }
 
 impl ThumbnailWorkingSet {
@@ -52,6 +55,7 @@ impl ThumbnailWorkingSet {
         }
 
         let mut attempts = 0;
+        let mut generated_any = false;
         for asset_id in ordered_ids {
             if attempts >= MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC {
                 break;
@@ -63,7 +67,20 @@ impl ThumbnailWorkingSet {
                 continue;
             }
             attempts += 1;
-            let _ = prepare_thumbnail(asset);
+            if prepare_thumbnail(asset).is_ok() {
+                generated_any = true;
+            }
+        }
+
+        if generated_any || !self.cache_maintenance_done {
+            let protected_paths = self.active_thumbnail_paths(assets);
+            let _ = prune_thumbnail_cache(
+                &cache_root(),
+                MAX_THUMBNAIL_CACHE_ENTRIES,
+                MAX_THUMBNAIL_CACHE_BYTES,
+                &protected_paths,
+            );
+            self.cache_maintenance_done = true;
         }
     }
 
@@ -86,6 +103,15 @@ impl ThumbnailWorkingSet {
             return false;
         }
         self.asset_ids.insert(asset_id.to_string())
+    }
+
+    fn active_thumbnail_paths(&self, assets: &[AssetSummaryDto]) -> HashSet<PathBuf> {
+        assets
+            .iter()
+            .filter(|asset| self.asset_ids.contains(&asset.id))
+            .filter_map(cache_path)
+            .filter(|path| path.is_file())
+            .collect()
     }
 }
 
@@ -131,6 +157,7 @@ fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<(), String> {
     }
 
     fs::rename(&partial, &cache_path).map_err(|error| error.to_string())?;
+    remove_stale_versions(asset, parent, &cache_path).map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -139,11 +166,29 @@ fn prepare_thumbnail(_asset: &AssetSummaryDto) -> Result<(), String> {
     Ok(())
 }
 
+fn cache_root() -> PathBuf {
+    std::env::temp_dir()
+        .join("dextryx-images")
+        .join("thumbnails-v1")
+}
+
 fn cache_path(asset: &AssetSummaryDto) -> Option<PathBuf> {
     if !is_supported_raster(asset) {
         return None;
     }
 
+    let asset_key = asset_cache_key(&asset.id);
+    let version_key = source_version_key(asset);
+    Some(cache_root().join(format!("{asset_key:016x}-{version_key:016x}.png")))
+}
+
+fn asset_cache_key(asset_id: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    asset_id.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn source_version_key(asset: &AssetSummaryDto) -> u64 {
     let metadata = fs::metadata(&asset.effective_path).ok();
     let mut hasher = DefaultHasher::new();
     asset.effective_path.hash(&mut hasher);
@@ -157,14 +202,102 @@ fn cache_path(asset: &AssetSummaryDto) -> Option<PathBuf> {
                 .hash(&mut hasher);
         }
     }
-    let key = hasher.finish();
+    hasher.finish()
+}
 
-    Some(
-        std::env::temp_dir()
-            .join("dextryx-images")
-            .join("thumbnails-v1")
-            .join(format!("{key:016x}.png")),
-    )
+fn remove_stale_versions(
+    asset: &AssetSummaryDto,
+    directory: &Path,
+    keep_path: &Path,
+) -> std::io::Result<()> {
+    let prefix = format!("{:016x}-", asset_cache_key(&asset.id));
+    let keep_name = keep_path.file_name();
+
+    for entry in fs::read_dir(directory)? {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) || path.file_name() == keep_name || name.contains(".partial.")
+        {
+            continue;
+        }
+        let _ = fs::remove_file(path);
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct CacheEntry {
+    path: PathBuf,
+    size: u64,
+    modified_nanos: u128,
+}
+
+fn prune_thumbnail_cache(
+    directory: &Path,
+    max_entries: usize,
+    max_bytes: u64,
+    protected_paths: &HashSet<PathBuf>,
+) -> std::io::Result<()> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.extension().and_then(|extension| extension.to_str()) != Some("png")
+            || name.contains(".partial.")
+        {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(metadata) if metadata.is_file() => metadata,
+            _ => continue,
+        };
+        let modified_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        entries.push(CacheEntry {
+            path,
+            size: metadata.len(),
+            modified_nanos,
+        });
+    }
+
+    entries.sort_by_key(|entry| entry.modified_nanos);
+    let mut entry_count = entries.len();
+    let mut byte_count = entries.iter().map(|entry| entry.size).sum::<u64>();
+
+    for entry in entries {
+        if entry_count <= max_entries && byte_count <= max_bytes {
+            break;
+        }
+        if protected_paths.contains(&entry.path) {
+            continue;
+        }
+        if fs::remove_file(&entry.path).is_ok() {
+            entry_count = entry_count.saturating_sub(1);
+            byte_count = byte_count.saturating_sub(entry.size);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -181,6 +314,17 @@ mod tests {
             missing: false,
             import_sequence: index as u64,
         }
+    }
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "nixin-thumbnail-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 
     #[test]
@@ -214,5 +358,79 @@ mod tests {
     fn cache_path_is_stable_for_same_asset() {
         let raster = asset(1, "jpg");
         assert_eq!(cache_path(&raster), cache_path(&raster));
+    }
+
+    #[test]
+    fn cache_path_separates_assets_with_same_source_path() {
+        let first = asset(1, "jpg");
+        let mut second = asset(2, "jpg");
+        second.effective_path = first.effective_path.clone();
+
+        assert_ne!(cache_path(&first), cache_path(&second));
+    }
+
+    #[test]
+    fn stale_versions_are_removed_for_same_asset() {
+        let directory = temp_test_dir("stale");
+        let raster = asset(7, "jpg");
+        let prefix = format!("{:016x}-", asset_cache_key(&raster.id));
+        let keep = directory.join(format!("{prefix}new.png"));
+        let stale = directory.join(format!("{prefix}old.png"));
+        let other = directory.join("ffffffffffffffff-other.png");
+        fs::write(&keep, b"keep").unwrap();
+        fs::write(&stale, b"stale").unwrap();
+        fs::write(&other, b"other").unwrap();
+
+        remove_stale_versions(&raster, &directory, &keep).unwrap();
+
+        assert!(keep.is_file());
+        assert!(!stale.exists());
+        assert!(other.is_file());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn prune_enforces_entry_and_byte_limits() {
+        let directory = temp_test_dir("prune");
+        for index in 0..5 {
+            fs::write(
+                directory.join(format!("{index}.png")),
+                vec![index as u8; 16],
+            )
+            .unwrap();
+        }
+        fs::write(directory.join("ignored.partial.png"), vec![0_u8; 128]).unwrap();
+
+        prune_thumbnail_cache(&directory, 3, 48, &HashSet::new()).unwrap();
+
+        let regular_count = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.ends_with(".png") && !name.contains(".partial."))
+            })
+            .count();
+        assert_eq!(regular_count, 3);
+        assert!(directory.join("ignored.partial.png").is_file());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn prune_keeps_protected_active_thumbnail() {
+        let directory = temp_test_dir("protected");
+        let protected = directory.join("active.png");
+        let evictable = directory.join("evictable.png");
+        fs::write(&protected, vec![1_u8; 16]).unwrap();
+        fs::write(&evictable, vec![2_u8; 16]).unwrap();
+
+        let protected_paths = HashSet::from([protected.clone()]);
+        prune_thumbnail_cache(&directory, 1, 16, &protected_paths).unwrap();
+
+        assert!(protected.is_file());
+        assert!(!evictable.exists());
+        let _ = fs::remove_dir_all(directory);
     }
 }
