@@ -1,6 +1,6 @@
 # M4 Persistence Fault Injection
 
-This slice introduces deterministic persistence checkpoints for qualifying the Rust disk-backed catalog candidate. It does not change the current durable authority: Flutter/KeyValueStore/Hive remains the sole production writer.
+This work qualifies the Rust disk-backed catalog candidate against deterministic filesystem interruption points. It does not change the current durable authority: Flutter/KeyValueStore/Hive remains the sole production writer.
 
 ## Fault points
 
@@ -15,23 +15,34 @@ This slice introduces deterministic persistence checkpoints for qualifying the R
 7. `AfterDestinationRemoved`
 8. `AfterDestinationRename`
 
-`PersistenceFaultInjector` can return the typed `CatalogMutationError::Persistence` at any checkpoint. `NoPersistenceFaults` is the production-safe no-op implementation.
+`PersistenceFaultInjector` can return the typed `CatalogMutationError::Persistence` at any checkpoint. `NoPersistenceFaults` is the normal no-op implementation.
 
-## Why this is a separate contract
+`DiskCandidateCatalogStore::apply_candidate_mutation_with_faults` now wires those checkpoints into the real candidate snapshot path. The injected path deliberately does not perform synthetic cleanup after the injected checkpoint; this models abrupt interruption closely enough for the qualification tests to reopen the destination and observe what a later process would see.
 
-Failure injection must be deterministic before filesystem behavior is used as cutover evidence. The checkpoints are deliberately named around observable persistence phases instead of implementation-specific test flags. This lets qualification tests prove what remains readable after each failed phase without coupling the frontend or core domain model to a concrete filesystem implementation.
+## Qualification evidence
 
-## What this slice proves
+The reopen-after-failure tests now document the current replacement behavior precisely:
 
-- persistence failures have deterministic, typed injection seams;
-- the no-op injector permits every checkpoint;
-- an injected checkpoint can fail exactly once and then allow retry;
-- the contract remains in `dextryx-storage`, below frontend/application code.
+- faults from `BeforeTempCreate` through `BeforeDestinationReplace` leave the old destination snapshot readable and complete;
+- a fault at `AfterDestinationRemoved` leaves no destination snapshot to reopen, proving a real recovery gap in the current remove-then-rename strategy;
+- a fault at `AfterDestinationRename` leaves the new destination snapshot readable and complete, while the current in-memory store has not yet published the mutation;
+- injected persistence failures remain typed as `DiskCandidateError::Persistence` and never masquerade as repository/domain lookup failures;
+- normal no-fault mutation behavior still persists and reopens successfully.
 
-## What this slice does not prove
+The `AfterDestinationRemoved` result is intentionally negative evidence. It is the reason the candidate must not claim atomic commit or crash recovery yet.
 
-It does not yet prove atomic replacement, crash recovery, parent-directory durability, single-writer locking, or rollback. Those `DurableAuthorityCapabilities` remain false.
+## Capability status
+
+The disk candidate continues to report these durability capabilities as false:
+
+- `atomic_commit`
+- `crash_recovery`
+- `durable_flush`
+- `single_writer_enforced`
+- `rollback_supported`
+
+Snapshot round-trip and mutation parity remain qualified, but those are insufficient for durable-authority cutover.
 
 ## Next qualification slice
 
-Wire these checkpoints into `DiskCandidateCatalogStore` snapshot persistence, then run fault-injection tests that reopen the store after every injected failure. Before destination replacement, reopen must expose the old complete snapshot. Around replacement, the tests must document and then eliminate any state in which neither the old nor the new complete snapshot is available. Only after the replacement and recovery strategy satisfies that invariant should `atomic_commit`, `crash_recovery`, or `durable_flush` be reconsidered.
+Replace the remove-then-rename sequence with a platform-qualified replacement strategy that never creates a destination-missing window, then rerun the same fault matrix. The next slice must demonstrate that every pre-publication interruption reopens the old complete snapshot and every post-publication interruption reopens the new complete snapshot. Parent-directory durability, single-writer ownership, and rollback/recovery generations remain separate gates after that.
