@@ -20,8 +20,9 @@
 - **M0 frontend-neutral Rust architecture foundation: COMPLETE, merged via PR #21.**
 - **M1 production GPUI bootstrap + command/state shell: COMPLETE, merged via PR #22.**
 - **M2 read-only authoritative Workplace/catalog adapter: COMPLETE, merged via PR #23 and PR #24.**
-- **M3 real Grid/Filmstrip catalog browsing: CURRENT.**
-- Active branch: `feature/m3-catalog-browsing`.
+- **M3 real Grid/Filmstrip catalog browsing: COMPLETE, merged through PR #27; closeout evidence is in PR #28.**
+- **M4 import/catalog mutations + authoritative persistence adapter: NEXT.**
+- Active branch: `feature/m3-closeout-evidence`.
 
 ## Current architectural direction
 
@@ -108,42 +109,71 @@ Completed M2 capabilities:
 - projection refresh follows Workplace changes, import completion, availability scans, relink, and catalog removal;
 - production GPUI loads the authoritative projection at startup and explicit Refresh;
 - production GPUI has no direct Hive or `dextryx-core` dependency;
-- macOS GPUI resolves the Flutter App Sandbox projection location explicitly, with `DEXTRYX_CATALOG_PROJECTION_PATH` override support;
-- final PR #24 head `ac90e67fc2b82dc034c268ab0c60cd31a6ecaeba` passed CI #464, GPUI Production Shell #39, and Full validation #77;
-- PR #24 squash-merged to `main` as `8f57ba4dfc831547a09d75c125e8004f9173a538`.
+- macOS GPUI resolves the Flutter App Sandbox projection location explicitly, with `DEXTRYX_CATALOG_PROJECTION_PATH` override support.
 
 Reference: `docs/M2_AUTHORITATIVE_READ_ADAPTER.md`.
 
 ## M3 — real Grid/Filmstrip catalog browsing
 
-M3 is the active implementation milestone.
+Completed across PR #25, PR #26, and PR #27.
 
-Goal:
+Production browser path:
 
-- replace the M2 diagnostic asset list with production catalog browsing;
-- preserve selection by stable asset ID across refresh/filter operations;
-- provide a horizontally virtualized Filmstrip backed by authoritative asset DTOs;
-- add a real Grid browser over the same authoritative read state;
-- keep thumbnail/cache work bounded and frontend-neutral where semantics belong outside GPUI;
-- do not introduce catalog mutations or new durable persistence in M3.
+```text
+Flutter/Hive durable catalog authority
+  -> disposable authoritative projection
+  -> CatalogReadApplication
+  -> DesktopAppState authoritative DTOs
+  -> virtualized GPUI Grid + Filmstrip
+  -> bounded in-memory thumbnail working set
+  -> disposable system-temp raster thumbnail files
+```
 
-Current M3 slice on `feature/m3-catalog-browsing`:
+Completed M3 capabilities:
 
-- add stable `selected_asset_id` to plain-Rust `DesktopAppState`;
-- preserve selection across projection refresh when the stable asset remains present;
-- fall back deterministically to the first asset when the prior selection disappears;
-- add testable horizontal Filmstrip scroll/overscan math;
-- render only the visible authoritative Filmstrip window instead of all assets;
-- asset cards use real DTO identity/path/storage/missing state;
-- selected asset becomes the central browser focus.
+- stable `selected_asset_id` is shared by Grid and Filmstrip;
+- selection survives refresh/filter when the same authoritative asset remains;
+- deterministic fallback is used when selection disappears;
+- horizontal Filmstrip renders only visible/overscan assets;
+- Grid uses bounded viewport/overscan math over the same DTO collection;
+- Grid and Filmstrip synchronize selection by stable asset ID;
+- raster thumbnails are generated as pixel-bounded disposable PNGs before GPUI decode;
+- thumbnail working set is capped at 64 IDs and generation attempts at 2 per sync;
+- macOS uses `/usr/bin/sips` for the current GPUI production thumbnail generation path;
+- generated browser thumbnail longest edge is bounded to 320 px;
+- RAW/unsupported/missing assets remain explicit fallback-only paths in this milestone;
+- no GPUI-specific durable catalog or thumbnail authority was introduced;
+- no GPUI-to-Hive dependency was introduced.
 
-Next M3 work:
+Important M3 limitation:
 
-1. validate the first production Filmstrip slice on CI and review;
-2. add real catalog Grid virtualization over the same asset DTO state;
-3. wire selection synchronization between Grid and Filmstrip;
-4. add bounded production thumbnail loading/cache without copying synthetic spike business logic;
-5. update `docs/CODE_WALKTHROUGH.md` and M3 acceptance evidence before merge.
+- the 64-ID cap bounds the active in-memory working set only;
+- generated PNG files currently accumulate under `temp_dir()/dextryx-images/thumbnails-v1`;
+- there is no GPUI-side disk-cache entry/byte pruning yet, and old size/mtime-keyed versions are not eagerly deleted;
+- this cache is disposable and non-authoritative, but filesystem-pressure eviction remains an explicit follow-up before calling GPUI thumbnail storage globally bounded.
+
+PR #27 final exact head `6b7e797db1b9e82079578e2b9cbcb02873cf2ddc` passed:
+
+- CI #483
+- GPUI Production Shell #55
+- Full validation #93
+
+Reference: `docs/M3_CATALOG_BROWSING.md`.
+
+## M4 — import/catalog mutations + authoritative persistence adapter
+
+M4 is the next implementation milestone after M3 closeout merges.
+
+Required direction:
+
+1. define frontend-neutral mutation commands/results for Workplace/catalog operations;
+2. define an authoritative persistence port below the application layer;
+3. preserve exactly one durable catalog authority during transition;
+4. wire GPUI import/catalog commands through shared application logic, never directly to Hive;
+5. add mutation projection refresh/consistency tests;
+6. only cut durable authority away from Flutter/Hive in an explicit persistence migration slice.
+
+M4 also owns the GPUI thumbnail-cache filesystem-pressure follow-up: add bounded disk eviction/pruning (entry and/or byte limits), stale-version cleanup, and tests without turning the thumbnail cache into durable authority.
 
 ## Migration queue
 
@@ -151,8 +181,8 @@ Next M3 work:
 DONE      M0 frontend-neutral Rust architecture foundation
 DONE      M1 production GPUI bootstrap + command/state shell
 DONE      M2 read-only authoritative Workplace/catalog adapter
-CURRENT   M3 real Grid/Filmstrip catalog browsing
-THEN      M4 import/catalog mutations + authoritative import persistence adapter
+DONE      M3 real Grid/Filmstrip catalog browsing
+NEXT      M4 import/catalog mutations + authoritative persistence adapter
 THEN      M5 Develop controls around existing Rust engine
 THEN      M6 desktop export/settings/polish
 THEN      M7 retire Flutter desktop only after parity/validation gates
@@ -184,6 +214,7 @@ docs/FRONTEND_NEUTRAL_CORE.md       mandatory frontend-neutral Rust core contrac
 docs/M0_FRONTEND_API_FOUNDATION.md  completed M0 foundation and evidence
 docs/M1_GPUI_PRODUCTION_SHELL.md    completed M1 implementation and acceptance evidence
 docs/M2_AUTHORITATIVE_READ_ADAPTER.md completed M2 read-path design/evidence
+docs/M3_CATALOG_BROWSING.md         completed M3 browser implementation/evidence + deferred disk-cache pruning
 docs/GPUI_ARCHITECTURE_REVIEW.md    GPUI architecture evidence / migration decision
 docs/GPUI_DESKTOP_SPIKE.md          experiment implementation and validation
 docs/GPUI_S4_COMPATIBILITY.md       compatibility/platform gate
@@ -196,11 +227,11 @@ docs/CI_ARCHITECTURE.md             CI contract
 
 ```text
 DONE      merge M2 PR #24 into main
-DONE      branch feature/m3-catalog-browsing from merged main
-CURRENT   validate stable selection + authoritative virtualized Filmstrip slice
-NEXT      add real catalog Grid virtualization
-NEXT      synchronize Grid/Filmstrip selection
-NEXT      add bounded production thumbnail loading/cache
-NEXT      sync walkthrough + M3 acceptance evidence
+DONE      M3 Filmstrip / Grid / shared selection / pixel-bounded thumbnail source
+CURRENT   merge M3 closeout evidence PR #28
+NEXT      branch M4 mutation API + persistence port foundation
+NEXT      GPUI import/catalog command wiring
+NEXT      GPUI thumbnail disk-cache eviction/pruning hardening
+NEXT      authoritative persistence cutover only after dual-authority risks are eliminated
 PARALLEL  W4 physical D1-D8 desktop evidence remains outstanding
 ```
