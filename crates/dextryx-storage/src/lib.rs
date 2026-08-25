@@ -38,6 +38,55 @@ impl CandidateCatalogStore {
             .find(|asset| asset.id == asset_id)
             .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.to_string()))
     }
+
+    /// Qualification-only semantic mutation helper.
+    ///
+    /// This does not claim durable-authority behavior and therefore reports only
+    /// repository/domain failures. The authoritative trait wrapper below lifts
+    /// those failures into `CatalogMutationError`.
+    pub fn apply_mutation(
+        &mut self,
+        mutation: CatalogMutation,
+    ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
+        match mutation {
+            CatalogMutation::SetActiveWorkplace { workplace_id } => {
+                if !self
+                    .projection
+                    .workplaces
+                    .iter()
+                    .any(|workplace| workplace.id == workplace_id)
+                {
+                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id));
+                }
+                self.projection.active_workplace_id = Some(workplace_id.clone());
+                Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
+            }
+            CatalogMutation::RelinkAsset {
+                asset_id,
+                replacement_path,
+            } => {
+                let asset = self.asset_mut(&asset_id)?;
+                match asset.storage_mode {
+                    dextryx_core::AssetStorageMode::Linked => asset.source_path = replacement_path,
+                    dextryx_core::AssetStorageMode::Managed => {
+                        asset.managed_path = Some(replacement_path)
+                    }
+                }
+                asset.missing = false;
+                Ok(CatalogMutationResult::AssetRelinked { asset_id })
+            }
+            CatalogMutation::RemoveFromCatalog { asset_id } => {
+                let index = self
+                    .projection
+                    .assets
+                    .iter()
+                    .position(|asset| asset.id == asset_id)
+                    .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.clone()))?;
+                let asset = self.projection.assets.remove(index);
+                Ok(CatalogMutationResult::AssetRemovedFromCatalog { asset })
+            }
+        }
+    }
 }
 
 impl CatalogReadRepository for CandidateCatalogStore {
@@ -88,44 +137,7 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, CatalogMutationError> {
-        match mutation {
-            CatalogMutation::SetActiveWorkplace { workplace_id } => {
-                if !self
-                    .projection
-                    .workplaces
-                    .iter()
-                    .any(|workplace| workplace.id == workplace_id)
-                {
-                    return Err(CatalogRepositoryError::UnknownWorkplace(workplace_id).into());
-                }
-                self.projection.active_workplace_id = Some(workplace_id.clone());
-                Ok(CatalogMutationResult::ActiveWorkplaceChanged { workplace_id })
-            }
-            CatalogMutation::RelinkAsset {
-                asset_id,
-                replacement_path,
-            } => {
-                let asset = self.asset_mut(&asset_id)?;
-                match asset.storage_mode {
-                    dextryx_core::AssetStorageMode::Linked => asset.source_path = replacement_path,
-                    dextryx_core::AssetStorageMode::Managed => {
-                        asset.managed_path = Some(replacement_path)
-                    }
-                }
-                asset.missing = false;
-                Ok(CatalogMutationResult::AssetRelinked { asset_id })
-            }
-            CatalogMutation::RemoveFromCatalog { asset_id } => {
-                let index = self
-                    .projection
-                    .assets
-                    .iter()
-                    .position(|asset| asset.id == asset_id)
-                    .ok_or_else(|| CatalogRepositoryError::UnknownAsset(asset_id.clone()))?;
-                let asset = self.projection.assets.remove(index);
-                Ok(CatalogMutationResult::AssetRemovedFromCatalog { asset })
-            }
-        }
+        CandidateCatalogStore::apply_mutation(self, mutation).map_err(Into::into)
     }
 }
 
