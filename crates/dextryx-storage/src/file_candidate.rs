@@ -191,11 +191,7 @@ fn create_temp_snapshot_file(path: &Path) -> Result<(PathBuf, File), DiskCandida
         let mut temp_name = file_name.to_os_string();
         temp_name.push(format!(".next-{}-{sequence}", std::process::id()));
         let temp = parent.join(temp_name);
-        match OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp)
-        {
+        match OpenOptions::new().create_new(true).write(true).open(&temp) {
             Ok(file) => return Ok((temp, file)),
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(io_error(error)),
