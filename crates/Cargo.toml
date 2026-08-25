@@ -3,5 +3,6 @@ members = [
     "dextryx-core",
     "dextryx-frontend-api",
     "dextryx-platform",
+    "dextryx-storage",
 ]
 resolver = "2"

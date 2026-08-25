@@ -12,8 +12,16 @@ version = "0.1.0"
 dependencies = [
  "dextryx-core",
  "dextryx-platform",
+ "dextryx-storage",
 ]
 
 [[package]]
 name = "dextryx-platform"
 version = "0.1.0"
+
+[[package]]
+name = "dextryx-storage"
+version = "0.1.0"
+dependencies = [
+ "dextryx-core",
+]

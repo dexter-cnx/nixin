@@ -7,3 +7,6 @@ publish = false
 [dependencies]
 dextryx-core = { path = "../dextryx-core" }
 dextryx-platform = { path = "../dextryx-platform" }
+
+[dev-dependencies]
+dextryx-storage = { path = "../dextryx-storage" }
