@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use dextryx_core::{
     validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogPersistence,
     AuthoritativeCatalogProjection, CatalogAsset, CatalogInvariantError, CatalogMutation,
-    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository,
-    WorkplaceSummary,
+    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
+    CatalogSnapshotRepository, WorkplaceSummary,
 };
 
 use crate::{CandidateCatalogStore, DurableAuthorityCapabilities};
@@ -285,7 +285,10 @@ fn decode_projection(bytes: &[u8]) -> Result<AuthoritativeCatalogProjection, Dis
     })
 }
 
-fn write_optional_string(output: &mut Vec<u8>, value: Option<&str>) -> Result<(), DiskCandidateError> {
+fn write_optional_string(
+    output: &mut Vec<u8>,
+    value: Option<&str>,
+) -> Result<(), DiskCandidateError> {
     match value {
         Some(value) => {
             output.push(1);
@@ -407,7 +410,10 @@ mod tests {
             .as_nanos();
         std::env::temp_dir()
             .join("dextryx-images-storage-tests")
-            .join(format!("{test_name}-{}-{nonce}.catalog", std::process::id()))
+            .join(format!(
+                "{test_name}-{}-{nonce}.catalog",
+                std::process::id()
+            ))
     }
 
     #[test]
