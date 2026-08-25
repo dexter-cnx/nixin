@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use dextryx_core::{
-    AssetStorageMode, AuthoritativeCatalogProjection, CatalogAsset, ProjectionCatalogReadAdapter,
-    WorkplaceSummary,
+    validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogProjection, CatalogAsset,
+    CatalogInvariantError, ProjectionCatalogReadAdapter, WorkplaceSummary,
 };
 
 use crate::CatalogReadApplication;
@@ -19,6 +19,7 @@ pub enum CatalogProjectionReadError {
     InvalidMissingFlag { line: usize, value: String },
     InvalidImportSequence { line: usize, value: String },
     InvalidEscape { line: usize },
+    InvalidCatalogInvariant(CatalogInvariantError),
 }
 
 pub type ProjectionCatalogReadApplication = CatalogReadApplication<ProjectionCatalogReadAdapter>;
@@ -102,6 +103,9 @@ pub fn parse_catalog_projection(
         }
     }
 
+    validate_catalog_projection(&projection)
+        .map_err(CatalogProjectionReadError::InvalidCatalogInvariant)?;
+
     Ok(CatalogReadApplication::new(
         ProjectionCatalogReadAdapter::new(projection),
     ))
@@ -178,5 +182,76 @@ mod tests {
 
         let app = parse_catalog_projection(input).expect("projection should parse");
         assert_eq!(app.list_workplaces()[0].name, "My\tworkplace");
+    }
+
+    #[test]
+    fn rejects_duplicate_workplace_ids() {
+        let input = concat!(
+            "DXTR_CATALOG_READ\t1\n",
+            "ACTIVE\tworkplace-1\n",
+            "WORKPLACE\tworkplace-1\tMy workplace\n",
+            "WORKPLACE\tworkplace-1\tDuplicate\n",
+        );
+
+        assert_eq!(
+            parse_catalog_projection(input).expect_err("duplicate workplace must fail"),
+            CatalogProjectionReadError::InvalidCatalogInvariant(
+                CatalogInvariantError::DuplicateWorkplaceId("workplace-1".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_asset_ids() {
+        let input = concat!(
+            "DXTR_CATALOG_READ\t1\n",
+            "ACTIVE\tworkplace-1\n",
+            "WORKPLACE\tworkplace-1\tMy workplace\n",
+            "ASSET\tasset-1\tworkplace-1\t/a.jpg\t\tlinked\t0\t1\n",
+            "ASSET\tasset-1\tworkplace-1\t/b.jpg\t\tlinked\t0\t2\n",
+        );
+
+        assert_eq!(
+            parse_catalog_projection(input).expect_err("duplicate asset must fail"),
+            CatalogProjectionReadError::InvalidCatalogInvariant(
+                CatalogInvariantError::DuplicateAssetId("asset-1".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_active_workplace() {
+        let input = concat!(
+            "DXTR_CATALOG_READ\t1\n",
+            "ACTIVE\tmissing\n",
+            "WORKPLACE\tworkplace-1\tMy workplace\n",
+        );
+
+        assert_eq!(
+            parse_catalog_projection(input).expect_err("unknown active workplace must fail"),
+            CatalogProjectionReadError::InvalidCatalogInvariant(
+                CatalogInvariantError::UnknownActiveWorkplace("missing".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_asset_referencing_unknown_workplace() {
+        let input = concat!(
+            "DXTR_CATALOG_READ\t1\n",
+            "ACTIVE\tworkplace-1\n",
+            "WORKPLACE\tworkplace-1\tMy workplace\n",
+            "ASSET\tasset-1\tmissing\t/a.jpg\t\tlinked\t0\t1\n",
+        );
+
+        assert_eq!(
+            parse_catalog_projection(input).expect_err("dangling asset workplace must fail"),
+            CatalogProjectionReadError::InvalidCatalogInvariant(
+                CatalogInvariantError::AssetReferencesUnknownWorkplace {
+                    asset_id: "asset-1".to_string(),
+                    workplace_id: "missing".to_string(),
+                }
+            )
+        );
     }
 }
