@@ -1,6 +1,8 @@
-use std::fs::{self, OpenOptions};
-use std::io::{Cursor, Read, Write};
+use std::ffi::OsStr;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Cursor, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dextryx_core::{
     validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogPersistence,
@@ -13,6 +15,10 @@ use crate::{CandidateCatalogStore, DurableAuthorityCapabilities};
 
 const SNAPSHOT_MAGIC: &[u8; 8] = b"DXTRCAT1";
 const MAX_FIELD_BYTES: usize = 16 * 1024 * 1024;
+const MIN_WORKPLACE_RECORD_BYTES: usize = 8;
+const MIN_ASSET_RECORD_BYTES: usize = 23;
+const TEMP_FILE_ATTEMPTS: usize = 128;
+static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiskCandidateError {
@@ -148,25 +154,57 @@ fn persist_snapshot(
         fs::create_dir_all(parent).map_err(io_error)?;
     }
 
-    let temp = path.with_extension("next");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&temp)
-        .map_err(io_error)?;
-    file.write_all(&bytes).map_err(io_error)?;
-    file.sync_all().map_err(io_error)?;
+    let (temp, mut file) = create_temp_snapshot_file(path)?;
+    let write_result = (|| {
+        file.write_all(&bytes).map_err(io_error)?;
+        file.sync_all().map_err(io_error)?;
+        Ok::<(), DiskCandidateError>(())
+    })();
     drop(file);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
 
     // Cross-platform replacement semantics are intentionally not claimed atomic
     // in this qualification slice. The cutover capability remains false until a
     // production implementation proves the required filesystem guarantees.
     if path.exists() {
-        fs::remove_file(path).map_err(io_error)?;
+        if let Err(error) = fs::remove_file(path) {
+            let _ = fs::remove_file(&temp);
+            return Err(io_error(error));
+        }
     }
-    fs::rename(&temp, path).map_err(io_error)?;
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(io_error(error));
+    }
     Ok(())
+}
+
+fn create_temp_snapshot_file(path: &Path) -> Result<(PathBuf, File), DiskCandidateError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().unwrap_or_else(|| OsStr::new("catalog"));
+
+    for _ in 0..TEMP_FILE_ATTEMPTS {
+        let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let mut temp_name = file_name.to_os_string();
+        temp_name.push(format!(".next-{}-{sequence}", std::process::id()));
+        let temp = parent.join(temp_name);
+        match OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp)
+        {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(io_error(error)),
+        }
+    }
+
+    Err(DiskCandidateError::Io(
+        "unable to allocate collision-safe temporary snapshot".to_string(),
+    ))
 }
 
 fn encode_projection(
@@ -218,7 +256,17 @@ fn decode_projection(bytes: &[u8]) -> Result<AuthoritativeCatalogProjection, Dis
 
     let active_workplace_id = read_optional_string(&mut input)?;
     let workplace_count = read_u32(&mut input)? as usize;
-    let mut workplaces = Vec::with_capacity(workplace_count);
+    validate_collection_count(
+        &input,
+        bytes.len(),
+        workplace_count,
+        MIN_WORKPLACE_RECORD_BYTES,
+        "workplace",
+    )?;
+    let mut workplaces = Vec::new();
+    workplaces.try_reserve(workplace_count).map_err(|_| {
+        DiskCandidateError::CorruptSnapshot("workplace allocation exceeds limits".to_string())
+    })?;
     for _ in 0..workplace_count {
         workplaces.push(WorkplaceSummary {
             id: read_string(&mut input)?,
@@ -227,7 +275,17 @@ fn decode_projection(bytes: &[u8]) -> Result<AuthoritativeCatalogProjection, Dis
     }
 
     let asset_count = read_u32(&mut input)? as usize;
-    let mut assets = Vec::with_capacity(asset_count);
+    validate_collection_count(
+        &input,
+        bytes.len(),
+        asset_count,
+        MIN_ASSET_RECORD_BYTES,
+        "asset",
+    )?;
+    let mut assets = Vec::new();
+    assets.try_reserve(asset_count).map_err(|_| {
+        DiskCandidateError::CorruptSnapshot("asset allocation exceeds limits".to_string())
+    })?;
     for _ in 0..asset_count {
         let id = read_string(&mut input)?;
         let workplace_id = read_string(&mut input)?;
@@ -283,6 +341,23 @@ fn decode_projection(bytes: &[u8]) -> Result<AuthoritativeCatalogProjection, Dis
         active_workplace_id,
         assets,
     })
+}
+
+fn validate_collection_count(
+    input: &Cursor<&[u8]>,
+    total_bytes: usize,
+    count: usize,
+    min_record_bytes: usize,
+    label: &str,
+) -> Result<(), DiskCandidateError> {
+    let position = usize::try_from(input.position()).unwrap_or(usize::MAX);
+    let remaining = total_bytes.saturating_sub(position);
+    if count > remaining / min_record_bytes {
+        return Err(DiskCandidateError::CorruptSnapshot(format!(
+            "{label} count exceeds remaining snapshot bytes"
+        )));
+    }
+    Ok(())
 }
 
 fn write_optional_string(
@@ -457,6 +532,52 @@ mod tests {
         assert_eq!(asset.source_path, PathBuf::from("/replacement/image.jpg"));
         assert!(!asset.missing);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn destination_ending_in_next_and_existing_sibling_are_safe() {
+        let path = temp_snapshot_path("temp-collision").with_extension("next");
+        let sibling = path.with_extension("catalog.next");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&sibling, b"unrelated").unwrap();
+
+        let expected = fixture_projection();
+        DiskCandidateCatalogStore::create(&path, expected.clone()).unwrap();
+        let reopened = DiskCandidateCatalogStore::open(&path).unwrap();
+        assert_eq!(snapshot_catalog_repository(&reopened).unwrap(), expected);
+        assert_eq!(fs::read(&sibling).unwrap(), b"unrelated");
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(sibling);
+    }
+
+    #[test]
+    fn oversized_workplace_count_is_rejected_before_allocation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(SNAPSHOT_MAGIC);
+        bytes.push(0);
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(matches!(
+            decode_projection(&bytes),
+            Err(DiskCandidateError::CorruptSnapshot(_))
+        ));
+    }
+
+    #[test]
+    fn oversized_asset_count_is_rejected_before_allocation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(SNAPSHOT_MAGIC);
+        bytes.push(0);
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(matches!(
+            decode_projection(&bytes),
+            Err(DiskCandidateError::CorruptSnapshot(_))
+        ));
     }
 
     #[test]
