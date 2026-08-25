@@ -21,15 +21,9 @@ pub enum CatalogMutation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogMutationResult {
-    ActiveWorkplaceChanged {
-        workplace_id: WorkplaceId,
-    },
-    AssetRelinked {
-        asset_id: AssetId,
-    },
-    AssetRemovedFromCatalog {
-        asset: CatalogAsset,
-    },
+    ActiveWorkplaceChanged { workplace_id: WorkplaceId },
+    AssetRelinked { asset_id: AssetId },
+    AssetRemovedFromCatalog { asset: CatalogAsset },
 }
 
 /// Authoritative mutation port below the frontend/application layer.
@@ -92,7 +86,10 @@ mod tests {
                 workplace_id: "workplace-secondary".to_string(),
             }
         );
-        assert_eq!(repository.active_workplace_id(), Some("workplace-secondary"));
+        assert_eq!(
+            repository.active_workplace_id(),
+            Some("workplace-secondary")
+        );
 
         repository
             .apply_mutation(CatalogMutation::RelinkAsset {
@@ -105,7 +102,10 @@ mod tests {
             .iter()
             .find(|asset| asset.id == "asset-000000")
             .unwrap();
-        assert_eq!(asset.effective_path(), std::path::Path::new("/replacement/image.jpg"));
+        assert_eq!(
+            asset.effective_path(),
+            std::path::Path::new("/replacement/image.jpg")
+        );
         assert!(!asset.missing);
 
         let removed = repository
