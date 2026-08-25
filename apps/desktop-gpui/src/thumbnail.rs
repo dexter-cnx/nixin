@@ -6,13 +6,14 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
+#[cfg(target_os = "macos")]
+use std::process::Command;
+
 use dextryx_frontend_api::AssetSummaryDto;
-use image::ImageFormat;
 
 pub const MAX_THUMBNAIL_WORKING_SET: usize = 64;
 const MAX_THUMBNAIL_GENERATION_ATTEMPTS_PER_SYNC: usize = 2;
-const THUMBNAIL_MAX_WIDTH: u32 = 320;
-const THUMBNAIL_MAX_HEIGHT: u32 = 200;
+const THUMBNAIL_MAX_EDGE: u32 = 320;
 
 const SUPPORTED_RASTER_EXTENSIONS: &[&str] =
     &["jpg", "jpeg", "png", "gif", "webp", "tif", "tiff", "bmp"];
@@ -101,6 +102,7 @@ fn thumbnail_exists(asset: &AssetSummaryDto) -> bool {
     cache_path(asset).is_some_and(|path| path.is_file())
 }
 
+#[cfg(target_os = "macos")]
 fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<(), String> {
     let Some(cache_path) = cache_path(asset) else {
         return Ok(());
@@ -110,13 +112,30 @@ fn prepare_thumbnail(asset: &AssetSummaryDto) -> Result<(), String> {
     };
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
 
-    let image = image::open(&asset.effective_path).map_err(|error| error.to_string())?;
-    let thumbnail = image.thumbnail(THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT);
     let partial = cache_path.with_extension("partial.png");
-    thumbnail
-        .save_with_format(&partial, ImageFormat::Png)
+    let status = Command::new("/usr/bin/sips")
+        .arg("-Z")
+        .arg(THUMBNAIL_MAX_EDGE.to_string())
+        .arg("-s")
+        .arg("format")
+        .arg("png")
+        .arg(&asset.effective_path)
+        .arg("--out")
+        .arg(&partial)
+        .status()
         .map_err(|error| error.to_string())?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&partial);
+        return Err(format!("sips failed with status {status}"));
+    }
+
     fs::rename(&partial, &cache_path).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn prepare_thumbnail(_asset: &AssetSummaryDto) -> Result<(), String> {
     Ok(())
 }
 
