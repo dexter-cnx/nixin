@@ -32,6 +32,18 @@ pub enum CatalogMutationResult {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CatalogMutationError {
+    Repository(CatalogRepositoryError),
+    Persistence(String),
+}
+
+impl From<CatalogRepositoryError> for CatalogMutationError {
+    fn from(value: CatalogRepositoryError) -> Self {
+        Self::Repository(value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogInvariantError {
     DuplicateWorkplaceId(WorkplaceId),
     DuplicateAssetId(AssetId),
@@ -86,11 +98,12 @@ pub fn validate_catalog_projection(
 /// frontend-local stores must never gain this trait through a blanket impl.
 /// The same adapter must expose post-mutation state through
 /// `CatalogReadRepository` so read-after-write observes one authority.
+/// Persistence failures remain distinct from catalog/domain lookup failures.
 pub trait AuthoritativeCatalogPersistence: CatalogReadRepository {
     fn apply_mutation(
         &mut self,
         mutation: CatalogMutation,
-    ) -> Result<CatalogMutationResult, CatalogRepositoryError>;
+    ) -> Result<CatalogMutationResult, CatalogMutationError>;
 }
 
 /// Explicit test/contract implementation only.
@@ -101,7 +114,7 @@ impl AuthoritativeCatalogPersistence for SyntheticCatalogRepository {
     fn apply_mutation(
         &mut self,
         mutation: CatalogMutation,
-    ) -> Result<CatalogMutationResult, CatalogRepositoryError> {
+    ) -> Result<CatalogMutationResult, CatalogMutationError> {
         match mutation {
             CatalogMutation::SetActiveWorkplace { workplace_id } => {
                 crate::CatalogRepository::set_active_workplace(self, &workplace_id)?;
@@ -196,6 +209,24 @@ mod tests {
                 asset_id: "asset-1".to_string(),
                 workplace_id: "missing-workplace".to_string(),
             })
+        );
+    }
+
+    #[test]
+    fn repository_errors_remain_distinct_from_persistence_failures() {
+        assert_eq!(
+            CatalogMutationError::from(CatalogRepositoryError::UnknownAsset(
+                "asset-missing".to_string()
+            )),
+            CatalogMutationError::Repository(CatalogRepositoryError::UnknownAsset(
+                "asset-missing".to_string()
+            ))
+        );
+        assert_ne!(
+            CatalogMutationError::Persistence("disk full".to_string()),
+            CatalogMutationError::Repository(CatalogRepositoryError::UnknownAsset(
+                "disk full".to_string()
+            ))
         );
     }
 
