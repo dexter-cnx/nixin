@@ -5,10 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use dextryx_core::{
-    validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogPersistence,
-    AuthoritativeCatalogProjection, CatalogAsset, CatalogInvariantError, CatalogMutation,
-    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
-    CatalogSnapshotRepository, WorkplaceSummary,
+    validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogProjection, CatalogAsset,
+    CatalogInvariantError, CatalogMutation, CatalogMutationResult, CatalogReadRepository,
+    CatalogRepositoryError, CatalogSnapshotRepository, WorkplaceSummary,
 };
 
 use crate::{CandidateCatalogStore, DurableAuthorityCapabilities};
@@ -32,10 +31,9 @@ pub enum DiskCandidateError {
 /// Disk-backed M4 qualification candidate.
 ///
 /// This adapter intentionally does not implement `AuthoritativeCatalogPersistence` yet.
-/// The current authoritative mutation trait cannot distinguish repository/domain
-/// failures from disk durability failures. Keeping this adapter outside that trait
-/// prevents an I/O failure from being hidden behind a domain error before the
-/// production mutation error contract is extended explicitly.
+/// The typed mutation error contract is now capable of representing persistence
+/// failures, but this disk candidate must still prove the durability/cutover
+/// capabilities before it can be explicitly authorized as a production writer.
 pub struct DiskCandidateCatalogStore {
     path: PathBuf,
     projection: AuthoritativeCatalogProjection,
@@ -78,7 +76,7 @@ impl DiskCandidateCatalogStore {
         let mut staged = CandidateCatalogStore::from_projection(self.projection.clone())
             .map_err(DiskCandidateError::InvalidCatalog)?;
         let result = staged
-            .apply_mutation(mutation)
+            .apply_qualification_mutation(mutation)
             .map_err(DiskCandidateError::Repository)?;
         let next = staged.projection().clone();
         persist_snapshot(&self.path, &next)?;
