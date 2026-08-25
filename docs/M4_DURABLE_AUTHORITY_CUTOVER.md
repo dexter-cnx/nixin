@@ -30,7 +30,9 @@ The executable counterpart is `DurableAuthorityCapabilities` plus `is_cutover_re
 - preserve a rollback copy/generation identifier for the existing authority;
 - instantiate the candidate store from the validated projection;
 - verify shared parity fixture and full production-like snapshot round-trip;
-- run mutation parity tests without enabling production writes.
+- run mutation parity tests without enabling production writes;
+- prove atomic commit, crash recovery, durable flush, single-writer enforcement and rollback support;
+- construct the final `DurableAuthorityCapabilities` evidence and require `is_cutover_ready() == true` before entering the authority-switch step.
 
 ### Phase B — maintenance boundary
 
@@ -42,10 +44,12 @@ Cutover must occur at an explicit write boundary. Do not switch authority while 
 4. Persist that snapshot through the candidate durable adapter.
 5. Re-open the candidate and independently snapshot it back through `CatalogSnapshotRepository`.
 6. Compare identities and catalog semantics against the final source snapshot.
-7. Only after verification succeeds, change the authority marker/configuration to Rust.
-8. Keep the previous durable source intact for rollback until the acceptance window closes.
+7. Verify single-writer enforcement is active: Flutter/Hive authoritative mutations are disabled and the Rust adapter is the only writer that can be enabled after the marker change.
+8. Re-evaluate the complete `DurableAuthorityCapabilities` evidence at the maintenance boundary and require `is_cutover_ready() == true`. If any capability is false or cannot be re-verified, abort cutover and keep Flutter/Hive authoritative.
+9. Only after steps 1–8 succeed, change the authority marker/configuration to Rust.
+10. Keep the previous durable source intact for rollback until the acceptance window closes.
 
-No GPUI mutation command may be enabled before step 7 completes successfully.
+No GPUI mutation command may be enabled before step 9 completes successfully.
 
 ### Phase C — post-cutover verification
 
