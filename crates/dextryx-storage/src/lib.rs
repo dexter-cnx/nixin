@@ -6,8 +6,8 @@ pub use file_candidate::*;
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
     CatalogAsset, CatalogInvariantError, CatalogMutation, CatalogMutationError,
-    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository,
-    WorkplaceSummary,
+    CatalogMutationResult, CatalogReadRepository, CatalogRepositoryError,
+    CatalogSnapshotRepository, WorkplaceSummary,
 };
 
 /// Non-durable M4 qualification adapter.
@@ -137,7 +137,8 @@ impl AuthoritativeCatalogPersistence for CandidateCatalogStore {
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, CatalogMutationError> {
-        self.apply_qualification_mutation(mutation).map_err(Into::into)
+        self.apply_qualification_mutation(mutation)
+            .map_err(Into::into)
     }
 }
 
