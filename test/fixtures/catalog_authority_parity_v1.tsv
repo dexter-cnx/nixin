@@ -1,0 +1,7 @@
+DXTR_CATALOG_READ	1
+ACTIVE	workplace-travel
+WORKPLACE	workplace-my	My workplace
+WORKPLACE	workplace-travel	Travel\t2026
+ASSET	asset-managed	workplace-my	/external/managed.nef	/managed/library/managed.nef	managed	0	0
+ASSET	asset-linked-a	workplace-travel	/external/a.jpg		linked	0	1
+ASSET	asset-linked-b	workplace-travel	/external/b.jpg		linked	1	2
