@@ -50,8 +50,10 @@ final class _WorkplaceFixtureRepository implements WorkplaceRepository {
   Future<List<Workplace>> getAll() async => workplaces;
 
   @override
-  Future<Workplace?> getById(String id) async =>
-      workplaces.where((workplace) => workplace.id == id).firstOrNull;
+  Future<Workplace?> getById(String id) async => _firstWhereOrNull(
+        workplaces,
+        (workplace) => workplace.id == id,
+      );
 
   @override
   Future<String?> getCurrentWorkplaceId() async => 'workplace-travel';
@@ -114,8 +116,10 @@ final class _AssetFixtureRepository implements AssetRepository {
       .toList(growable: false);
 
   @override
-  Future<AssetRecord?> getById(String id) async =>
-      assets.where((asset) => asset.id == id).firstOrNull;
+  Future<AssetRecord?> getById(String id) async => _firstWhereOrNull(
+        assets,
+        (asset) => asset.id == id,
+      );
 
   @override
   Future<void> delete(String id) async {}
@@ -125,4 +129,11 @@ final class _AssetFixtureRepository implements AssetRepository {
 
   @override
   Future<void> save(AssetRecord asset) async {}
+}
+
+T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T value) test) {
+  for (final value in values) {
+    if (test(value)) return value;
+  }
+  return null;
 }
