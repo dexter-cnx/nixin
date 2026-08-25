@@ -135,6 +135,13 @@ mod tests {
     use super::*;
     use crate::{AssetQuery, AssetStorageDto};
 
+    fn projection_error(input: &str) -> CatalogProjectionReadError {
+        match parse_catalog_projection(input) {
+            Ok(_) => panic!("projection unexpectedly parsed"),
+            Err(error) => error,
+        }
+    }
+
     #[test]
     fn parses_flutter_projection_through_read_application() {
         let input = concat!(
@@ -167,8 +174,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_snapshot_schema() {
-        let error = parse_catalog_projection("DXTR_CATALOG_READ\t2\n")
-            .expect_err("unknown schema must be rejected");
+        let error = projection_error("DXTR_CATALOG_READ\t2\n");
         assert_eq!(error, CatalogProjectionReadError::InvalidHeader);
     }
 
@@ -194,7 +200,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse_catalog_projection(input).expect_err("duplicate workplace must fail"),
+            projection_error(input),
             CatalogProjectionReadError::InvalidCatalogInvariant(
                 CatalogInvariantError::DuplicateWorkplaceId("workplace-1".to_string())
             )
@@ -212,7 +218,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse_catalog_projection(input).expect_err("duplicate asset must fail"),
+            projection_error(input),
             CatalogProjectionReadError::InvalidCatalogInvariant(
                 CatalogInvariantError::DuplicateAssetId("asset-1".to_string())
             )
@@ -228,7 +234,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse_catalog_projection(input).expect_err("unknown active workplace must fail"),
+            projection_error(input),
             CatalogProjectionReadError::InvalidCatalogInvariant(
                 CatalogInvariantError::UnknownActiveWorkplace("missing".to_string())
             )
@@ -245,7 +251,7 @@ mod tests {
         );
 
         assert_eq!(
-            parse_catalog_projection(input).expect_err("dangling asset workplace must fail"),
+            projection_error(input),
             CatalogProjectionReadError::InvalidCatalogInvariant(
                 CatalogInvariantError::AssetReferencesUnknownWorkplace {
                     asset_id: "asset-1".to_string(),
