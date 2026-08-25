@@ -8,7 +8,7 @@ Merged sequence:
 
 - PR #25 — authoritative virtualized Filmstrip
 - PR #26 — authoritative virtualized Grid + shared stable selection
-- PR #27 — bounded production thumbnails and layout hardening
+- PR #27 — pixel-bounded production thumbnails and layout hardening
 
 PR #27 squash-merged to `main` as `ada6a813e7fadb7c458db0f9984e38c00e4e4c86`.
 
@@ -20,7 +20,8 @@ Flutter/Hive durable catalog authority
   -> dextryx-frontend-api CatalogReadApplication
   -> DesktopAppState authoritative DTOs
   -> virtualized GPUI Grid + Filmstrip
-  -> bounded disposable thumbnail cache
+  -> bounded in-memory thumbnail working set
+  -> disposable system-temp raster thumbnail files
 ```
 
 No GPUI-to-Hive dependency and no second durable catalog authority were introduced.
@@ -68,7 +69,7 @@ PR #27 addressed the critical requirement that GPUI must not decode full-resolut
 
 Current policy:
 
-- thumbnail working set is capped at 64 authoritative asset IDs;
+- active thumbnail working set is capped at 64 authoritative asset IDs;
 - only selected/visible/overscan raster assets are eligible;
 - generation attempts are capped at 2 per sync/render cycle;
 - macOS uses `/usr/bin/sips` to produce disposable PNG thumbnails before GPUI sees an image path;
@@ -76,10 +77,27 @@ Current policy:
 - GPUI `img(...)` receives only generated thumbnail files, never a supported raster original from this path;
 - RAW and unsupported formats remain explicit placeholder/fallback paths in M3;
 - missing assets never enter thumbnail generation;
-- cache keys incorporate source path, size, and modification time so changed sources naturally invalidate old keys;
+- cache keys incorporate source path, size, and modification time so changed sources naturally invalidate lookup of the previous version;
 - cache output is disposable system-temp state, not catalog authority.
 
-This bounds the decoded GPUI image dimensions for the M3 browser path. It intentionally does not add RAW demosaic or new durable thumbnail persistence.
+This bounds active working-set identity and GPUI decoded image dimensions for the M3 browser path. It does **not** yet bound total thumbnail files accumulated on disk.
+
+### Deferred disk-cache pressure control
+
+Generated PNGs currently remain under:
+
+```text
+temp_dir()/dextryx-images/thumbnails-v1
+```
+
+Known limitation at M3 closeout:
+
+- no entry-count or byte-size eviction is implemented for this GPUI-side disk cache;
+- browsing more assets can grow the cache beyond the 64-ID active working set;
+- source size/mtime changes produce new cache keys, while obsolete versions are not eagerly pruned;
+- system-temp cleanup may eventually reclaim files, but that is not an application-level cache bound and is not treated as acceptance evidence.
+
+Therefore the term **bounded** in M3 applies to the active working set, generation attempts, and decoded thumbnail dimensions—not to cumulative disk usage. Disk eviction/pruning is explicitly deferred to the M4/maintenance follow-up, with entry/byte limits, stale-version cleanup, and tests required before describing GPUI thumbnail storage as globally bounded.
 
 ## Layout hardening
 
@@ -119,7 +137,8 @@ An earlier iOS job failure was infrastructure-only (`subosito/flutter-action` ma
 - [x] Grid and Filmstrip share stable asset-ID selection
 - [x] selection survives refresh/filter when possible
 - [x] raster browser thumbnails are pixel-bounded before GPUI decode
-- [x] thumbnail generation is bounded per sync
+- [x] active thumbnail working set and generation attempts are bounded
+- [x] cumulative GPUI thumbnail disk-cache growth is documented as deferred, not claimed bounded
 - [x] RAW remains fallback-only; no new image-processing scope
 - [x] no GPUI-specific durable catalog persistence
 - [x] no GPUI-to-Hive coupling
@@ -130,6 +149,7 @@ An earlier iOS job failure was infrastructure-only (`subosito/flutter-action` ma
 
 The following are deliberately not M3 requirements:
 
+- GPUI thumbnail disk-cache eviction/pruning by entry count and/or bytes, including stale-version cleanup;
 - RAW embedded-preview path exposed directly through the Rust authoritative read DTO;
 - strict lifecycle eviction of GPUI's global decoded-image cache beyond bounded source dimensions;
 - catalog/import mutations from GPUI;
