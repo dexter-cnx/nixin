@@ -1,11 +1,5 @@
-use super::{
-    validate_catalog_projection, AuthoritativeCatalogPersistence, CatalogInvariantError,
-    CatalogMutation, CatalogMutationResult,
-};
-use crate::{
-    AuthoritativeCatalogProjection, CatalogReadRepository, CatalogRepositoryError,
-    SyntheticCatalogRepository,
-};
+use super::{validate_catalog_projection, CatalogInvariantError};
+use crate::{AuthoritativeCatalogProjection, CatalogReadRepository, CatalogRepositoryError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CatalogSnapshotError {
@@ -50,6 +44,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
+    use crate::{
+        AuthoritativeCatalogPersistence, CatalogMutation, CatalogMutationResult,
+        SyntheticCatalogRepository,
+    };
 
     #[test]
     fn synthetic_authority_qualifies_before_and_after_mutations() {
