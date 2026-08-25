@@ -6,11 +6,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use dextryx_core::{
     validate_catalog_projection, AssetStorageMode, AuthoritativeCatalogProjection, CatalogAsset,
-    CatalogInvariantError, CatalogMutation, CatalogMutationResult, CatalogReadRepository,
-    CatalogRepositoryError, CatalogSnapshotRepository, WorkplaceSummary,
+    CatalogInvariantError, CatalogMutation, CatalogMutationError, CatalogMutationResult,
+    CatalogReadRepository, CatalogRepositoryError, CatalogSnapshotRepository, WorkplaceSummary,
 };
 
-use crate::{CandidateCatalogStore, DurableAuthorityCapabilities};
+use crate::{
+    CandidateCatalogStore, DurableAuthorityCapabilities, NoPersistenceFaults,
+    PersistenceFaultInjector, PersistenceFaultPoint,
+};
 
 const SNAPSHOT_MAGIC: &[u8; 8] = b"DXTRCAT1";
 const MAX_FIELD_BYTES: usize = 16 * 1024 * 1024;
@@ -25,6 +28,7 @@ pub enum DiskCandidateError {
     CorruptSnapshot(String),
     InvalidCatalog(CatalogInvariantError),
     Repository(CatalogRepositoryError),
+    Persistence(String),
     NonUtf8Path(PathBuf),
 }
 
@@ -73,13 +77,31 @@ impl DiskCandidateCatalogStore {
         &mut self,
         mutation: CatalogMutation,
     ) -> Result<CatalogMutationResult, DiskCandidateError> {
+        let mut injector = NoPersistenceFaults;
+        self.apply_candidate_mutation_with_faults(mutation, &mut injector)
+    }
+
+    /// Qualification-only mutation path with deterministic persistence faults.
+    ///
+    /// Injected failures deliberately model abrupt interruption at the named
+    /// checkpoint, so this path does not perform synthetic cleanup after the
+    /// injected fault. Tests reopen the destination to observe what a subsequent
+    /// process would actually see at that boundary.
+    pub fn apply_candidate_mutation_with_faults<I>(
+        &mut self,
+        mutation: CatalogMutation,
+        injector: &mut I,
+    ) -> Result<CatalogMutationResult, DiskCandidateError>
+    where
+        I: PersistenceFaultInjector,
+    {
         let mut staged = CandidateCatalogStore::from_projection(self.projection.clone())
             .map_err(DiskCandidateError::InvalidCatalog)?;
         let result = staged
             .apply_qualification_mutation(mutation)
             .map_err(DiskCandidateError::Repository)?;
         let next = staged.projection().clone();
-        persist_snapshot(&self.path, &next)?;
+        persist_snapshot_with_faults(&self.path, &next, injector)?;
         self.projection = next;
         Ok(result)
     }
@@ -147,36 +169,44 @@ fn persist_snapshot(
     path: &Path,
     projection: &AuthoritativeCatalogProjection,
 ) -> Result<(), DiskCandidateError> {
+    let mut injector = NoPersistenceFaults;
+    persist_snapshot_with_faults(path, projection, &mut injector)
+}
+
+fn persist_snapshot_with_faults<I>(
+    path: &Path,
+    projection: &AuthoritativeCatalogProjection,
+    injector: &mut I,
+) -> Result<(), DiskCandidateError>
+where
+    I: PersistenceFaultInjector,
+{
     let bytes = encode_projection(projection)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(io_error)?;
     }
 
+    check_fault(injector, PersistenceFaultPoint::BeforeTempCreate)?;
     let (temp, mut file) = create_temp_snapshot_file(path)?;
-    let write_result = (|| {
-        file.write_all(&bytes).map_err(io_error)?;
-        file.sync_all().map_err(io_error)?;
-        Ok::<(), DiskCandidateError>(())
-    })();
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
+    check_fault(injector, PersistenceFaultPoint::AfterTempCreate)?;
 
-    // Cross-platform replacement semantics are intentionally not claimed atomic
-    // in this qualification slice. The cutover capability remains false until a
-    // production implementation proves the required filesystem guarantees.
+    file.write_all(&bytes).map_err(io_error)?;
+    check_fault(injector, PersistenceFaultPoint::AfterSnapshotWrite)?;
+    check_fault(injector, PersistenceFaultPoint::BeforeFileSync)?;
+    file.sync_all().map_err(io_error)?;
+    check_fault(injector, PersistenceFaultPoint::AfterFileSync)?;
+    drop(file);
+
+    // Cross-platform replacement semantics are intentionally not claimed atomic.
+    // The injected checkpoints below expose the current remove-then-rename gap so
+    // the next M4 slice can replace it with a qualified atomic/recovery strategy.
+    check_fault(injector, PersistenceFaultPoint::BeforeDestinationReplace)?;
     if path.exists() {
-        if let Err(error) = fs::remove_file(path) {
-            let _ = fs::remove_file(&temp);
-            return Err(io_error(error));
-        }
+        fs::remove_file(path).map_err(io_error)?;
+        check_fault(injector, PersistenceFaultPoint::AfterDestinationRemoved)?;
     }
-    if let Err(error) = fs::rename(&temp, path) {
-        let _ = fs::remove_file(&temp);
-        return Err(io_error(error));
-    }
+    fs::rename(&temp, path).map_err(io_error)?;
+    check_fault(injector, PersistenceFaultPoint::AfterDestinationRename)?;
     Ok(())
 }
 
@@ -199,6 +229,23 @@ fn create_temp_snapshot_file(path: &Path) -> Result<(PathBuf, File), DiskCandida
     Err(DiskCandidateError::Io(
         "unable to allocate collision-safe temporary snapshot".to_string(),
     ))
+}
+
+fn check_fault<I>(
+    injector: &mut I,
+    point: PersistenceFaultPoint,
+) -> Result<(), DiskCandidateError>
+where
+    I: PersistenceFaultInjector,
+{
+    injector.check(point).map_err(map_mutation_error)
+}
+
+fn map_mutation_error(error: CatalogMutationError) -> DiskCandidateError {
+    match error {
+        CatalogMutationError::Repository(error) => DiskCandidateError::Repository(error),
+        CatalogMutationError::Persistence(message) => DiskCandidateError::Persistence(message),
+    }
 }
 
 fn encode_projection(
@@ -447,6 +494,19 @@ mod tests {
     use super::*;
     use dextryx_core::{snapshot_catalog_repository, AssetStorageMode};
 
+    struct FailAt(PersistenceFaultPoint);
+
+    impl PersistenceFaultInjector for FailAt {
+        fn check(&mut self, point: PersistenceFaultPoint) -> Result<(), CatalogMutationError> {
+            if point == self.0 {
+                return Err(CatalogMutationError::Persistence(format!(
+                    "injected fault at {point:?}"
+                )));
+            }
+            Ok(())
+        }
+    }
+
     fn fixture_projection() -> AuthoritativeCatalogProjection {
         AuthoritativeCatalogProjection {
             workplaces: vec![
@@ -485,6 +545,24 @@ mod tests {
             ))
     }
 
+    fn cleanup_snapshot_files(path: &Path) {
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        let Some(prefix) = path.file_name().and_then(OsStr::to_str) else {
+            return;
+        };
+        let Ok(entries) = fs::read_dir(parent) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with(prefix) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     #[test]
     fn snapshot_round_trip_survives_reopen() {
         let path = temp_snapshot_path("round-trip");
@@ -500,7 +578,7 @@ mod tests {
         let reopened = DiskCandidateCatalogStore::open(&path).unwrap();
         assert_eq!(snapshot_catalog_repository(&reopened).unwrap(), expected);
         assert!(!reopened.demonstrated_capabilities().is_cutover_ready());
-        let _ = fs::remove_file(path);
+        cleanup_snapshot_files(&path);
     }
 
     #[test]
@@ -525,7 +603,84 @@ mod tests {
         let asset = reopened.assets("workplace-travel").unwrap().remove(0);
         assert_eq!(asset.source_path, PathBuf::from("/replacement/image.jpg"));
         assert!(!asset.missing);
-        let _ = fs::remove_file(path);
+        cleanup_snapshot_files(&path);
+    }
+
+    #[test]
+    fn faults_before_destination_removal_reopen_old_complete_snapshot() {
+        for point in [
+            PersistenceFaultPoint::BeforeTempCreate,
+            PersistenceFaultPoint::AfterTempCreate,
+            PersistenceFaultPoint::AfterSnapshotWrite,
+            PersistenceFaultPoint::BeforeFileSync,
+            PersistenceFaultPoint::AfterFileSync,
+            PersistenceFaultPoint::BeforeDestinationReplace,
+        ] {
+            let path = temp_snapshot_path("fault-before-remove");
+            let mut store =
+                DiskCandidateCatalogStore::create(&path, fixture_projection()).unwrap();
+            let mut injector = FailAt(point);
+
+            let error = store
+                .apply_candidate_mutation_with_faults(
+                    CatalogMutation::SetActiveWorkplace {
+                        workplace_id: "workplace-my".to_string(),
+                    },
+                    &mut injector,
+                )
+                .unwrap_err();
+            assert!(matches!(error, DiskCandidateError::Persistence(_)));
+            assert_eq!(store.active_workplace_id(), Some("workplace-travel"));
+
+            let reopened = DiskCandidateCatalogStore::open(&path).unwrap();
+            assert_eq!(reopened.active_workplace_id(), Some("workplace-travel"));
+            cleanup_snapshot_files(&path);
+        }
+    }
+
+    #[test]
+    fn fault_after_destination_removed_exposes_current_recovery_gap() {
+        let path = temp_snapshot_path("fault-after-remove");
+        let mut store = DiskCandidateCatalogStore::create(&path, fixture_projection()).unwrap();
+        let mut injector = FailAt(PersistenceFaultPoint::AfterDestinationRemoved);
+
+        let error = store
+            .apply_candidate_mutation_with_faults(
+                CatalogMutation::SetActiveWorkplace {
+                    workplace_id: "workplace-my".to_string(),
+                },
+                &mut injector,
+            )
+            .unwrap_err();
+        assert!(matches!(error, DiskCandidateError::Persistence(_)));
+        assert_eq!(store.active_workplace_id(), Some("workplace-travel"));
+        assert!(matches!(
+            DiskCandidateCatalogStore::open(&path),
+            Err(DiskCandidateError::Io(_))
+        ));
+        cleanup_snapshot_files(&path);
+    }
+
+    #[test]
+    fn fault_after_destination_rename_reopens_new_complete_snapshot() {
+        let path = temp_snapshot_path("fault-after-rename");
+        let mut store = DiskCandidateCatalogStore::create(&path, fixture_projection()).unwrap();
+        let mut injector = FailAt(PersistenceFaultPoint::AfterDestinationRename);
+
+        let error = store
+            .apply_candidate_mutation_with_faults(
+                CatalogMutation::SetActiveWorkplace {
+                    workplace_id: "workplace-my".to_string(),
+                },
+                &mut injector,
+            )
+            .unwrap_err();
+        assert!(matches!(error, DiskCandidateError::Persistence(_)));
+        assert_eq!(store.active_workplace_id(), Some("workplace-travel"));
+
+        let reopened = DiskCandidateCatalogStore::open(&path).unwrap();
+        assert_eq!(reopened.active_workplace_id(), Some("workplace-my"));
+        cleanup_snapshot_files(&path);
     }
 
     #[test]
@@ -543,7 +698,7 @@ mod tests {
         assert_eq!(snapshot_catalog_repository(&reopened).unwrap(), expected);
         assert_eq!(fs::read(&sibling).unwrap(), b"unrelated");
 
-        let _ = fs::remove_file(path);
+        cleanup_snapshot_files(&path);
         let _ = fs::remove_file(sibling);
     }
 
@@ -585,6 +740,6 @@ mod tests {
             DiskCandidateCatalogStore::open(&path),
             Err(DiskCandidateError::CorruptSnapshot(_))
         ));
-        let _ = fs::remove_file(path);
+        cleanup_snapshot_files(&path);
     }
 }
