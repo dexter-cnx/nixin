@@ -9,5 +9,4 @@ dextryx-frontend-api = { path = "../../crates/dextryx-frontend-api" }
 dextryx-platform = { path = "../../crates/dextryx-platform" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "fd90c0af7f021d89e511dd9a5f92d4f04ec29314" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "fd90c0af7f021d89e511dd9a5f92d4f04ec29314", features = ["font-kit"] }
-image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff", "webp"] }
 rfd = "0.17.2"
