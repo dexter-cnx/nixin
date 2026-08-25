@@ -40,7 +40,7 @@ CI=false
 
 has_match '(^|/)(README|CHANGELOG|CONTRIBUTING)(\.md)?$|\.md$|^docs/' && DOCS=true
 has_match '^lib/|^test/|^integration_test/|^pubspec\.(yaml|lock)$|^analysis_options\.yaml$|^assets/' && FLUTTER=true
-has_match '^rust/|(^|/)Cargo\.(toml|lock)$' && RUST=true
+has_match '^rust/|^crates/|(^|/)Cargo\.(toml|lock)$' && RUST=true
 has_match '^lib/engine/|^rust/src/(api|lib)\.rs$|flutter_rust_bridge|frb|bindings|bridge|ffi' && FFI=true
 has_match '^android/' && PLATFORM_ANDROID=true
 has_match '^ios/' && PLATFORM_IOS=true
