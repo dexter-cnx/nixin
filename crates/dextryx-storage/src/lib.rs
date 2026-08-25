@@ -1,5 +1,7 @@
 mod cutover;
+mod file_candidate;
 pub use cutover::*;
+pub use file_candidate::*;
 
 use dextryx_core::{
     validate_catalog_projection, AuthoritativeCatalogPersistence, AuthoritativeCatalogProjection,
