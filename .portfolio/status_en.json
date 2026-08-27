@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "project": {
-    "title": "nixin",
+    "title": "Dextryx Images",
     "tagline": "A local RAW photo editor with a Rust core and GPUI-first desktop direction.",
     "status": "active",
     "version": "8.0.0"
   },
   "summary": {
-    "short": "nixin is a local RAW photo editor with a Rust processing core, a GPUI-first desktop direction, and an architecture kept independent enough to support a Flutter frontend later.",
+    "short": "Dextryx Images is a local RAW photo editor with a Rust processing core, a GPUI-first desktop direction, and an architecture kept independent enough to support a Flutter frontend later.",
     "long": "The current scope uses embedded JPEG previews for RAW formats, supports exposure, temperature, contrast, subject and sky masks, LUTs, JPEG export, XMP basics, workplace import flows, and a responsive desktop workspace."
   },
   "highlights": [
