@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "title": "nixin",
+    "tagline": "A local RAW photo editor with a Rust core and GPUI-first desktop direction.",
+    "status": "active",
+    "version": "8.0.0"
+  },
+  "summary": {
+    "short": "nixin is a local RAW photo editor with a Rust processing core, a GPUI-first desktop direction, and an architecture kept independent enough to support a Flutter frontend later.",
+    "long": "The current scope uses embedded JPEG previews for RAW formats, supports exposure, temperature, contrast, subject and sky masks, LUTs, JPEG export, XMP basics, workplace import flows, and a responsive desktop workspace."
+  },
+  "highlights": [
+    "Rust core decoupled from UI",
+    "GPUI-first desktop direction",
+    "RAW embedded-preview workflow",
+    "Masks, LUTs, JPEG export, and workplace management"
+  ],
+  "tech": ["Rust", "GPUI", "Flutter", "Dart"],
+  "links": {
+    "repository": "https://github.com/dexter-cnx/nixin",
+    "homepage": null,
+    "package": null,
+    "docs": null,
+    "demo": null
+  },
+  "updatedAt": "2026-08-27T00:00:00Z"
+}
