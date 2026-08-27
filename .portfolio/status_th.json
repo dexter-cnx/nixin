@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "title": "Dextryx Images",
+    "tagline": "โปรแกรมแต่งภาพ RAW แบบ local ที่ใช้ Rust core และมุ่งไปทาง GPUI บนเดสก์ท็อป",
+    "status": "active",
+    "version": "8.0.0"
+  },
+  "summary": {
+    "short": "Dextryx Images เป็นโปรแกรมแต่งภาพ RAW แบบ local ที่ใช้ Rust เป็น processing core โดยมุ่งไปทาง GPUI บนเดสก์ท็อป และออกแบบ core ให้ไม่ผูกกับ UI เพื่อรองรับ Flutter frontend ในอนาคตได้",
+    "long": "ขอบเขตปัจจุบันใช้ embedded JPEG preview ของไฟล์ RAW รองรับ exposure, temperature, contrast, subject/sky mask, LUT, JPEG export, XMP เบื้องต้น, workplace import และ responsive desktop workspace"
+  },
+  "highlights": [
+    "Rust core แยกจาก UI",
+    "มุ่งไปทาง GPUI บนเดสก์ท็อป",
+    "RAW embedded-preview workflow",
+    "Mask, LUT, JPEG export และ workplace management"
+  ],
+  "tech": ["Rust", "GPUI", "Flutter", "Dart"],
+  "links": {
+    "repository": "https://github.com/dexter-cnx/nixin",
+    "homepage": null,
+    "package": null,
+    "docs": null,
+    "demo": null
+  },
+  "updatedAt": "2026-08-27T00:00:00Z"
+}
