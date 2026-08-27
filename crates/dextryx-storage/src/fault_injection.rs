@@ -12,7 +12,13 @@ pub enum PersistenceFaultPoint {
     BeforeFileSync,
     AfterFileSync,
     BeforeDestinationReplace,
+    /// Legacy checkpoint for the remove-then-rename candidate path. New
+    /// replacement-qualified code must not pass through this point.
     AfterDestinationRemoved,
+    /// Qualified checkpoint reached after destination replacement completes.
+    AfterDestinationReplace,
+    /// Legacy name retained until the disk candidate is migrated to the
+    /// replacement-qualified path.
     AfterDestinationRename,
 }
 
@@ -67,6 +73,7 @@ mod tests {
             PersistenceFaultPoint::AfterFileSync,
             PersistenceFaultPoint::BeforeDestinationReplace,
             PersistenceFaultPoint::AfterDestinationRemoved,
+            PersistenceFaultPoint::AfterDestinationReplace,
             PersistenceFaultPoint::AfterDestinationRename,
         ] {
             assert_eq!(injector.check(point), Ok(()));
